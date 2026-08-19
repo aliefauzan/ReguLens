@@ -6,14 +6,33 @@ user mirrors the critical ones — update both.
 Things only you can provide or decide. Everything is grouped by when it blocks.
 Anything marked **BLOCKING** stops work at the phase named.
 
+## How to answer
+
+Answer **in place, on the line itself.** Do not start a separate answers file —
+one list, one place to look.
+
+- Tick the box and append your answer after an em dash:
+  `- [x] **Region choice.** ... — asia-southeast1, Gemini available, verified in console`
+- Not decided yet? Leave the box unticked and append `— TODO: <what you still need>`
+  so I can tell "unanswered" from "answered no".
+- Declining something on purpose? Use `[~]` and append `— SKIPPED: <reason>`.
+- A long answer (demo script, product formulation) goes in its own file under
+  `plan/inputs/`, and the todo line links to it.
+
+**Never put a secret in this file.** It is committed. For anything secret —
+service account keys, API tokens, billing details — put it in `.env.local`
+(gitignored) or Secret Manager, and on the todo line write only the *name*, e.g.
+`— stored as Secret Manager secret \`regulens-vertex-sa\``.
+
+Anything you cannot answer, say so in chat and I will either find it myself or
+tell you what it costs to leave open.
+
 ---
 
 ## 0 · Do first — could invalidate the whole project
 
-- [ ] **BLOCKING (everything): Confirm eligibility.** Read the official Devpost
-      rules and check Indonesia is not on the excluded countries/territories list.
-      Also confirm the age-of-majority requirement and whether you are entering as
-      an individual or a team. If this fails, stop — nothing else matters.
+- [x] **BLOCKING (everything): Confirm eligibility.** — confirmed by you on 19 Aug.
+      Indonesia not excluded, age requirement met. Unblocks everything.
 - [ ] **BLOCKING (submission): Register on Devpost** and join the hackathon.
       Check whether registration closes before the 31 Aug submission deadline.
 - [ ] **Confirm you can commit the time.** The plan is 13 working days in a 13-day
@@ -24,39 +43,93 @@ Anything marked **BLOCKING** stops work at the phase named.
 
 ## 1 · Google Cloud — blocks Phase 0 (Aug 19)
 
-- [ ] **BLOCKING: GCP project created with billing enabled.** Give me the project
-      ID. Two projects is ideal (`regulens-dev`, `regulens-demo`); one is
-      acceptable if billing is tight.
-- [ ] **BLOCKING: Confirm you have Owner or equivalent** on the project — the setup
-      script creates service accounts, IAM bindings, Pub/Sub topics, and Cloud Run
-      services. Editor is not enough for the IAM parts.
-- [ ] **BLOCKING: Region choice.** Recommend `asia-southeast1` (Singapore) for
-      latency from Indonesia — but **verify Gemini 3.5+ and Vertex embeddings are
-      available there**. If not, `us-central1` has the widest model availability.
-      This decision is hard to reverse later.
-- [ ] **BLOCKING: The exact Gemini 3.5+ model identifier** available to your project
-      in that region. Check the Vertex AI console — do not guess a model string.
-      The rules require 3.5 or newer.
-- [ ] **Budget cap.** How much are you willing to spend on Vertex AI across 13 days?
+- [x] **BLOCKING: GCP project created with billing enabled.** — project
+      `regulens-506014` ("ReguLens"), ACTIVE, **billing enabled** and linked to
+      account `01B951-232B54-4E1D9A`. Verified 19 Aug. One project, not two.
+- [x] **BLOCKING: Confirm you have Owner or equivalent** on the project — verified
+      myself 19 Aug: `afindo.mi01@gmail.com` holds `roles/owner` on
+      `regulens-506014`. Enough for service accounts, IAM bindings, Pub/Sub and
+      Cloud Run.
+- [x] **BLOCKING: Region choice.** — Checked the live publisher-model list on
+      19 Aug, and the plan's recommendation does not survive it:
+
+      | Location | Gemini models | Verdict |
+      |---|---|---|
+      | `asia-southeast1` | **only `gemini-2.5-flash`** | fails the 3.5+ rule |
+      | `asia-southeast2` | region not usable on this project (403) | out |
+      | `us-central1` | 3.5-flash, 3.6-flash, 3.7-flash, 3.1-pro-preview, … | full |
+      | `global` | 3.5-flash, 3.6-flash, 3.7-flash, 3.1-pro-preview, … | full |
+
+      **Chosen split, all three legs smoke-tested:**
+      - Infra (Cloud Run, Pub/Sub, Firestore, GCS): **`asia-southeast1`** — keeps
+        demo latency low from Indonesia.
+      - Gemini: the **`global`** Vertex endpoint. Model calls are remote either way,
+        so the region of the compute does not have to match.
+      - Embeddings: **`text-multilingual-embedding-002` in `asia-southeast1`** —
+        available locally, 768 dims, handles Indonesian. Verified with a real call
+        on Indonesian text.
+- [x] **BLOCKING: The exact Gemini 3.5+ model identifier** — **`gemini-3.5-flash`**,
+      called at
+      `projects/regulens-506014/locations/global/publishers/google/models/gemini-3.5-flash`.
+      Not guessed: a real `generateContent` call returned `modelVersion:
+      gemini-3.5-flash` on 19 Aug. `gemini-3.6-flash` and `gemini-3.7-flash` are
+      also available on the same endpoint if we want to trade cost for quality
+      later. `aiplatform.googleapis.com` enabled on the project.
+- [x] **Budget cap.** How much are you willing to spend on Vertex AI across 13 days?
       Rough estimate for this plan: **$30–80** with the two-sample extraction and
       repeated demo rehearsals. Tell me the number and I set the alert thresholds.
-- [ ] Confirm Vertex AI quota is not zero on a fresh project — new projects
-      sometimes need a quota request, which takes days.
-- [ ] Billing account has a payment method that will not fail mid-hackathon.
+      — **$30. Budget created and live** on 19 Aug: "ReguLens hackathon cap",
+      scoped to project `regulens-506014` only, monthly, alerts at **50 / 90 /
+      100%**.
+
+      Note: your billing account is denominated in **IDR**, not USD — the API
+      rejected a USD amount. The cap is set to **Rp 540,000**, which is $30 at the
+      19 Aug rate of ~17,830 IDR/USD, with a little headroom so a rate move does not
+      quietly shrink the cap below $30. If the rupiah swings hard, the dollar value
+      of this cap drifts; say the word and I re-peg it.
+
+      Heads up: you already had a budget named "budget" on the same billing account
+      — **Rp 100,000/month (~$5.60), account-wide, no project filter**. It will start
+      firing well before the ReguLens cap does, and it covers your other projects
+      too. I left it alone. Raise it or scope it if the noise gets annoying.
+      Neither budget blocks spend — budgets alert, they do not cap.
+- [x] Confirm Vertex AI quota is not zero on a fresh project — not zero. A live
+      `generateContent` call and a live embedding call both succeeded on 19 Aug
+      (`trafficType: ON_DEMAND`). No quota request needed.
+- [x] Billing account linked and has a working payment method — `01B951-232B54-4E1D9A`
+      ("My Billing Account"), linked by you on 19 Aug and confirmed by
+      `gcloud billing projects describe`. **Real charges land on this account**, so
+      the budget alert below is worth setting.
 
 ---
 
 ## 2 · Accounts & access — blocks Phase 0
 
-- [ ] **GitHub repository** — create it, tell me public or private. If private,
-      confirm how judges will be granted access.
-- [ ] **Vercel account** connected to that repo.
-- [ ] `gcloud` CLI installed and authenticated locally (`gcloud auth login`,
-      `gcloud auth application-default login`).
+- [x] **GitHub repository** — `aliefauzan/ReguLens`, verified 19 Aug via the GitHub
+      API: exists, **public**, default branch `master`. Judges can see it; no access
+      grant needed.
+- [ ] **Vercel account** connected to that repo. — TODO: you said later. Not needed
+      until the frontend deploys in Phase 1; flag if it slips past Aug 21.
+- [x] `gcloud` CLI installed and authenticated locally — verified 19 Aug: logged in
+      as `afindo.mi01@gmail.com`, ADC file present. Note the active project is
+      `tugasakhiraf`, not `regulens-506014`; scripts must pass `--project`
+      explicitly rather than rely on the default.
 - [ ] Docker Desktop installed and running (the local stack is Compose-based).
-- [ ] Node 20+ and Python 3.12 locally.
-- [ ] **Where should alerts go?** Email address, or a Slack/Discord webhook.
-      Five alerts are configured in phase 0 and you need to actually see them.
+      — Docker 29.2.1 installed, daemon not running. **Deferred by you on 19 Aug**
+      ("docker can do later"). Start Docker Desktop before the Phase 0 local-stack
+      task; nothing before that needs it.
+- [~] Node 20+ and Python 3.12 locally. — Node v24.14.0 ✓. Python is **3.14.3**.
+      SKIPPED: you judged 3.14 fine on 19 Aug, so no local downgrade. I still pin
+      the **containers** to Python 3.12 — that costs you nothing and keeps the
+      deployed runtime on the version ADK and the GCP client libraries are tested
+      against. If a dependency refuses to install locally on 3.14, that is the
+      symptom to expect, and a 3.12 venv is the fix.
+- [x] **Where should alerts go?** — `afindo.mi01@gmail.com`. Cloud Monitoring email
+      notification channel created 19 Aug:
+      `projects/regulens-506014/notificationChannels/7686068825666649291`
+      (display name "af gmail"). Already wired to the budget; the five Phase 0
+      alerts reuse the same channel. **Check your inbox for the Google verification
+      mail and confirm it** — an unverified channel silently drops alerts.
 
 ---
 

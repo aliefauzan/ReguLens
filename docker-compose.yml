@@ -1,0 +1,73 @@
+# Local stack. Push subscriptions locally, push subscriptions in production —
+# never poll in one and push in the other, or the thing you test is not the
+# thing you ship.
+#
+# NOTE: authored but NOT yet run. Docker Desktop was not running on the dev
+# machine when this landed. Do not treat it as verified until `docker compose up`
+# has actually brought the stack up and a locally published message has reached
+# the local worker.
+
+services:
+  firestore:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud emulators firestore start
+      --host-port=0.0.0.0:8081 --project=regulens-local
+    ports: ["8081:8081"]
+
+  pubsub:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    command: >
+      gcloud beta emulators pubsub start
+      --host-port=0.0.0.0:8085 --project=regulens-local
+    ports: ["8085:8085"]
+
+  # One-shot, idempotent: creates the topics and the push subscriptions that
+  # point at the worker container.
+  pubsub-init:
+    image: python:3.12-slim
+    depends_on: [pubsub, worker]
+    environment:
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      PROJECT_ID: regulens-local
+    volumes: ["./scripts:/scripts:ro"]
+    command: >
+      bash -c "pip install --no-cache-dir google-cloud-pubsub==2.39.1 &&
+               python /scripts/pubsub_init.py"
+
+  api:
+    build: ./api
+    depends_on: [firestore, pubsub]
+    environment:
+      PROJECT_ID: regulens-local
+      FIRESTORE_EMULATOR_HOST: firestore:8081
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      CORS_ORIGINS: http://localhost:3000
+      FAKE_LLM: "1"
+      VERSION: local
+    ports: ["8080:8080"]
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+    volumes: ["./api/app:/srv/app"]
+
+  worker:
+    build: ./api
+    depends_on: [firestore, pubsub]
+    environment:
+      PROJECT_ID: regulens-local
+      FIRESTORE_EMULATOR_HOST: firestore:8081
+      PUBSUB_EMULATOR_HOST: pubsub:8085
+      FAKE_LLM: "1"
+      VERSION: local
+    ports: ["8081:8080"]
+    command: uvicorn app.worker:app --host 0.0.0.0 --port 8080 --reload
+    volumes: ["./api/app:/srv/app"]
+
+  web:
+    image: node:22-slim
+    working_dir: /app
+    depends_on: [api]
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080
+    ports: ["3000:3000"]
+    volumes: ["./web:/app"]
+    command: bash -c "npm install && npm run dev -- --hostname 0.0.0.0"

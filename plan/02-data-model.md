@@ -10,14 +10,14 @@ enforces event-writing on mutation.
 
 - [ ] `documents` (phase 2)
 - [ ] `clauses` (phase 2)
-- [ ] `products` (phase 1)
-- [ ] `markets` — seeded (phase 1)
+- [x] `products` (phase 1)
+- [x] `markets` — seeded (phase 1)
 - [ ] `requirements` (phase 4)
 - [ ] `conflicts` (phase 3)
-- [ ] `graph_events` — append-only, enforced by the repository layer (phase 1)
+- [x] `graph_events` — append-only, enforced by the repository layer (phase 1)
 - [ ] `query_logs` (phase 5)
 - [ ] Composite indexes deployed via `firestore.indexes.json` (phase 0)
-- [ ] Every repository method writes its event in the same batch — no raw update
+- [x] Every repository method writes its event in the same batch — no raw update
       method is exposed (phase 1, verified in phase 6)
 
 ## Collections

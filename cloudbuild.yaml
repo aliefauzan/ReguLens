@@ -1,0 +1,86 @@
+# One file. Lint, test, build one image, deploy both services and the job, all
+# pinned to the commit SHA so a rollback is a redeploy of a known tag.
+substitutions:
+  _REGION: asia-southeast1
+
+steps:
+  - id: lint
+    name: python:3.12-slim
+    dir: api
+    entrypoint: bash
+    args:
+      - -c
+      - pip install --no-cache-dir ruff==0.16.3 && ruff check .
+
+  - id: test
+    name: python:3.12-slim
+    dir: api
+    entrypoint: bash
+    args:
+      - -c
+      - pip install --no-cache-dir -r requirements-dev.txt && python -m pytest -q
+
+  - id: build
+    name: gcr.io/cloud-builders/docker
+    dir: api
+    args: ["build", "-t", "asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}", "-t", "asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest", "."]
+
+  - id: push
+    name: gcr.io/cloud-builders/docker
+    args: ["push", "--all-tags", "asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api"]
+
+  - id: deploy-api
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - regulens-api
+      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+      - --region=${_REGION}
+      - --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com
+      - --allow-unauthenticated
+      - --set-env-vars=^@^CORS_ORIGINS=http://localhost:3000,http://localhost:3111@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global
+      - --command=uvicorn
+      - --args=app.main:app,--host,0.0.0.0,--port,8080
+      - --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12
+
+  - id: deploy-worker
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - regulens-worker
+      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+      - --region=${_REGION}
+      - --service-account=regulens-worker@${PROJECT_ID}.iam.gserviceaccount.com
+      - --no-allow-unauthenticated
+      - --set-env-vars=VERSION=${SHORT_SHA},SERVICE_NAME=regulens-worker,PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global
+      - --command=uvicorn
+      - --args=app.worker:app,--host,0.0.0.0,--port,8080
+      - --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12
+
+  - id: deploy-job
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        gcloud run jobs describe regulens-job --region=${_REGION} >/dev/null 2>&1 \
+          && verb=update || verb=create
+        gcloud run jobs $verb regulens-job \
+          --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA} \
+          --region=${_REGION} \
+          --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com \
+          --set-env-vars=VERSION=${SHORT_SHA},SERVICE_NAME=regulens-job,PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global \
+          --command=python \
+          --args=-m,app.job,seed
+
+images:
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8

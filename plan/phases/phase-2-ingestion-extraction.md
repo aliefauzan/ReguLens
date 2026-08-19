@@ -5,6 +5,10 @@
 
 **Status:** `NOT STARTED` · **Started:** — · **Completed:** —
 
+> One box below is already ticked out of order: the real source documents were
+> collected on 19 Aug, ahead of the phase, because they were the long-lead item.
+> Nothing else in this phase has been started.
+
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion
      is ticked. Fill the dates. Tick each `- [ ]` as it lands — a ticked box means

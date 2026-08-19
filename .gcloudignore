@@ -1,0 +1,10 @@
+.git/
+.gitignore
+.remember/
+data/
+plan/
+web/node_modules/
+web/.next/
+api/.venv/
+**/__pycache__/
+*.pyc

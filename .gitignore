@@ -1,3 +1,28 @@
-# Regulation corpus — large official PDFs, re-downloadable from the URLs in
-# data/regulations/SOURCES.md. Keep the manifest, not the 24 MB of binaries.
-# data/regulations/**/*.pdf
+# Secrets — never committed. Anything genuinely secret belongs in Secret Manager;
+# these are local-only overrides.
+.env.local
+.env.*.local
+*.pem
+*-key.json
+service-account*.json
+
+# Python
+api/.venv/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Node / Next.js
+node_modules/
+web/.next/
+web/out/
+web/.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# OS
+.DS_Store
+
+# The regulation corpus IS committed on purpose — the PDFs are the evidence base
+# and data/regulations/SOURCES.md pins their provenance and checksums.
