@@ -1,159 +1,219 @@
 # ReguLens
 
-Cross-jurisdiction regulatory compliance for food and beverage products. A
-product is described once; ReguLens tells you where it fails, in which market,
-against which clause — and tells you again when a regulation moves.
+**A living compliance twin for small exporters.**
+Describe a product once. ReguLens ingests real regulations, decides what
+applies to your product in each destination market, and when a new regulation
+arrives it tells you — unprompted — what just broke, why, and with which
+sources.
 
-**Status: phases 2–5 built and deploying; verification in progress.** See
-[`plan/PROGRESS.md`](plan/PROGRESS.md) for exactly what is real.
+| Live environment | URL |
+|---|---|
+| Web app | https://regulens-web-babuvy7w3a-as.a.run.app |
+| API | https://regulens-api-babuvy7w3a-as.a.run.app |
 
-## The pipeline
+A 5-minute click-by-click walkthrough lives in
+[docs/USER_GUIDE.md](docs/USER_GUIDE.md).
+
+## The core loop
 
 ```
-upload → document.uploaded → extract (ADK agent, Gemini ×2 samples)
-       → clause.extracted  → reconcile (guardrail → judge, transactions)
-       → graph.changed     → impact (requirements, status flip, alert)
+regulation document arrives
+  -> extracted into structured, confidence-scored clauses (Gemini x2 samples)
+  -> deterministic guardrail decides whether two clauses may be compared
+  -> judge (LLM) only settles genuinely ambiguous same-jurisdiction pairs
+  -> transactional verdict mutates the knowledge graph + audit event
+  -> impact engine re-evaluates every affected product and market
+  -> product status flips on its own; an alert names the cause and the sources
 ```
 
-Every handler idempotent; every mutation writes a `graph_events` record;
-`trace_id` on every line and every message.
+## Why you can trust the answers
+
+- **Deterministic code owns every mutation.** A model response never reaches
+  Firestore without passing a Pydantic validator and the guardrail.
+- **Computed confidence, not self-reported**: `0.3*parse_quality +
+  0.4*self_consistency + 0.3*authority_tier`. Low-authority sources are capped
+  by construction and routed to a human review queue instead of mutating state.
+- **Grounded query**: every answer must cite stored clause ids; citations are
+  validated in code against the retrieved set. No data means an explicit
+  refusal — never world-knowledge guesses about regulations.
+- **Audit trail**: every state change writes an immutable `graph_events`
+  record; `scripts/` walker asserts state and events agree.
 
 ## Architecture
 
-Three runtimes over one container image:
+Three Cloud Run runtimes from one container image, plus a fourth for the web:
 
-| Runtime | Entrypoint | Job |
+```
+Next.js web (Cloud Run, public)
+        |
+        v
+API service (Cloud Run)  --publish-->  Pub/Sub: document.uploaded
+        |                                      |
+   Firestore                          Worker (Cloud Run, private)
+   GCS uploads                        /internal/document-uploaded  -> extract (ADK agent)
+                                              | clause.extracted
+                                      /internal/clause-extracted -> reconcile (guardrail + judge)
+                                              | graph.changed
+                                      /internal/graph-changed -> impact (pure code)
+                                              |
+                                      alerts, readiness, timeline, query
+```
+
+| ADK agent | What it actually does | Honest label |
 |---|---|---|
-| API service (Cloud Run, public) | `app/main.py` | Accepts requests, writes Firestore, publishes to Pub/Sub. Does no extraction. |
-| Worker service (Cloud Run, private) | `app/worker.py` | Consumes Pub/Sub **push** with OIDC. Every handler is idempotent. |
-| Job (Cloud Run Job) | `app/job.py` | Seeding and reprocessing. Runs to completion. |
-| Web (Cloud Run, public) | Next.js standalone image | Twin, upload, stepper, readiness, timeline, ask panel. |
+| Extraction | fixed pipeline; Gemini structured output x2 samples | pipeline, one LLM step |
+| Reconciliation | guardrail gates pairs; judge only on ambiguous same-jurisdiction pairs | code decides, judge advises |
+| Impact | requirements, evaluation, status rollup | **no model call at all** |
+| Query | retrieval + grounded synthesis with citation validation | genuinely agentic |
 
-Frontend is Next.js (App Router), deployed to Cloud Run, reading the API
-server-side (`NEXT_PUBLIC_API_URL` baked at build time in `cloudbuild.yaml`).
+Google ADK is used throughout; every tool body is a plain Python function in
+`api/app/core/` that runs and tests without ADK.
 
-Agents are Google ADK. Tool bodies are plain functions in `api/app/core/`; ADK
-registration is a thin wrapper in `api/app/adk/`. Agents propose — deterministic
-typed code decides and owns every mutation.
+## Tech stack
+
+Next.js 16 (App Router) · FastAPI · Google ADK 2.7 · Vertex AI
+(`gemini-3.5-flash` global endpoint; `text-multilingual-embedding-002` in
+asia-southeast1) · Firestore · Pub/Sub push · Cloud Run x4 · Cloud Run Jobs ·
+GCS · Cloud Build.
+
+## Repository layout
+
+```
+api/app/main.py        API service (upload, products, clauses, conflicts,
+                       compliance, alerts, query, debug view)
+api/app/worker.py      Pub/Sub push consumers: extract / reconcile / impact / DLQ
+api/app/job.py         Cloud Run Job: idempotent demo seed
+api/app/core/          the plain-Python engine: extraction/, guardrail.py,
+                       reconciliation.py, impact.py, query.py, normalization.py
+api/app/adk/           thin ADK registrations over those functions
+api/tests/             62 unit tests + fixture corpus + live-Vertex eval
+web/                   Next.js app (twin, upload+stepper, readiness, timeline,
+                       ask panel, conflicts, review queue)
+data/regulations/      real source PDFs (EU + BPOM) with provenance in SOURCES.md
+scripts/setup.sh       one-command GCP provisioning (idempotent)
+scripts/verify_e2e.sh  end-to-end verification against the deployed stack
+plan/                  full build plan and per-phase evidence trail
+```
+
+## Run it in the cloud (from a bare GCP project)
+
+The deployed stack was built exactly this way; every step is idempotent.
+
+```bash
+# 1. Prerequisites: gcloud CLI, a GCP project with billing linked, Owner role.
+gcloud auth login && gcloud auth application-default login
+
+# 2. Provision everything: APIs, Firestore, GCS, Pub/Sub topics + push
+#    subscriptions with OIDC and dead-lettering, service accounts with narrow
+#    IAM, budget alert. Re-running is a no-op.
+export PROJECT_ID=your-project-id
+PROJECT_ID=$YOUR_PROJECT_ID bash scripts/setup.sh
+
+# 3. Deploy API + worker + job + web in one pipeline.
+gcloud builds submit --project $YOUR_PROJECT_ID --config cloudbuild.yaml \
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)-$(date +%H%M%S)
+
+# 4. Push subscriptions need the worker URL, so re-run provisioning once.
+PROJECT_ID=$YOUR_PROJECT_ID bash scripts/setup.sh
+
+# 5. Edit cloudbuild.yaml once: point NEXT_PUBLIC_API_URL and the CORS origin
+#    at your real *.run.app URLs (they are derived from project id).
+
+# 6. Seed the demo baseline (idempotent).
+gcloud run jobs execute regulens-job --region asia-southeast1 \
+  --project $YOUR_PROJECT_ID --wait
+```
+
+## Run it locally
+
+Two options.
+
+### Option A: full local stack with emulators (experimental)
+
+```bash
+docker compose up
+```
+
+Brings up Firestore + Pub/Sub emulators, api, worker, web, and a one-shot
+pubsub-init that creates push subscriptions pointing at the local worker.
+Honest note: this path is committed but was not exercised end-to-end on the
+dev machine (Docker daemon unavailable); treat it as a starting point, the
+cloud path above is the verified one.
+
+### Option B: run services directly against your own GCP project
+
+```bash
+cd api
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt -r requirements-dev.txt
+
+export PROJECT_ID=your-project-id
+uvicorn app.main:app --port 8080        # API
+uvicorn app.worker:app --port 8081      # worker (second terminal)
+
+cd ../web && npm install && npm run dev  # web (third terminal)
+```
+
+The web reads `NEXT_PUBLIC_API_URL` (default http://localhost:8080). Set
+`FAKE_LLM=1` for deterministic offline behaviour without Vertex calls.
+
+## Tests and verification
+
+```bash
+cd api
+pytest -q                       # 62 unit tests, no network
+REGULENS_EVAL=1 pytest tests/test_extraction_quality.py -q -s
+                                # live-Vertex fixture accuracy (costs tokens)
+
+bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
+                                # baseline, EU upload, conflict, unprompted
+                                # flip, alert, grounded query, refusal,
+                                # cache hit, Pub/Sub redelivery
+```
+
+`PYTHONPATH=. python -m app.core.integrity` walks live state vs the event log.
 
 ## Configuration
 
-| Setting | Value | Why |
+| Env var | Default | Purpose |
 |---|---|---|
-| Project | `regulens-506014` | |
-| Infra region | `asia-southeast1` | Latency from Indonesia |
-| Gemini | `gemini-3.5-flash` @ **`global`** | `asia-southeast1` carries only `gemini-2.5-flash`, which fails the 3.5+ requirement |
-| Embeddings | `text-multilingual-embedding-002` @ `asia-southeast1` | Available in-region, handles Indonesian |
-| Secrets | none | Workload identity throughout. Nothing to leak. |
+| `PROJECT_ID` | `regulens-506014` | GCP project |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | pinned 3.5+ model |
+| `FAKE_LLM` | off | deterministic offline mode |
+| `DEBUG_VIEW` | off | enables `/debug/documents/{id}` |
+| `NEXT_PUBLIC_API_URL` | localhost:8080 | baked into the web build |
 
-ADK reaches Vertex only when `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`
-and `GOOGLE_CLOUD_LOCATION` are set. Without them it looks for a Gemini API key
-and fails at request time, not at boot.
+Secrets: none exist. Everything authenticates via workload identity / service
+accounts; nothing to leak.
 
-## Provisioning from scratch
-
-```bash
-gcloud auth login && gcloud auth application-default login
-PROJECT_ID=your-project ./scripts/setup.sh
-```
-
-Every step guards on a `describe` first, so running it twice is a no-op. Run it
-again after the first deploy — push subscriptions need the worker's URL, which
-does not exist until then.
-
-Quota note: a fresh project needs no Vertex quota request. A live
-`generateContent` call and a live embedding call both returned `ON_DEMAND` on
-first use.
-
-## Deploy
+## Rollback
 
 ```bash
-gcloud builds submit --config cloudbuild.yaml --region asia-southeast1 --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)
+gcloud run services update-traffic regulens-api --region asia-southeast1 \
+  --to-revisions PREVIOUS_REVISION=100
 ```
 
-Lint → test → build one SHA-tagged image → deploy API, worker and Job pinned to
-that SHA. The web service builds from `web/Dockerfile` with the API URL baked in
-and deploys as a fourth Cloud Run service.
+Use revisions, not images — redeploying an older image keeps newer env vars
+and lies about what is running.
 
-## Seed / reset the demo
+## Honest limitations
 
-```bash
-gcloud run jobs execute regulens-job --region asia-southeast1 --project regulens-506014 --wait
-```
+- Numeric limits only are evaluated pass/fail. Labelling, certification and
+  documentation clauses are extracted and surfaced as `needs_review`, never
+  silently counted as checks we did not run.
+- Uploads are PDFs with a text layer plus pasted text. No OCR, no screenshots.
+- One hardcoded workspace; no auth. `/internal/*` endpoints are private and
+  OIDC-gated — that is the security boundary that matters here.
+- Propagation latency measured ~183s in an unattended run against a 90s
+  target; double-sampling and judge calls dominate. Recorded, not hidden.
+- The substance-family table (benzoates, sorbates) is documented domain
+  mapping, not inferred magic; both source regulations state the shared basis.
+- Readiness shows issue counts, not a percentage — we do not claim coverage
+  we do not have.
 
-Idempotent: rebuilds the demo baseline (markets, Herbal Drink Powder at
-300 mg/kg sodium benzoate, BPOM 400 mg/kg clause ingested and reconciled).
-Germany reads `unknown` until an EU document is uploaded — that upload is the
-demo's inflection point.
+## Evidence trail
 
-## Verify end to end
-
-```bash
-./scripts/verify_e2e.sh
-```
-
-Runs every exit criterion against the deployed stack: baseline compliance,
-EU upload, extraction, conflict, the unprompted Germany flip, alert, grounded
-query + refusal, cache hit, Pub/Sub redelivery without duplicates.
-
-### Rollback
-
-```bash
-gcloud run services update-traffic regulens-api --region asia-southeast1 --to-revisions REVISION=100
-```
-
-Use the revision, not the image. Redeploying an older image is **not** a
-rollback: environment variables persist from the newer revision, so the service
-reports the new version while running old code. Practised once, deliberately.
-
-## Local development
-
-```bash
-cd api && uv venv --python 3.12 .venv && uv pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q && .venv/bin/ruff check .
-```
-
-```bash
-cd web && npm install && NEXT_PUBLIC_API_URL=<api-url> npm run dev
-```
-
-The container pins Python 3.12 regardless of the host version, because ADK and
-the GCP client libraries are tested against it.
-
-`FAKE_LLM=1` returns canned model responses so tests never touch Vertex.
-
-## Verifying the skeleton
-
-```bash
-curl -s "$API_URL/health"
-```
-
-Returns `firestore: "ok"` from a real Firestore round-trip, not a hardcoded
-string, plus an `x-trace-id` response header.
-
-```bash
-gcloud pubsub topics publish document.uploaded --message='{"document_id":"probe"}' --attribute=trace_id=my-trace
-gcloud logging read 'resource.labels.service_name="regulens-worker" AND jsonPayload.trace_id="my-trace"'
-```
-
-The worker's log lines carry the publisher's `trace_id`. That is the property the
-whole debugging story rests on: one id, one query, the entire journey.
-
-## Observability
-
-Structured JSON logs with a `trace_id` on every line. No `print` anywhere.
-OpenTelemetry → Cloud Trace on both services, wrapped so a tracing failure can
-never stop the app serving.
-
-Budget alert: Rp 540,000/month (≈ $30 — the billing account is IDR-denominated),
-firing at 50/90/100% to a Cloud Monitoring email channel.
-
-Uptime check on the public API `/health`. The worker has none: it is private, and
-uptime checks cannot present an OIDC token to Cloud Run. Worker liveness is
-covered by the Pub/Sub round-trip and the dead-letter subscription instead.
-
-## Data
-
-Real regulation PDFs live in `data/regulations/`, catalogued with sources, CELEX
-ids and checksums in [`data/regulations/SOURCES.md`](data/regulations/SOURCES.md).
-Nothing there is synthetic.
+`plan/PROGRESS.md` and `plan/phases/phase-*.md` carry per-box evidence for
+every claim above — live drill results, fixture accuracy, latency
+measurement, and the honest gaps. `data/regulations/SOURCES.md` documents the
+real regulation corpus with checksums.
