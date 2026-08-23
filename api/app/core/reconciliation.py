@@ -248,8 +248,13 @@ def reconcile_clause(clause_id: str) -> dict:
         elif cls == "cross_jurisdiction_conflict":
             # Deterministic by design: different jurisdictions with different
             # limits means BOTH hold and the stricter binds. The judge is not
-            # consulted — a mismatch across jurisdictions is not ambiguous.
-            outcome = "conflicts"
+            # consulted. Only ACTIVE partners open a conflict: a needs_review
+            # or already-conflicted counterpart must not gain state from this
+            # comparison.
+            if other.get("status") == "active":
+                outcome = "conflicts"
+            else:
+                outcome = "no_finding_partner_inactive"
         elif _dates_decide(clause, other):
             outcome = "supersedes" if _is_newer(clause, other) else "superseded_by_existing"
         else:
@@ -280,11 +285,21 @@ def reconcile_clause(clause_id: str) -> dict:
     if verdict_outcome == "conflicts":
         target = next((d for d in decisions if d.get("outcome") == "conflicts"), None)
         _apply_conflict(clause, target["other"] if target else None)
+        # A newer same-jurisdiction clause may BOTH conflict across
+        # jurisdictions AND replace its predecessors. Both findings are real:
+        # the predecessors die even though the incoming clause ends conflicted.
+        for d in decisions:
+            if d.get("outcome") == "supersedes" and d.get("other"):
+                _mark_superseded(d["other"], by_clause_id=clause_id)
         _publish_graph_changed(clause_id)
         return {"status": "conflicts", "decisions": decisions, "document_id": clause.get("document_id")}
     if verdict_outcome == "supersedes":
-        target = next((d for d in decisions if d.get("outcome") == "supersedes"), None)
-        _apply_supersede(new_clause=clause, old_clause_id=target["other"] if target else None)
+        # Every ACTIVE predecessor dies; the winner activates. Race safety
+        # lives inside _mark_superseded / _apply_active.
+        for d in decisions:
+            if d.get("outcome") == "supersedes" and d.get("other"):
+                _mark_superseded(d["other"], by_clause_id=clause_id)
+        _apply_active(clause)
         _publish_graph_changed(clause_id)
         return {"status": "supersedes", "decisions": decisions, "document_id": clause.get("document_id")}
     if verdict_outcome == "superseded_by_existing":
@@ -501,6 +516,36 @@ def _apply_supersede(new_clause: dict, old_clause_id: str | None) -> None:
             _event_payload(EventType.CLAUSE_CREATED, new_clause["id"], None,
                            {"status": "active"}, {"document_id": new_clause.get("document_id")},
                            "reconciliation_agent", new_clause.get("confidence")),
+        )
+
+    txn(db.transaction())
+
+
+def _mark_superseded(clause_id: str, *, by_clause_id: str) -> None:
+    """Mark one ACTIVE clause superseded by another. No-op when its status has
+    moved (raced, already conflicted/superseded)."""
+    db = get_db()
+
+    @firestore.transactional
+    def txn(transaction):
+        ref = db.collection("clauses").document(clause_id)
+        fresh = ref.get(transaction=transaction)
+        if not fresh.exists or fresh.to_dict().get("status") != "active":
+            return
+        event_id = new_id("evt")
+        transaction.set(
+            db.collection("graph_events").document(event_id),
+            _event_payload(
+                EventType.CLAUSE_SUPERSEDED, clause_id,
+                {"status": "active"}, {"status": "superseded"},
+                {"new_clause_id": by_clause_id},
+                "reconciliation_agent", None,
+            ),
+        )
+        transaction.set(
+            ref,
+            {"status": "superseded", "superseded_by": by_clause_id},
+            merge=True,
         )
 
     txn(db.transaction())

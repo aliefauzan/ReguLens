@@ -134,8 +134,14 @@ input. Enforce that with types, not with prompt instructions.
       in place; the forced-simultaneous-delivery test is a phase-6 drill.
 - [x] Reconciliation runs on the deployed worker; guardrail unit-tested
       without ADK in the loop.
-- [ ] Same-jurisdiction supersede demonstrated live — implemented
-      (dates-decide + judge fallback), unit-tested, not yet shown live.
+- [x] Same-jurisdiction supersede demonstrated LIVE: a BPOM amendment
+      (350 mg/kg, effective 2026-12-01) reconciled against the active
+      400 mg/kg clause — judge settled the undated-vs-dated pair, the old
+      clause reads `superseded` with `superseded_by` set, the new clause is
+      `active`. Also surfaced and fixed two real findings en route:
+      cross-jurisdiction conflicts only open against ACTIVE partners, and a
+      conflict verdict no longer silently drops valid supersede findings
+      (both now apply).
 - [x] Deployed.
 ## Out of scope
 
