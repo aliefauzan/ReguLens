@@ -65,7 +65,11 @@ the positioning the concept explicitly rejects.
       `{normalized: "sodium_benzoate", amount: 0.08, unit: "percent_w_w"}`.
 - [x] `E211` and `natrium benzoat` normalize to the same substance — `natrium benzoat` entered through the UI rendered as `sodium_benzoate`.
 - [x] `GET /products/{id}/events` shows `product_created`, and `product_updated` after a PATCH.
-- [ ] Deployed. — API and worker are deployed and verified; the **frontend is not hosted yet** (Vercel is still blocked on the user), so this stays unticked.
+- [x] Deployed. — API, worker and **web** all serving on Cloud Run
+      (`regulens-web`); the Vercel dependency was dropped on 23 Aug when the
+      Next.js app shipped as a fourth Cloud Run service with CORS pinned.
+      Verified from a cold browser: home page renders products from Firestore
+      via the API.
 
 ## Out of scope
 
