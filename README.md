@@ -4,8 +4,19 @@ Cross-jurisdiction regulatory compliance for food and beverage products. A
 product is described once; ReguLens tells you where it fails, in which market,
 against which clause — and tells you again when a regulation moves.
 
-**Status: phase 0 (walking skeleton) — deployed and verified.** See
+**Status: phases 2–5 built and deploying; verification in progress.** See
 [`plan/PROGRESS.md`](plan/PROGRESS.md) for exactly what is real.
+
+## The pipeline
+
+```
+upload → document.uploaded → extract (ADK agent, Gemini ×2 samples)
+       → clause.extracted  → reconcile (guardrail → judge, transactions)
+       → graph.changed     → impact (requirements, status flip, alert)
+```
+
+Every handler idempotent; every mutation writes a `graph_events` record;
+`trace_id` on every line and every message.
 
 ## Architecture
 
@@ -16,8 +27,10 @@ Three runtimes over one container image:
 | API service (Cloud Run, public) | `app/main.py` | Accepts requests, writes Firestore, publishes to Pub/Sub. Does no extraction. |
 | Worker service (Cloud Run, private) | `app/worker.py` | Consumes Pub/Sub **push** with OIDC. Every handler is idempotent. |
 | Job (Cloud Run Job) | `app/job.py` | Seeding and reprocessing. Runs to completion. |
+| Web (Cloud Run, public) | Next.js standalone image | Twin, upload, stepper, readiness, timeline, ask panel. |
 
-Frontend is Next.js (App Router) reading the API server-side.
+Frontend is Next.js (App Router), deployed to Cloud Run, reading the API
+server-side (`NEXT_PUBLIC_API_URL` baked at build time in `cloudbuild.yaml`).
 
 Agents are Google ADK. Tool bodies are plain functions in `api/app/core/`; ADK
 registration is a thin wrapper in `api/app/adk/`. Agents propose — deterministic
@@ -59,7 +72,29 @@ gcloud builds submit --config cloudbuild.yaml --region asia-southeast1 --substit
 ```
 
 Lint → test → build one SHA-tagged image → deploy API, worker and Job pinned to
-that SHA.
+that SHA. The web service builds from `web/Dockerfile` with the API URL baked in
+and deploys as a fourth Cloud Run service.
+
+## Seed / reset the demo
+
+```bash
+gcloud run jobs execute regulens-job --region asia-southeast1 --project regulens-506014 --wait
+```
+
+Idempotent: rebuilds the demo baseline (markets, Herbal Drink Powder at
+300 mg/kg sodium benzoate, BPOM 400 mg/kg clause ingested and reconciled).
+Germany reads `unknown` until an EU document is uploaded — that upload is the
+demo's inflection point.
+
+## Verify end to end
+
+```bash
+./scripts/verify_e2e.sh
+```
+
+Runs every exit criterion against the deployed stack: baseline compliance,
+EU upload, extraction, conflict, the unprompted Germany flip, alert, grounded
+query + refusal, cache hit, Pub/Sub redelivery without duplicates.
 
 ### Rollback
 

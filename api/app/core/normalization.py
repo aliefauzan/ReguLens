@@ -28,10 +28,26 @@ SYNONYMS: dict[str, list[str]] = {
         "ins 211",
         "benzoate of soda",
     ],
-    "benzoic_acid": ["benzoic acid", "asam benzoat", "e210", "e 210", "ins 210"],
+    "benzoic_acid": [
+        "benzoic acid",
+        "asam benzoat",
+        "e210",
+        "e 210",
+        "ins 210",
+        # The EU Annex II tables name the whole permitted group on limit rows.
+        "benzoic acid - benzoates",
+        "benzoic acid benzoates",
+    ],
     "potassium_benzoate": ["potassium benzoate", "kalium benzoat", "e212", "ins 212"],
     "calcium_benzoate": ["calcium benzoate", "kalsium benzoat", "e213", "ins 213"],
-    "sorbic_acid": ["sorbic acid", "asam sorbat", "e200", "ins 200"],
+    "sorbic_acid": [
+        "sorbic acid",
+        "asam sorbat",
+        "e200",
+        "ins 200",
+        "sorbic acid - sorbates",
+        "sorbic acid sorbates",
+    ],
     "potassium_sorbate": ["potassium sorbate", "kalium sorbat", "e202", "ins 202"],
     "sulphur_dioxide": ["sulphur dioxide", "sulfur dioxide", "sulfur dioksida", "e220", "ins 220"],
     "citric_acid": ["citric acid", "asam sitrat", "e330", "ins 330"],
@@ -62,6 +78,13 @@ _UNITS: dict[str, Unit] = {
     "mg/kg": Unit.MG_PER_KG,
     "mg per kg": Unit.MG_PER_KG,
     "mg_per_kg": Unit.MG_PER_KG,
+    # EU Annex II headers read "Maximum level (mg/l or mg/kg as appropriate)".
+    # For aqueous products (the MVP scope) mg/l and mg/kg are numerically
+    # equivalent at the density of water; the equivalence is a documented
+    # modelling decision, applied identically to both sides of any comparison.
+    "mg/l": Unit.MG_PER_KG,
+    "mg/l or mg/kg": Unit.MG_PER_KG,
+    "mg/l or mg/kg as appropriate": Unit.MG_PER_KG,
     "ppm": Unit.PPM,
     "parts per million": Unit.PPM,
 }
@@ -78,10 +101,12 @@ def normalize_substance(name: str) -> tuple[str, bool]:
     UI must be able to say so rather than implying we recognised the ingredient.
     """
     key = re.sub(r"\s+", " ", (name or "").strip().lower())
+    # EU tables use em/en-dashes inside group names ("Benzoic acid — benzoates").
+    key = key.replace("—", "-").replace("–", "-")
     if key in _LOOKUP:
         return _LOOKUP[key], False
     # "sodium benzoate (E211)" and "Sodium Benzoate, E211" both appear in the wild.
-    for part in re.split(r"[(),/]", key):
+    for part in re.split(r"[(),/-]", key):
         part = part.strip()
         if part in _LOOKUP:
             return _LOOKUP[part], False

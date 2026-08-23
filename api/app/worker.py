@@ -4,9 +4,11 @@ Every route here consumes a Pub/Sub *push* envelope. Push, not pull, and the
 same shape locally as in production — the plan is explicit that a system which
 pushes in one environment and polls in the other is not being tested.
 
-Ack semantics: return 2xx to ack, 5xx to nack and get redelivered. A malformed
-message is acked, because redelivering it forever helps nobody; it goes to the
-dead-letter path by way of the delivery attempt count instead.
+Ack semantics:
+- 2xx acks. A malformed message acks: redelivering it forever helps nobody.
+- 5xx nacks: Pub/Sub redelivers with backoff, and after max-delivery-attempts
+  the message lands in the dead-letter topic.
+- Permanent failures never nack — they mark the document `failed` and ack.
 """
 
 from __future__ import annotations
@@ -15,10 +17,15 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from google.cloud import firestore
 
-from app.db import get_db
+from app.core.extraction.pipeline import (
+    PermanentExtractionError,
+    TransientExtractionError,
+    run_extraction,
+    run_extraction_via_agent,
+)
 from app.messaging import already_processed, mark_processed, parse_push_request
+from app.models import DocumentStatus
 from app.observability import configure_logging, get_trace_id, log, set_trace_id
 from app.settings import get_settings
 from app.tracing import instrument
@@ -30,7 +37,33 @@ logger = logging.getLogger(__name__)
 app = FastAPI(title="ReguLens Worker", version=settings.version)
 instrument(app, settings.project_id)
 
-HANDLER = "echo"
+HANDLER_EXTRACT = "extract"
+HANDLER_RECONCILE = "reconcile"
+HANDLER_IMPACT = "impact"
+
+
+@app.post("/internal/graph-changed")
+async def graph_changed(request: Request) -> JSONResponse:
+    """`graph.changed` consumer: re-run impact for the changed clause."""
+    try:
+        envelope = parse_push_request(await request.json())
+    except Exception as exc:  # noqa: BLE001
+        log(logger, logging.ERROR, "unparseable push envelope", error=str(exc))
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    set_trace_id(envelope.trace_id)
+    payload = envelope.payload
+    clause_id = payload.get("clause_id") or payload.get("entity_id")
+    if not clause_id:
+        return JSONResponse({"status": "dropped"}, status_code=200)
+    if already_processed(HANDLER_IMPACT, envelope.message_id):
+        return JSONResponse({"status": "duplicate"}, status_code=200)
+
+    from app.core.impact import run_impact
+
+    summary = run_impact(str(clause_id), payload.get("document_id"))
+    mark_processed(HANDLER_IMPACT, envelope.message_id)
+    return JSONResponse({"status": "ok", "summary": summary["products"]})
 
 
 @app.get("/health")
@@ -40,34 +73,163 @@ def health() -> dict:
 
 @app.post("/internal/document-uploaded")
 async def document_uploaded(request: Request) -> JSONResponse:
-    """The phase-0 round-trip proof: a published message becomes a Firestore
-    record, written by the deployed worker."""
+    """`document.uploaded` consumer: run extraction for the referenced document."""
     try:
         envelope = parse_push_request(await request.json())
-    except Exception as exc:  # noqa: BLE001
-        # Ack: a message we cannot parse will never parse.
+    except Exception as exc:  # noqa: BLE001 - unparseable will never parse
         log(logger, logging.ERROR, "unparseable push envelope", error=str(exc))
         return JSONResponse({"status": "dropped"}, status_code=200)
 
     set_trace_id(envelope.trace_id)
     message_id = envelope.message_id
-
-    if already_processed(HANDLER, message_id):
-        return JSONResponse({"status": "duplicate"}, status_code=200)
-
     payload = envelope.payload
+    document_id = str(payload.get("document_id") or "")
+    if not document_id:
+        # Nothing actionable; record and ack rather than burn five retries.
+        log(logger, logging.ERROR, "message missing document_id", message_id=message_id)
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    if already_processed(HANDLER_EXTRACT, message_id):
+        return JSONResponse({"status": "duplicate"}, status_code=200)
     log(
         logger, logging.INFO, "handling document.uploaded",
-        message_id=message_id, payload_keys=sorted(payload),
+        message_id=message_id, document_id=document_id,
     )
 
-    get_db().collection("echo_events").document(message_id or get_trace_id()).set(
+    try:
+        if settings.fake_llm:
+            result = run_extraction(document_id)
+        else:
+            result = await run_extraction_via_agent(document_id)
+    except PermanentExtractionError as exc:
+        _fail(document_id, stage="extracting", error=str(exc))
+        return JSONResponse({"status": "failed_permanent", "error": str(exc)}, status_code=200)
+    except TransientExtractionError as exc:
+        # Nack: Pub/Sub redelivers; DLQ after max attempts (handled by
+        # /internal/dead-letter).
+        log(
+            logger, logging.WARNING, "nack transient",
+            document_id=document_id, error=str(exc),
+        )
+        _fail(document_id, stage="extracting", error=f"transient: {exc}", failed=False)
+        return JSONResponse({"status": "retry_later"}, status_code=500)
+
+    if not result.skipped:
+        mark_processed(HANDLER_EXTRACT, message_id)
+    return JSONResponse(
         {
-            "payload": payload,
+            "status": "skipped" if result.skipped else "ok",
+            "document_id": document_id,
+            "accepted": result.accepted,
+            "rejected": len(result.rejected),
             "trace_id": get_trace_id(),
-            "message_id": message_id,
-            "received_at": firestore.SERVER_TIMESTAMP,
-        }
+        },
+        status_code=200,
     )
-    mark_processed(HANDLER, message_id)
-    return JSONResponse({"status": "ok", "trace_id": get_trace_id()}, status_code=200)
+
+
+@app.post("/internal/clause-extracted")
+async def clause_extracted(request: Request) -> JSONResponse:
+    """`clause.extracted` consumer: run reconciliation for one clause."""
+    try:
+        envelope = parse_push_request(await request.json())
+    except Exception as exc:  # noqa: BLE001
+        log(logger, logging.ERROR, "unparseable push envelope", error=str(exc))
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    set_trace_id(envelope.trace_id)
+    clause_id = str(envelope.payload.get("clause_id") or "")
+    if not clause_id:
+        log(logger, logging.ERROR, "message missing clause_id", message_id=envelope.message_id)
+        return JSONResponse({"status": "dropped"}, status_code=200)
+    if already_processed(HANDLER_RECONCILE, envelope.message_id):
+        return JSONResponse({"status": "duplicate"}, status_code=200)
+
+    from app.core.reconciliation import (
+        PermanentReconcileError,
+        TransientReconcileError,
+        reconcile_clause,
+    )
+
+    try:
+        result = reconcile_clause(clause_id)
+    except PermanentReconcileError as exc:
+        log(logger, logging.ERROR, "reconcile permanent failure",
+            clause_id=clause_id, error=str(exc)[:300])
+        return JSONResponse({"status": "failed_permanent"}, status_code=200)
+    except TransientReconcileError as exc:
+        log(logger, logging.WARNING, "nack transient reconcile",
+            clause_id=clause_id, error=str(exc)[:300])
+        return JSONResponse({"status": "retry_later"}, status_code=500)
+
+    # Debug-view record: every guardrail decision for this clause.
+    if result.get("decisions"):
+        from google.cloud import firestore
+
+        from app.db import get_db
+
+        get_db().collection("extraction_debug").document(
+            str(result.get("document_id") or clause_id)
+        ).set(
+            {"reconciliations": firestore.ArrayUnion([result])},
+            merge=True,
+        )
+
+    if result.get("status") != "skipped":
+        mark_processed(HANDLER_RECONCILE, envelope.message_id)
+    return JSONResponse({"status": result.get("status"), "clause_id": clause_id})
+
+
+@app.post("/internal/dead-letter")
+async def dead_letter(request: Request) -> JSONResponse:
+    """The DLQ push target. When a `document.uploaded` message exhausts its
+    retries, Pub/Sub forwards it here; we surface the document as `failed`
+    instead of leaving it stuck mid-pipeline silently."""
+    try:
+        body = await request.json()
+        envelope = parse_push_request(body)
+    except Exception as exc:  # noqa: BLE001 - a DLQ envelope we cannot parse is logged, not looped
+        log(logger, logging.ERROR, "unparseable dead-letter envelope", error=str(exc))
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    # The forwarded message's own attributes ride along on the delivery.
+    original = getattr(envelope.message, "attributes", {}) or {}
+    inner_data = {}
+    try:
+        import base64
+        import json
+
+        raw = getattr(envelope.message, "data", None)
+        if isinstance(raw, str) and raw:
+            inner_data = json.loads(base64.b64decode(raw).decode("utf-8"))
+    except Exception:  # noqa: BLE001 - best-effort decode only
+        pass
+
+    document_id = str(inner_data.get("document_id") or original.get("document_id") or "")
+    set_trace_id(original.get("trace_id"))
+    if document_id:
+        _fail(document_id, stage="extracting", error="delivery exhausted; moved to dead letter")
+    else:
+        log(logger, logging.ERROR, "dead-letter without document id", attributes=dict(original))
+    return JSONResponse({"status": "recorded"}, status_code=200)
+
+
+def _fail(
+    document_id: str,
+    *,
+    stage: str,
+    error: str,
+    failed: bool = True,
+) -> None:
+    """Mark a document failed (or just log for transient states)."""
+    from app.core.documents import append_stage_log, set_status
+
+    if failed:
+        set_status(document_id, DocumentStatus.FAILED, error=error, failed_stage=stage)
+        append_stage_log(document_id, stage, ok=False, detail={"error": error[:500]})
+    log(
+        logger,
+        logging.ERROR if failed else logging.WARNING,
+        "document failure recorded" if failed else "transient failure",
+        document_id=document_id, stage=stage, error=error[:500],
+    )

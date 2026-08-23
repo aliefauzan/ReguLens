@@ -45,6 +45,58 @@ class EventType(StrEnum):
     PRODUCT_STATUS_CHANGED = "product_status_changed"
 
 
+class SourceType(StrEnum):
+    """Declared by the uploader, because in this MVP nobody else can. The tier
+    is trivially gameable and that is fine for a demo — but it is a *product
+    decision*, so the UI presents it as "how authoritative is this source?"
+    with the tiers visible rather than hiding it as a form field."""
+
+    OFFICIAL_REGULATION = "official_regulation"
+    OFFICIAL_GUIDANCE = "official_guidance"
+    INDUSTRY_ASSOCIATION = "industry_association"
+    NEWS_ARTICLE = "news_article"
+    SOCIAL_CHAT = "social_chat"
+
+
+# Composite confidence weights per the concept's model:
+# 0.3 parse quality + 0.4 self-consistency + 0.3 authority tier.
+AUTHORITY_TIERS: dict[str, float] = {
+    str(SourceType.OFFICIAL_REGULATION): 1.0,
+    str(SourceType.OFFICIAL_GUIDANCE): 0.8,
+    str(SourceType.INDUSTRY_ASSOCIATION): 0.5,
+    str(SourceType.NEWS_ARTICLE): 0.35,
+    str(SourceType.SOCIAL_CHAT): 0.2,
+}
+
+
+class DocumentStatus(StrEnum):
+    UPLOADED = "uploaded"
+    EXTRACTING = "extracting"
+    EXTRACTED = "extracted"
+    RECONCILING = "reconciling"
+    RECONCILED = "reconciled"
+    FAILED = "failed"
+
+
+class ClauseType(StrEnum):
+    NUMERIC_LIMIT = "numeric_limit"
+    DOCUMENTATION = "documentation"
+    LABELING = "labeling"
+    CERTIFICATION = "certification"
+    OTHER = "other"
+
+
+class ClauseStatus(StrEnum):
+    """Phase 2 writes `pending_reconciliation`; phase 3 owns every transition
+    past it."""
+
+    PENDING_RECONCILIATION = "pending_reconciliation"
+    ACTIVE = "active"
+    SUPERSEDED = "superseded"
+    CONFLICTED = "conflicted"
+    NEEDS_REVIEW = "needs_review"
+
+
 class Ingredient(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     normalized: str | None = None
@@ -95,3 +147,77 @@ class GraphEvent(BaseModel):
     confidence: float | None = None
     trace_id: str | None = None
     occurred_at: datetime | None = None
+
+
+class DocumentIn(BaseModel):
+    """Source metadata declared at upload. `declared_effective_date` is the
+    uploader's claim — extraction may find a different date in the text, and the
+    guardrail later prefers what the document itself states."""
+
+    source_type: SourceType
+    source_name: str = Field(min_length=1, max_length=200)
+    jurisdiction: str = Field(min_length=2, max_length=16)
+    declared_effective_date: str | None = Field(default=None, max_length=10)
+    filename: str | None = Field(default=None, max_length=200)
+
+
+class QueryIn(BaseModel):
+    question: str = Field(min_length=3, max_length=500)
+    product_id: str | None = None
+
+
+class RegulatoryDocument(DocumentIn):
+    id: str
+    workspace_id: str = WORKSPACE_ID
+    filename: str | None = None
+    content_sha256: str
+    storage_uri: str | None = None
+    text_preview: str | None = None  # first ~500 chars; full text lives with the file or inline below
+    text_inline: str | None = None  # pasted-text path: content small enough to keep inline
+    page_count: int | None = None
+    char_count: int = 0
+    parse_quality: float | None = None
+    text_method: str | None = None  # pdfplumber (ocr is cut from MVP)
+    status: DocumentStatus = DocumentStatus.UPLOADED
+    stage_log: list[dict[str, Any]] = Field(default_factory=list)
+    error: str | None = None
+    failed_stage: str | None = None
+    trace_id: str | None = None
+    uploaded_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class ClauseCandidateRaw(BaseModel):
+    """Exactly what we ask the model for. Field constraints mean a malformed
+    response fails *here*, loudly, instead of becoming Firestore state."""
+
+    text: str = Field(min_length=1)
+    clause_type: ClauseType
+    substance: str | None = Field(default=None, max_length=200)
+    limit_value: float | None = Field(default=None, ge=0)
+    unit_raw: str | None = Field(default=None, max_length=32)
+    product_type: ProductType | None = None
+    effective_date: str | None = Field(default=None, max_length=10)
+
+
+class ClauseCandidate(ClauseCandidateRaw):
+    """A raw candidate that survived validation and normalization. This is the
+    only shape that may reach Firestore."""
+
+    id: str
+    workspace_id: str = WORKSPACE_ID
+    document_id: str
+    jurisdiction: str | None = None
+    substance_normalized: str | None = None
+    unnormalized_substance: bool = False
+    unit_enum: Unit | None = None
+    unnormalized_unit: bool = False
+    authority_tier: float
+    self_consistency: float
+    parse_quality: float
+    needs_review: bool = False
+    review_reasons: list[str] = Field(default_factory=list)
+    confidence: float
+    confidence_breakdown: dict[str, float]
+    status: ClauseStatus = ClauseStatus.PENDING_RECONCILIATION
+    created_at: datetime | None = None

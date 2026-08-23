@@ -1,19 +1,44 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #0a0a0a;
+  --background: #fafafa;
+  --foreground: #141414;
+  --surface: #ffffff;
+  --border: #e4e4e7;
+  --muted: #6b6b70;
+  --accent: #047857;
+  --accent-soft: #ecfdf5;
+  --danger: #b91c1c;
+  --danger-soft: #fef2f2;
+  --warn: #a16207;
+  --warn-soft: #fefce8;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #101012;
+    --foreground: #ececee;
+    --surface: #18181b;
+    --border: #2c2c30;
+    --muted: #9d9da3;
+    --accent: #34d399;
+    --accent-soft: #052e21;
+    --danger: #f87171;
+    --danger-soft: #2c1212;
+    --warn: #fbbf24;
+    --warn-soft: #291f05;
   }
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans, ui-sans-serif, system-ui, sans-serif);
+}
+
+/* One radius system: interactive pill, surfaces 10px, inputs 8px. */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
 }

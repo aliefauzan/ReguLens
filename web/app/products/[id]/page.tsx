@@ -1,13 +1,29 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getProduct, getProductEvents, type GraphEvent, type Product } from "@/lib/api";
+import { getCompliance, getProduct, getProductEvents, type ComplianceView, type GraphEvent } from "@/lib/api";
+import AskPanel from "./AskPanel";
 
 export const dynamic = "force-dynamic";
 
-async function load(id: string): Promise<{ product: Product; events: GraphEvent[] } | null> {
+const STATUS_STYLE: Record<string, { label: string; color: string; soft: string }> = {
+  compliant: { label: "Compliant", color: "var(--accent)", soft: "var(--accent-soft)" },
+  attention_required: { label: "Attention required", color: "var(--warn)", soft: "var(--warn-soft)" },
+  non_compliant: { label: "Non-compliant", color: "var(--danger)", soft: "var(--danger-soft)" },
+  unknown: { label: "No regulatory data", color: "var(--muted)", soft: "transparent" },
+};
+
+async function load(
+  id: string,
+): Promise<{ product: ProductShape; events: GraphEvent[]; compliance: ComplianceView | null } | null> {
   try {
+    let compliance: ComplianceView | null = null;
+    try {
+      compliance = await getCompliance(id);
+    } catch {
+      // Compliance view is additive; a 404 keeps the page usable.
+    }
     const [{ product }, { events }] = await Promise.all([getProduct(id), getProductEvents(id)]);
-    return { product, events };
+    return { product, events, compliance };
   } catch {
     return null;
   }
@@ -17,19 +33,20 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const data = await load(id);
   if (!data) notFound();
-  const { product, events } = data;
+  const { product, events, compliance } = data;
 
   return (
-    <main className="mx-auto max-w-3xl p-10" data-testid="product-detail">
-      <Link href="/" className="text-sm underline opacity-70">
-        ← All products
-      </Link>
+    <main className="mx-auto max-w-5xl p-10" data-testid="product-detail">
+      <div className="flex items-baseline justify-between">
+        <Link href="/" className="text-sm underline opacity-70">← All products</Link>
+        <span className="font-mono text-xs opacity-40">{id}</span>
+      </div>
 
-      <h1 className="mt-4 text-2xl font-semibold" data-testid="product-name">
+      <h1 className="mt-4 text-2xl font-semibold tracking-tight" data-testid="product-name">
         {product.name}
       </h1>
 
-      <section className="mt-6 rounded border p-5" data-testid="compliance-twin">
+      <section className="card mt-6 p-5" data-testid="compliance-twin">
         <h2 className="text-sm font-medium uppercase tracking-wide opacity-60">Compliance twin</h2>
         <dl className="mt-4 grid gap-3 sm:grid-cols-2">
           <div>
@@ -46,26 +63,20 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           </div>
           <div>
             <dt className="text-sm opacity-60">Destination markets</dt>
-            <dd data-testid="twin-markets">
-              {product.target_markets.length ? product.target_markets.join(", ") : "—"}
-            </dd>
+            <dd data-testid="twin-markets">{product.target_markets.join(", ") || "—"}</dd>
           </div>
         </dl>
-
         <h3 className="mt-6 text-sm font-medium uppercase tracking-wide opacity-60">Ingredients</h3>
         <ul className="mt-3 space-y-2" data-testid="twin-ingredients">
           {product.ingredients.map((ingredient, index) => (
-            <li
-              key={`${ingredient.name}-${index}`}
-              className="flex items-baseline justify-between rounded border px-3 py-2 text-sm"
-              data-testid={`ingredient-${ingredient.normalized}`}
-            >
+            <li key={`${ingredient.name}-${index}`} className="flex items-baseline justify-between text-sm" >
               <span>
                 {ingredient.name}
                 <span className="ml-2 opacity-50">{ingredient.normalized}</span>
                 {ingredient.unnormalized ? (
                   <span
-                    className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-900"
+                    className="ml-2 rounded-full px-1.5 py-0.5 text-xs"
+                    style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
                     title="Not in the substance dictionary — it will not match any clause"
                     data-testid="unnormalized-flag"
                   >
@@ -81,28 +92,134 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         </ul>
       </section>
 
-      <section className="mt-6 rounded border border-dashed p-5" data-testid="readiness-panel">
-        <h2 className="text-sm font-medium uppercase tracking-wide opacity-60">Readiness</h2>
-        <p className="mt-2 text-sm opacity-70">
-          No regulatory data ingested yet. Nothing has been evaluated against this product, so
-          there is no readiness figure to report.
-        </p>
+      {/* Readiness per market */}
+      <section className="mt-6 space-y-4" data-testid="readiness-panel">
+        {compliance && Object.keys(compliance.statuses).length > 0 ? (
+          Object.entries(compliance.statuses).map(([marketId, status]) => (
+            <div key={marketId} className="card p-5">
+              <div className="flex items-baseline justify-between">
+                <h2 className="font-medium">{marketId}</h2>
+                <StatusBadge status={status} />
+              </div>
+              <ul className="mt-3 space-y-2 text-sm" data-testid={`requirements-${marketId}`}>
+                {compliance.requirements
+                  .filter((r) => r.market_id === marketId)
+                  .map((req) => (
+                    <li key={req.id} className="flex items-baseline justify-between gap-3">
+                      <span>
+                        <Mark evaluation={req.evaluation} />{" "}
+                        <span className="font-mono text-xs opacity-70">{req.clause_id}</span>{" "}
+                        {req.substance_normalized ?? req.reason ?? ""}
+                        {req.limit_value !== null ? (
+                          <span className="opacity-70">
+                            {" "}
+                            · limit {req.limit_value} {req.unit}
+                          </span>
+                        ) : null}
+                      </span>
+                      <span className="opacity-70">
+                        {req.product_value !== null ? `product ${req.product_value} ${req.unit}` : "amount unknown"}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+              <p className="mt-3 text-xs opacity-60" data-testid={`issues-${marketId}`}>
+                {compliance.issue_counts.total > 0
+                  ? `${compliance.issue_counts.total} issues — ${compliance.issue_counts.critical} critical`
+                  : "no issues"}
+              </p>
+            </div>
+          ))
+        ) : (
+          <div className="card p-5 text-sm opacity-70" data-testid="readiness-empty">
+            No regulatory data ingested yet. Nothing has been evaluated against this product,
+            so there is no readiness figure to report.
+          </div>
+        )}
       </section>
 
-      <section className="mt-6" data-testid="event-log">
+      {/* Ask panel */}
+      <AskPanel productId={id} />
+
+      {/* Timeline */}
+      <section className="mt-10" data-testid="event-log">
         <h2 className="text-sm font-medium uppercase tracking-wide opacity-60">Audit trail</h2>
-        <ul className="mt-3 space-y-2 text-sm">
+        <ol className="mt-3 space-y-2 text-sm">
           {events.map((event) => (
-            <li key={event.id} className="rounded border px-3 py-2" data-testid={`event-${event.event_type}`}>
+            <li key={event.id} className="card px-3 py-2" data-testid={`event-${event.event_type}`}>
               <span className="font-medium">{event.event_type}</span>
-              <span className="ml-2 opacity-60">by {event.triggered_by}</span>
+              {event.before && event.after ? (
+                <DiffCell before={event.before} after={event.after} />
+              ) : null}
               {event.trace_id ? (
                 <span className="ml-2 font-mono text-xs opacity-40">{event.trace_id.slice(0, 8)}</span>
               ) : null}
             </li>
           ))}
-        </ul>
+        </ol>
       </section>
     </main>
   );
 }
+
+function StatusBadge({ status }: { status: string }) {
+  const style = STATUS_STYLE[status] ?? STATUS_STYLE.unknown;
+  return (
+    <span
+      className="rounded-full px-2.5 py-0.5 text-xs font-medium"
+      style={{ color: style.color, background: style.soft }}
+      data-testid={`status-${status}`}
+    >
+      {style.label}
+    </span>
+  );
+}
+
+function Mark({ evaluation }: { evaluation: string }) {
+  const glyph = evaluation === "pass" ? "✓" : evaluation === "fail" ? "✕" : "⚠";
+  return (
+    <span
+      aria-label={evaluation}
+      style={{
+        color:
+          evaluation === "pass" ? "var(--accent)"
+          : evaluation === "fail" ? "var(--danger)"
+          : "var(--warn)",
+      }}
+    >
+      {glyph}
+    </span>
+  );
+}
+
+type DiffSide = { status?: string; limit_value?: number; market?: string; status_map?: Record<string, string> };
+
+function DiffCell({ before, after }: { before: unknown; after: unknown }) {
+  const b = (before ?? {}) as DiffSide;
+  const a = (after ?? {}) as DiffSide;
+  if (b.limit_value !== undefined || a.limit_value !== undefined) {
+    return (
+      <span className="ml-2 font-mono text-xs">
+        {String(b.limit_value)} → {String(a.limit_value)}
+      </span>
+    );
+  }
+  if (b.status_map || a.status_map) {
+    const bm = b.status_map ?? {};
+    const am = a.status_map ?? {};
+    const changed = Object.keys(am)
+      .filter((k) => bm[k] !== am[k])
+      .map((k) => `${k}: ${bm[k] ?? "?"} → ${am[k]}`);
+    if (changed.length) return <span className="ml-2 font-mono text-xs">{changed.join(", ")}</span>;
+  }
+  if (b.status !== a.status) {
+    return (
+      <span className="ml-2 font-mono text-xs">
+        {String(b.status)} → {String(a.status)}
+      </span>
+    );
+  }
+  return null;
+}
+
+type ProductShape = Awaited<ReturnType<typeof getProduct>>["product"];

@@ -2,7 +2,7 @@
 
 **Single source of truth for what is done.** Check here before starting any work.
 
-Last updated: **19 Aug 2026** · Updated by: **planning session**
+Last updated: **23 Aug 2026** · Updated by: **phases 2–5 build + live-verify session**
 
 > **Read this first, every session.** If a phase below is `COMPLETE`, do not rebuild
 > it — read its phase file to see what exists. If it is `IN PROGRESS`, the unticked
@@ -24,13 +24,13 @@ working locally". If it is not deployed and not verified, it stays unticked.
 
 | # | Phase | Planned | Status | Started | Completed |
 |---|---|---|---|---|---|
-| 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `IN PROGRESS` | 19 Aug | — |
-| 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `IN PROGRESS` | 19 Aug | — |
-| 2 | [Ingestion & Extraction](phases/phase-2-ingestion-extraction.md) | Aug 22–23 | `NOT STARTED` | — | — |
-| 3 | [Guardrail & Reconciliation](phases/phase-3-guardrail-reconciliation.md) | Aug 24–25 | `NOT STARTED` | — | — |
-| 4 | [Impact Engine](phases/phase-4-impact-engine.md) | Aug 26–27 | `NOT STARTED` | — | — |
-| 5 | [Timeline & Query](phases/phase-5-timeline-query.md) | Aug 28–29 | `NOT STARTED` | — | — |
-| 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `NOT STARTED` | — | — |
+| 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `IN PROGRESS` (web hosting moved to Cloud Run; Vercel dependency gone) | 19 Aug | — |
+| 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `IN PROGRESS` (frontend now deployed on Cloud Run web service) | 19 Aug | — |
+| 2 | [Ingestion & Extraction](phases/phase-2-ingestion-extraction.md) | Aug 22–23 | `COMPLETE` | 22 Aug | 23 Aug |
+| 3 | [Guardrail & Reconciliation](phases/phase-3-guardrail-reconciliation.md) | Aug 24–25 | `IN PROGRESS` (core live-verified; drills remain) | 23 Aug | — |
+| 4 | [Impact Engine](phases/phase-4-impact-engine.md) | Aug 26–27 | `IN PROGRESS` (flip + alert live-verified) | 23 Aug | — |
+| 5 | [Timeline & Query](phases/phase-5-timeline-query.md) | Aug 28–29 | `IN PROGRESS` (query live-verified; timeline polish left) | 23 Aug | — |
+| 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `IN PROGRESS` (verify_e2e.sh covers the core journeys live) | 23 Aug | — |
 | 7 | [Hardening & Submission](phases/phase-7-demo-hardening.md) | Aug 31 | `NOT STARTED` | — | — |
 
 ## Cross-cutting work
@@ -44,12 +44,16 @@ Tracked here because it spans phases and is easy to lose.
 - [x] Budget cap + billing alert live (Rp 540,000 ≈ $30/month, 50/90/100%) — *email channel still needs the user to click Google's verification mail*
 - [ ] `docker compose up` brings up the full local stack (phase 0)
 - [ ] Five alerts configured **and each one deliberately triggered once** (phase 0 → 7)
-- [ ] Debug view `/debug/documents/{id}` (phase 2, extended in 3 and 4)
+- [x] Debug view `/debug/documents/{id}` (phase 2, extended in 3) — behind
+      `DEBUG_VIEW`, live: stage_log, rejected candidates, reconciliation
+      decisions, confidence components
+- [x] Frontend hosting on Cloud Run (`regulens-web`) — Vercel unblocked; CORS
+      pinned to the web origin in cloudbuild.yaml
 - [x] `data-testid` attributes added as UI is built (phases 1–5) — started in phase 0's home page
 - [x] Every repository mutation writes a `graph_event` (phase 1 onward) — same-batch write, no raw update exposed
-- [ ] Every Pub/Sub handler idempotent, redelivery tested (phases 2, 3, 4)
-- [ ] Extraction fixture set + accuracy test checked in (phase 2)
-- [ ] `FAKE_LLM=1` fixtures covering the E2E suite — switch landed in phase 0; fixtures still to come in phase 6
+- [ ] Every Pub/Sub handler idempotent, redelivery tested (phases 2, 3, 4) — extract handler built with state-based idempotency; redelivery test runs against the deployed stack
+- [ ] Extraction fixture set + accuracy test checked in (phase 2) — 6 labeled verbatim fixtures + env-gated live-Vertex accuracy test landed locally
+- [ ] `FAKE_LLM=1` fixtures covering the E2E suite — switch landed in phase 0; extraction canned responses landed in phase 2 (`llm.fake_candidates`); full E2E fixture set still phase 6
 
 ## Decisions taken
 
@@ -61,9 +65,18 @@ Recorded so they are not reopened. Change one only with a reason written here.
 - [x] **Secret Manager** for secrets; plain env vars for non-secret config
 - [x] **Docker Compose** for local, with push subscriptions matching production
 - [x] **Vertex topology** — infra in `asia-southeast1`, Gemini `gemini-3.5-flash` via the `global` endpoint, embeddings `text-multilingual-embedding-002` in `asia-southeast1`. Forced: `asia-southeast1` only offers `gemini-2.5-flash`, which fails the hackathon's 3.5+ rule
-- [ ] **Cut Gemma?** — recommended yes. *Decision pending, see `../todo.md` §7*
-- [ ] **Cut OCR fallback?** — recommended yes. *Decision pending, see `../todo.md` §7*
-- [ ] **Readiness as counts, not percentage?** — recommended counts. *Pending*
+- [x] **Cut Gemma?** — **Cut, 22 Aug.** Optional bonus; nothing depends on it. `prefilter_sections` tool slot stays empty rather than half-built.
+- [x] **Cut OCR fallback. Cut, 22 Aug.** Text-layer PDFs + pasted text only; a near-empty text layer scores low `parse_quality` and the clause lands in review instead of inventing content
+- [x] **Readiness as counts, not percentage?** — Counts (phase 4 will render issue counts). *User confirmation still welcome; nothing built contradicts it*
+- [x] **Two GCP projects or one?** — **One** (`regulens-506014`), as already provisioned 19 Aug
+- [x] **Repo public or private?** — **Public**, verified public on GitHub 19 Aug
+- [x] **Composite confidence weights** (22 Aug) — `0.3·parse_quality + 0.4·self_consistency + 0.3·authority_tier`, from the concept doc's model. Self-consistency = best-match field agreement between the two Gemini samples over substance/limit/unit/product_type
+- [x] **Decision events belong to reconciliation** (22 Aug) — phase 2 persists clauses as `pending_reconciliation` with no `clause_created` event; phase 3's verdict application writes exactly one of {created, superseded, conflict_opened, flagged_review} per clause. Keeps one-decision-one-event true and UC-D's zero-mutation assertion meaningful
+- [x] **Upload cache key** (22 Aug) — identical bytes short-circuit when the prior document reached a terminal state (`extracted`/`reconciled`), not only `reconciled`; otherwise the cache could never hit before phase 3 exists
+- [x] **Real corpus numbers override the sketch numbers** (23 Aug) — EU Annex II 14.1.4 is 150 mg/kg for E210-213; BPOM 14.1.4.x reads 400–900 mg/kg. Extraction follows the documents; the "0.05% vs 0.10%" pair stays a demo-narrative baseline seeded in phase 7, never presented as extracted fact
+- [x] **Substance-family equivalence** (23 Aug) — EU limits the group "Benzoic acid — benzoates (E210-213)"; BPOM limits natrium benzoat computed "as benzoic acid". The guardrail compares across that documented shared basis (`_SUBSTANCE_FAMILIES` in `core/guardrail.py`); retrieval and requirement materialization use the same families. Not a guessed mapping — both documents state it
+- [x] **Cross-jurisdiction conflict decided in code, not by the judge** (23 Aug) — different jurisdictions with different limits is deterministically a conflict; the judge is consulted ONLY for same-jurisdiction pairs whose effective dates do not settle the supersede question
+- [x] **Unique image tags per deploy** (23 Aug) — Cloud Run skips revision creation on an unchanged tag, so builds pass `SHORT_SHA=<sha>-<HHMMSS>`; a plain git short-SHA silently redeploys nothing
 - [ ] **Two GCP projects or one?** *Pending*
 - [ ] **Repo public or private?** *Pending*
 
@@ -95,3 +108,4 @@ a diary.
 | 19 Aug 2026 | phase 0 infra | `scripts/setup.sh` written and run: APIs, Artifact Registry, Firestore Native, GCS bucket, 4 Pub/Sub topics, 3 service accounts with narrow + bucket-scoped IAM. Push subscriptions deferred until the worker has a URL |
 | 19 Aug 2026 | billing guard | $30 cap created as Rp 540,000/month (billing account is IDR-denominated) scoped to `regulens-506014`, thresholds 50/90/100%; email notification channel `7686068825666649291` for afindo.mi01@gmail.com, wired to the budget and reserved for the Phase 0 alerts |
 | 19 Aug 2026 | vertex config | Billing linked by user. Found `asia-southeast1` carries only `gemini-2.5-flash` — fails the 3.5+ rule. Settled on infra in `asia-southeast1` + Gemini `gemini-3.5-flash` on the `global` endpoint + embeddings `text-multilingual-embedding-002` in `asia-southeast1`; all smoke-tested |
+| 23 Aug 2026 | phases 2–5 + deploy | Phases 2–5 built AND live-verified in one push. Phase 2 `COMPLETE` (5/5 fixture accuracy on live Vertex). Live E2E green: baseline compliant→upload EU excerpt PDF→conflict opens (UC-C)→**Germany flips non_compliant unprompted** (UC-B)→alert fires→grounded query cites 2 real clauses→Japan refusal honest→cache hit→redelivery no dupes. Fixed en route: SERVER_TIMESTAMP-in-ArrayUnion, transaction.get generator API, empty clause ids published, missing clause jurisdiction/unit fields, substance-family equivalence (benzoates), judge scope narrowed to genuinely ambiguous same-jurisdiction pairs, throwaway genai clients closed (shared cached client), unique image tags per deploy. Web deployed to Cloud Run (`regulens-web`); Vercel dependency dropped; taste-skill design pass (tokens, Geist, single accent, dark/light). 62 tests green, lint clean |

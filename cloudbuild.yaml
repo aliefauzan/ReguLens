@@ -40,7 +40,7 @@ steps:
       - --region=${_REGION}
       - --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com
       - --allow-unauthenticated
-      - --set-env-vars=^@^CORS_ORIGINS=http://localhost:3000,http://localhost:3111@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global
+      - --set-env-vars=^@^CORS_ORIGINS=http://localhost:3000,http://localhost:3111,https://regulens-web-babuvy7w3a-as.a.run.app@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global@DEBUG_VIEW=true@FAKE_LLM=false
       - --command=uvicorn
       - --args=app.main:app,--host,0.0.0.0,--port,8080
       - --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12
@@ -77,7 +77,41 @@ steps:
           --command=python \
           --args=-m,app.job,seed
 
+  - id: build-web
+    name: gcr.io/cloud-builders/docker
+    dir: web
+    args:
+      - build
+      - --build-arg=NEXT_PUBLIC_API_URL=https://regulens-api-babuvy7w3a-as.a.run.app
+      - -t
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
+      - -t
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web:latest
+      - .
+
+  - id: push-web
+    name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web
+
+  - id: deploy-web
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: gcloud
+    args:
+      - run
+      - deploy
+      - regulens-web
+      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
+      - --region=${_REGION}
+      - --allow-unauthenticated
+      - --set-env-vars=VERSION=${SHORT_SHA}
+      - --port=8080
+
 images:
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
   - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
   - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
 

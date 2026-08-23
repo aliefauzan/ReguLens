@@ -3,7 +3,14 @@
 **Estimate:** 2 days (Aug 28–29)
 **Demo sentence:** "Here is the moment my product stopped being compliant — and here is the system explaining why, with sources."
 
-**Status:** `NOT STARTED` · **Started:** — · **Completed:** —
+**Status:** `IN PROGRESS` · **Started:** 23 Aug 2026 · **Completed:** —
+
+> Part B (Query Agent) built and live-verified 23 Aug: "Why is my product at
+> risk?" returns a grounded answer citing 2 real clause ids; the Japan
+> question refuses honestly. Grounding validation is code, not prompt
+> discipline. Part A timeline UI: the events endpoint and audit-trail list
+> exist on the product page; before/after diff rendering and the transition
+> highlight are the remaining polish.
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion

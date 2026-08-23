@@ -20,6 +20,8 @@ ROUTES = {
 }
 DLQ = "regulens.deadletter"
 
+DLQ_PUSH_SUB = "regulens.deadletter.worker"
+
 
 def main() -> None:
     publisher = pubsub_v1.PublisherClient()
@@ -28,9 +30,22 @@ def main() -> None:
     for topic in [*ROUTES, DLQ]:
         try:
             publisher.create_topic(name=publisher.topic_path(PROJECT, topic))
-            print(f"created topic {topic}")
         except exceptions.AlreadyExists:
             print(f"topic {topic} already exists")
+
+    dlq_name = subscriber.subscription_path(PROJECT, DLQ_PUSH_SUB)
+    try:
+        subscriber.create_subscription(
+            name=dlq_name,
+            topic=publisher.topic_path(PROJECT, DLQ),
+            push_config=pubsub_v1.types.PushConfig(
+                push_endpoint=f"{WORKER}/internal/dead-letter"
+            ),
+            ack_deadline_seconds=600,
+        )
+        print(f"created subscription {DLQ_PUSH_SUB} -> /internal/dead-letter")
+    except exceptions.AlreadyExists:
+        print(f"subscription {DLQ_PUSH_SUB} already exists")
 
     for topic, path in ROUTES.items():
         name = subscriber.subscription_path(PROJECT, f"{topic}.worker")

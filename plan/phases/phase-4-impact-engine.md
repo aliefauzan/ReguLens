@@ -3,7 +3,15 @@
 **Estimate:** 2 days (Aug 26–27)
 **Demo sentence:** "Nobody asked it anything — the product just went from compliant to high-risk for Germany, on its own."
 
-**Status:** `NOT STARTED` · **Started:** — · **Completed:** —
+**Status:** `IN PROGRESS` · **Started:** 23 Aug 2026 · **Completed:** —
+
+> Built and live-verified 23 Aug. The headline is real: with BPOM 400 mg/kg
+> active and the product at 300 mg/kg, Indonesia reads `compliant` and Germany
+> `unknown`; uploading the EU excerpt flipped Germany to **non_compliant with
+> zero user interaction**, inside the demo window, and an alert naming the
+> market fired. Requirements materialize family-aware; evaluations are pure
+> arithmetic. Remaining: latency metric emission, impact-chain visual,
+> explicit redelivery-alert idempotency drill (phase 6).
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion

@@ -102,17 +102,21 @@ if [[ -z "$WORKER_URL" ]]; then
 else
   g run services add-iam-policy-binding regulens-worker --region "$REGION" \
     --member "$invoker" --role roles/run.invoker >/dev/null
-  for t in "${TOPICS[@]}"; do
+  for t in "${TOPICS[@]}" "$DLQ_TOPIC"; do
     sub="${t}.worker"
     path="/internal/$(echo "$t" | tr '.' '-')"
+    # The dead-letter route has no dots to translate; keep the mapping explicit.
+    if [[ "$t" == "$DLQ_TOPIC" ]]; then path="/internal/dead-letter"; fi
+    args=(--push-endpoint="${WORKER_URL}${path}"
+          --push-auth-service-account="${SA_INVOKER}@${PROJECT_ID}.iam.gserviceaccount.com"
+          --ack-deadline=600)
+    if [[ "$t" != "$DLQ_TOPIC" ]]; then
+      args+=(--dead-letter-topic="$DLQ_TOPIC" --max-delivery-attempts=5)
+    fi
     if g pubsub subscriptions describe "$sub" >/dev/null 2>&1; then
-      g pubsub subscriptions update "$sub" --push-endpoint="${WORKER_URL}${path}"
+      g pubsub subscriptions update "$sub" "${args[@]}"
     else
-      g pubsub subscriptions create "$sub" --topic "$t" \
-        --push-endpoint="${WORKER_URL}${path}" \
-        --push-auth-service-account="${SA_INVOKER}@${PROJECT_ID}.iam.gserviceaccount.com" \
-        --ack-deadline=600 \
-        --dead-letter-topic="$DLQ_TOPIC" --max-delivery-attempts=5
+      g pubsub subscriptions create "$sub" --topic "$t" "${args[@]}"
     fi
   done
   g pubsub subscriptions describe "${DLQ_TOPIC}.pull" >/dev/null 2>&1 || \

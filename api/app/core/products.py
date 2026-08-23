@@ -63,6 +63,9 @@ def create_product(payload: ProductIn) -> Product:
         after={k: v for k, v in record.items() if k not in {"created_at", "updated_at"}},
     )
     log(logger, logging.INFO, "product created", product_id=product_id)
+    from app.core.impact import run_impact_for_product
+
+    run_impact_for_product(product_id)  # phase-1 hook: twin exists → evaluate immediately
     return get_product(product_id)  # type: ignore[return-value]
 
 
@@ -109,6 +112,9 @@ def update_product(product_id: str, patch: ProductPatch) -> Product | None:
         after=changes,
         merge=True,
     )
+    from app.core.impact import run_impact_for_product
+
+    run_impact_for_product(product_id)  # re-evaluate after ingredient/market changes
     return get_product(product_id)
 
 

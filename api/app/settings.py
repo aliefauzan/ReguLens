@@ -35,6 +35,9 @@ class Settings(BaseSettings):
 
     # Behaviour switches
     fake_llm: bool = False
+    debug_view: bool = False  # /debug/* endpoints; enable in dev, keep off in prod by default
+    max_document_pages: int = 100
+    max_document_mb: int = 20
     cors_origins: str = "http://localhost:3000"
     log_level: str = "INFO"
 
