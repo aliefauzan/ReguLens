@@ -42,12 +42,17 @@ export default function AlertsBanner() {
           style={{ borderColor: "var(--danger)", background: "var(--danger-soft)" }}
           data-testid="alert-row"
         >
-          <span>
+          <span data-testid="impact-chain">
             <strong>{alert.after?.status === "non_compliant" ? "Non-compliant" : "Status changed"}</strong>
             {" — "}
-            product {alert.entity_id} in {(alert.before || {}).market ?? (alert.after || {}).market}
-            {alert.cause?.clause_id ? (
-              <span className="opacity-70"> · caused by clause {alert.cause.clause_id}</span>
+            {(alert.after || {}).market ?? (alert.before || {}).market}
+            {" ← "}
+            <span className="font-mono text-xs">{alert.cause?.clause_id ?? "clause"}</span>
+            {" ← ingested document"}
+            {alert.before?.status ? (
+              <span className="opacity-70">
+                {" "}({String(alert.before.status)} → {String(alert.after?.status)})
+              </span>
             ) : null}
           </span>
           <button

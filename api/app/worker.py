@@ -176,6 +176,15 @@ async def clause_extracted(request: Request) -> JSONResponse:
         )
 
     if result.get("status") != "skipped":
+        # Self-check: two simultaneous deliveries of DIFFERENT messages can
+        # both no-op inside their transactions and ack, leaving the clause
+        # stuck pending. Force a redelivery rather than lose it silently.
+        from app.db import get_db as _get_db
+
+        fresh = _get_db().collection("clauses").document(clause_id).get()
+        if fresh.exists and fresh.to_dict().get("status") == "pending_reconciliation":
+            log(logger, logging.WARNING, "reconcile_left_pending", clause_id=clause_id)
+            return JSONResponse({"status": "retry_later"}, status_code=500)
         mark_processed(HANDLER_RECONCILE, envelope.message_id)
     return JSONResponse({"status": result.get("status"), "clause_id": clause_id})
 

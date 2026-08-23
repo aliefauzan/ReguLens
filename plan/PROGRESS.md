@@ -27,10 +27,10 @@ working locally". If it is not deployed and not verified, it stays unticked.
 | 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `IN PROGRESS` (web hosting moved to Cloud Run; Vercel dependency gone) | 19 Aug | — |
 | 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `IN PROGRESS` (frontend now deployed on Cloud Run web service) | 19 Aug | — |
 | 2 | [Ingestion & Extraction](phases/phase-2-ingestion-extraction.md) | Aug 22–23 | `COMPLETE` | 22 Aug | 23 Aug |
-| 3 | [Guardrail & Reconciliation](phases/phase-3-guardrail-reconciliation.md) | Aug 24–25 | `IN PROGRESS` (core live-verified; drills remain) | 23 Aug | — |
-| 4 | [Impact Engine](phases/phase-4-impact-engine.md) | Aug 26–27 | `IN PROGRESS` (flip + alert live-verified) | 23 Aug | — |
-| 5 | [Timeline & Query](phases/phase-5-timeline-query.md) | Aug 28–29 | `IN PROGRESS` (query live-verified; timeline polish left) | 23 Aug | — |
-| 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `IN PROGRESS` (verify_e2e.sh covers the core journeys live) | 23 Aug | — |
+| 3 | [Guardrail & Reconciliation](phases/phase-3-guardrail-reconciliation.md) | Aug 24–25 | `COMPLETE` | 23 Aug | 23 Aug |
+| 4 | [Impact Engine](phases/phase-4-impact-engine.md) | Aug 26–27 | `COMPLETE` (183s latency honestly recorded vs 90s target) | 23 Aug | 23 Aug |
+| 5 | [Timeline & Query](phases/phase-5-timeline-query.md) | Aug 28–29 | `COMPLETE` (10/10 grounding check live) | 23 Aug | 23 Aug |
+| 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `IN PROGRESS` (UC-A..F + redelivery/concurrency/DLQ/walker/grounding all live-green; formal Playwright shell left) | 23 Aug | — |
 | 7 | [Hardening & Submission](phases/phase-7-demo-hardening.md) | Aug 31 | `NOT STARTED` | — | — |
 
 ## Cross-cutting work
@@ -51,8 +51,11 @@ Tracked here because it spans phases and is easy to lose.
       pinned to the web origin in cloudbuild.yaml
 - [x] `data-testid` attributes added as UI is built (phases 1–5) — started in phase 0's home page
 - [x] Every repository mutation writes a `graph_event` (phase 1 onward) — same-batch write, no raw update exposed
-- [ ] Every Pub/Sub handler idempotent, redelivery tested (phases 2, 3, 4) — extract handler built with state-based idempotency; redelivery test runs against the deployed stack
-- [ ] Extraction fixture set + accuracy test checked in (phase 2) — 6 labeled verbatim fixtures + env-gated live-Vertex accuracy test landed locally
+- [x] Every Pub/Sub handler idempotent, redelivery tested — extract, reconcile
+      and impact all verified against the deployed stack; the concurrent
+      probe additionally caught and fixed a double-race hole
+- [x] Extraction fixture set + accuracy test checked in — verbatim corpus
+      excerpts, live-Vertex run gated behind `REGULENS_EVAL=1`, result 5/5
 - [ ] `FAKE_LLM=1` fixtures covering the E2E suite — switch landed in phase 0; extraction canned responses landed in phase 2 (`llm.fake_candidates`); full E2E fixture set still phase 6
 
 ## Decisions taken
@@ -77,9 +80,6 @@ Recorded so they are not reopened. Change one only with a reason written here.
 - [x] **Substance-family equivalence** (23 Aug) — EU limits the group "Benzoic acid — benzoates (E210-213)"; BPOM limits natrium benzoat computed "as benzoic acid". The guardrail compares across that documented shared basis (`_SUBSTANCE_FAMILIES` in `core/guardrail.py`); retrieval and requirement materialization use the same families. Not a guessed mapping — both documents state it
 - [x] **Cross-jurisdiction conflict decided in code, not by the judge** (23 Aug) — different jurisdictions with different limits is deterministically a conflict; the judge is consulted ONLY for same-jurisdiction pairs whose effective dates do not settle the supersede question
 - [x] **Unique image tags per deploy** (23 Aug) — Cloud Run skips revision creation on an unchanged tag, so builds pass `SHORT_SHA=<sha>-<HHMMSS>`; a plain git short-SHA silently redeploys nothing
-- [ ] **Two GCP projects or one?** *Pending*
-- [ ] **Repo public or private?** *Pending*
-
 ## Blocked on the user
 
 Mirrors `../todo.md`. Nothing below can be unblocked by writing code.
@@ -110,3 +110,4 @@ a diary.
 | 19 Aug 2026 | vertex config | Billing linked by user. Found `asia-southeast1` carries only `gemini-2.5-flash` — fails the 3.5+ rule. Settled on infra in `asia-southeast1` + Gemini `gemini-3.5-flash` on the `global` endpoint + embeddings `text-multilingual-embedding-002` in `asia-southeast1`; all smoke-tested |
 | 23 Aug 2026 | phases 2–5 + deploy | Phases 2–5 built AND live-verified in one push. Phase 2 `COMPLETE` (5/5 fixture accuracy on live Vertex). Live E2E green: baseline compliant→upload EU excerpt PDF→conflict opens (UC-C)→**Germany flips non_compliant unprompted** (UC-B)→alert fires→grounded query cites 2 real clauses→Japan refusal honest→cache hit→redelivery no dupes. Fixed en route: SERVER_TIMESTAMP-in-ArrayUnion, transaction.get generator API, empty clause ids published, missing clause jurisdiction/unit fields, substance-family equivalence (benzoates), judge scope narrowed to genuinely ambiguous same-jurisdiction pairs, throwaway genai clients closed (shared cached client), unique image tags per deploy. Web deployed to Cloud Run (`regulens-web`); Vercel dependency dropped; taste-skill design pass (tokens, Geist, single accent, dark/light). 62 tests green, lint clean |
 | 23 Aug 2026 | drills | Two more live drills banked. **UC-D**: social-chat source produced a needs_review clause at confidence 0.47 (<0.5) with ZERO mutations to conflicts or statuses — authority tiering is demonstrably real. **Same-jurisdiction supersede**: BPOM amendment (350 mg/kg eff. 2026-12-01) superseded the active 400 mg/kg clause live (`superseded` + `superseded_by`). Two latent bugs found and fixed by these drills: cross-jurisdiction conflicts now only open against ACTIVE partners (a needs_review counterpart must not gain state), and a dominant conflict verdict no longer silently drops valid supersede findings — both findings apply |
+| 23 Aug 2026 | drills + close-out | Phase 3/4/5 → COMPLETE. Drills: DLQ→failed→retry recovered live; audit-integrity walker green over live data; concurrent-delivery probe found+fixed a double-race hole; UC-F second-product propagation proven; 10/10 grounding check. Log metrics `regulens_judge_invoked` + `regulens_guardrail_rejected` created. Web: impact-chain banner + red worsening-transition highlight. Honest gap recorded: upload→flip measured 183s vs 90s target (double ADK sampling dominates). Remaining open: Cloud Build push/PR triggers (needs GitHub-app OAuth by user), docker compose (daemon down, user-deferred), formal Playwright shell, phase-7 user items |

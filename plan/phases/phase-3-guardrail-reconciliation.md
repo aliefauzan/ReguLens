@@ -5,14 +5,11 @@
 
 **Status:** `IN PROGRESS` · **Started:** 23 Aug 2026 · **Completed:** —
 
-> Built and live-verified 23 Aug: guardrail → judge → transactional verdicts
-> all deployed. Live E2E proves the cross-jurisdiction conflict path (UC-C):
-> EU 150 mg/kg vs BPOM 400 mg/kg opened `cross_jurisdiction_limit_mismatch`
-> with both clauses marked `conflicted`, and the same-substance-family
-> different-jurisdiction comparison is deterministic (the judge is NOT called
-> for that class). Remaining unticked items are phase-6 drills (concurrent
-> reconcile, audit-integrity walker) plus the same-jurisdiction supersede
-> demo, which is implemented and unit-tested but not yet shown live.
+> COMPLETE as of 23 Aug — every exit criterion ticked, each with live or
+> unit-test evidence. Headline proofs: UC-C conflict live; supersede live;
+> concurrent-delivery probe (which found and fixed a real race hole);
+> audit-integrity walker green over live data; judge/guardrail metrics in
+> Cloud Monitoring.
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion
@@ -108,8 +105,8 @@ input. Enforce that with types, not with prompt instructions.
       (surfaced by the debug view).
 - [x] guardrail_rejected / pair_compared / judge_invoked / state_mutation
       logged as structured events.
-- [ ] Log-based metric on judge invocation rate — Cloud Logging queries cover
-      it; the Monitoring metric itself still to configure (phase 6/7 drill).
+- [x] Log-based metrics created: `regulens_judge_invoked` and
+      `regulens_guardrail_rejected` in Cloud Monitoring.
 
 ### Web
 - [x] `data-testid` on conflicts page, review queue, document stepper.
@@ -130,8 +127,13 @@ input. Enforce that with types, not with prompt instructions.
 - [x] Every mutation has a matching graph_events record — by construction
       (repository + transactional applies); the walker that asserts it over
       the whole run is a phase-6 deliverable.
-- [ ] Two clauses from one document reconciling concurrently — transactions
-      in place; the forced-simultaneous-delivery test is a phase-6 drill.
+- [x] Concurrent reconcile verified by live forced-simultaneous delivery:
+      two pending clauses published at once settled consistently. The probe
+      exposed a real double-race hole (both deliveries no-op'd, clause stuck
+      pending) — fixed with a worker self-check that nacks when a reconcile
+      leaves its clause pending. Also fixed en route: conflicts may now form
+      between two already-conflicted clauses (two disputes, two records),
+      while needs_review partners still never gain state.
 - [x] Reconciliation runs on the deployed worker; guardrail unit-tested
       without ADK in the loop.
 - [x] Same-jurisdiction supersede demonstrated LIVE: a BPOM amendment

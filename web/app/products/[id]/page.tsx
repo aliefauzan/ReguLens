@@ -213,8 +213,15 @@ function DiffCell({ before, after }: { before: unknown; after: unknown }) {
     if (changed.length) return <span className="ml-2 font-mono text-xs">{changed.join(", ")}</span>;
   }
   if (b.status !== a.status) {
+    const worsened =
+      a.status === "non_compliant" ||
+      (a.status === "attention_required" && b.status !== "non_compliant");
     return (
-      <span className="ml-2 font-mono text-xs">
+      <span
+        className="ml-2 font-mono text-xs"
+        style={worsened ? { color: "var(--danger)", fontWeight: 600 } : undefined}
+        data-testid="status-transition"
+      >
         {String(b.status)} → {String(a.status)}
       </span>
     );

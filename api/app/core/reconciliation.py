@@ -284,7 +284,12 @@ def reconcile_clause(clause_id: str) -> dict:
 
     if verdict_outcome == "conflicts":
         target = next((d for d in decisions if d.get("outcome") == "conflicts"), None)
-        _apply_conflict(clause, target["other"] if target else None)
+        relationship = target.get("relationship") if target else None
+        conflict_type = (
+            "limit_conflict_ambiguous" if relationship == "supersede_question"
+            else "cross_jurisdiction_limit_mismatch"
+        )
+        _apply_conflict(clause, target["other"] if target else None, conflict_type=conflict_type)
         # A newer same-jurisdiction clause may BOTH conflict across
         # jurisdictions AND replace its predecessors. Both findings are real:
         # the predecessors die even though the incoming clause ends conflicted.
@@ -583,7 +588,12 @@ def _apply_superseded(clause: dict, existing_clause_id: str | None) -> None:
     txn(db.transaction())
 
 
-def _apply_conflict(clause: dict, other_clause_id: str | None) -> None:
+def _apply_conflict(
+    clause: dict,
+    other_clause_id: str | None,
+    *,
+    conflict_type: str = "cross_jurisdiction_limit_mismatch",
+) -> None:
     """Cross-jurisdiction mismatch: both clauses stay active, a conflict record
     opens. Neither supersedes the other — that is the whole point."""
     db = get_db()
@@ -602,8 +612,11 @@ def _apply_conflict(clause: dict, other_clause_id: str | None) -> None:
                 cid: (ref.get(transaction=transaction).to_dict() or {}).get("status")
                 for cid, ref in refs.items()
             }
-        if any(s != "active" and s != "pending_reconciliation" for s in statuses.values()):
-            return  # raced or already conflicted; do not double-open
+        # Only unverified input must never gain state. A partner already in
+        # an open conflict MAY enter another one: two clauses can genuinely be
+        # in two disputes, each with its own record.
+        if any(s == "needs_review" for s in statuses.values()):
+            return
         other_data: dict = {}
         if other_clause_id and other_clause_id in refs:
             other_data = refs[other_clause_id].get(transaction=transaction).to_dict() or {}
@@ -614,7 +627,7 @@ def _apply_conflict(clause: dict, other_clause_id: str | None) -> None:
                 "workspace_id": WORKSPACE_ID,
                 "clause_a": clause["id"],
                 "clause_b": other_clause_id,
-                "type": "cross_jurisdiction_limit_mismatch",
+                "type": conflict_type,
                 "detail": {
                     "a_limit": clause.get("limit_value"), "a_unit": clause.get("unit"),
                     "b_limit": other_data.get("limit_value"),

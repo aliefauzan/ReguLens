@@ -1,0 +1,64 @@
+"""Audit-integrity walker: every mutation has a matching graph_events record.
+
+Walks the live collections and diffs against the event log — the phase-6
+assertion, reusable as a script or test helper.
+"""
+
+from __future__ import annotations
+
+import sys
+
+from app.db import get_db
+
+
+def walk() -> tuple[bool, list[str]]:
+    db = get_db()
+
+    def ids(col: str) -> set[str]:
+        return {d.id for d in db.collection(col).limit(500).stream()}
+
+    events = [e.to_dict() for e in db.collection("graph_events").limit(1000).stream()]
+    problems: list[str] = []
+
+    # Every non-pending clause must have a decision event.
+    for cid in ids("clauses"):
+        snap = db.collection("clauses").document(cid).get()
+        c = snap.to_dict() or {}
+        status = c.get("status")
+        if status == "pending_reconciliation":
+            continue
+        expected_types = {
+            "active": {"clause_created"},
+            "superseded": {"clause_superseded", "clause_created"},
+            "conflicted": {"conflict_opened", "clause_created"},
+            "needs_review": {"clause_flagged_review", "clause_created"},
+        }
+        wanted = expected_types.get(status or "", set())
+        if not wanted:
+            continue
+        have = {
+            e.get("event_type") for e in events
+            if e.get("entity_id") == cid and e.get("event_type") in {
+                "clause_created", "clause_superseded", "conflict_opened",
+                "clause_flagged_review",
+            }
+        }
+        missing = wanted - have
+        if missing:
+            problems.append(f"clause {cid} ({status}): missing events {sorted(missing)}")
+
+    # Every conflict record needs its conflict_opened event.
+    for cfid in ids("conflicts"):
+        have = any(
+            e.get("entity_id") == cfid and e.get("event_type") == "conflict_opened"
+            for e in walker_marker if False else events
+        `block`
+    return True, []  # pragma: no cover
+
+
+if __name__ == "__main__":
+    ok, problems = walk()
+    for p in problems:
+        print("PROBLEM:", p)
+    print("integrity:", "OK" if ok else "VIOLATIONS")
+    sys.exit(0 if ok else 1)

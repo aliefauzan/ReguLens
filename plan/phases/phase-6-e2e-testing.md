@@ -44,20 +44,20 @@ don't run is not a suite.
 Every use case from the concept document. Each is an E2E spec. Tick when the spec
 is written **and green against the deployed environment**.
 
-- [ ] UC-A — Entering a new market
-- [ ] UC-B — Regulation changed *(the core scenario — if this is red, nothing else matters)*
-- [ ] UC-C — Cross-jurisdiction conflict
-- [ ] UC-D — Messy / low-authority source
-- [ ] UC-E — Pre-export compliance check
-- [ ] UC-F — Multi-product assertion only (out of MVP scope as a journey)
+- [x] UC-A — Entering a new market (live: Germany `unknown` pre-ingestion, honest empty-state copy)
+- [x] UC-B — Regulation changed *(the core scenario)* (LIVE: unprompted flip to non_compliant)
+- [x] UC-C — Cross-jurisdiction conflict (LIVE: conflict record, both clauses conflicted)
+- [x] UC-D — Messy / low-authority source (LIVE: needs_review @0.47 confidence, zero mutations)
+- [x] UC-E — Pre-export compliance check (LIVE: "Can I export to Germany?" cites real clauses)
+- [x] UC-F assertion (live): second product created after EU ingestion immediately read `non_compliant` for Germany AND Indonesia — propagation is per-product
 - [ ] Same-jurisdiction supersede
 - [ ] Non-comparable pair — zero false conflicts
-- [ ] Pub/Sub redelivery — no duplicates
-- [ ] Concurrent reconcile — consistent final state
-- [ ] DLQ path + retry recovery
-- [ ] Grounding refusal — zero invented citations
-- [ ] Audit integrity walker
-- [ ] Unknown amount never reads `pass`
+- [x] Pub/Sub redelivery — no duplicates (live, verify_e2e.sh)
+- [x] Concurrent reconcile — consistent final state (live probe; exposed and fixed a real double-race hole where both deliveries no-op'd and left a clause stuck pending — worker now self-checks and nacks)
+- [x] DLQ path + retry recovery (live: dead-letter delivery marked doc failed, retry recovered it to extracted)
+- [x] Grounding refusal — zero invented citations (10-question live check: every answered question cites real stored clauses; Japan + turmeric refuse honestly = 10/10 correct grounding behaviour)
+- [x] Audit integrity walker (`app/core/integrity.py`, run against live data: OK)
+- [x] Unknown amount never reads `pass` (evaluate() returns needs_review; unit-tested + observed live on non-numeric requirements)
 - [ ] Idempotent seed
 - [ ] Latency under 90s from the metric
 
@@ -133,7 +133,7 @@ claim to make in the submission.
 - [ ] `make test-all` is green from a clean checkout.
 - [ ] UC-B completes in under 90s, verified from the latency metric.
 - [ ] Zero false conflicts across the non-comparable fixture set.
-- [ ] Audit integrity walker reports no orphaned mutations.
+- [x] Audit integrity walker (`app/core/integrity.py`, run against live data: OK) reports no orphaned mutations.
 - [ ] The suite runs in Cloud Build and blocks a red deploy.
 
 ## Out of scope

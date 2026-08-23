@@ -37,7 +37,12 @@ def classify_intent(question: str) -> str:
     return "clause_lookup"
 
 
-def _retrieve(question: str, product_id: str | None) -> dict[str, Any]:
+def _retrieve(
+    question: str,
+    product_id: str | None,
+    *,
+    intent: str = "clause_lookup",
+) -> dict[str, Any]:
     bundle: dict[str, Any] = {"clauses": [], "requirements": [], "conflicts": []}
 
     # 1. Clause retrieval by embedding similarity.
@@ -78,6 +83,41 @@ def _retrieve(question: str, product_id: str | None) -> dict[str, Any]:
         .stream()
     )
     bundle["conflicts"] = [d.to_dict() | {"id": d.id} for d in conflicts]
+
+    # 4. Change questions need history, not just current state.
+    if intent == "change":
+        from google.cloud import firestore
+
+        events = (
+            get_db()
+            .collection("graph_events")
+            .where(
+                filter=firestore.FieldFilter(
+                    "event_type", "in",
+                    ["clause_superseded", "requirement_changed", "product_status_changed"],
+                )
+            )
+            .limit(15)
+            .stream()
+        )
+        bundle["events"] = [e.to_dict() | {"id": e.id} for e in events]
+        seen_ids = {c["id"] for c in bundle["clauses"]}
+        # Conflict parties carry the current competing limits.
+        for cfl in bundle["conflicts"]:
+            for cid in (cfl.get("clause_a"), cfl.get("clause_b")):
+                if cid and cid not in seen_ids:
+                    snap = get_db().collection("clauses").document(cid).get()
+                    if snap.exists:
+                        bundle["clauses"].append(snap.to_dict() | {"id": snap.id})
+                        seen_ids.add(cid)
+        for ev in bundle["events"]:
+            cause = ev.get("cause") or {}
+            cid = cause.get("clause_id") or cause.get("new_clause_id")
+            if cid and cid not in seen_ids:
+                snap = get_db().collection("clauses").document(cid).get()
+                if snap.exists:
+                    bundle["clauses"].append(snap.to_dict() | {"id": snap.id})
+                    seen_ids.add(snap.id)
     return bundle
 
 
@@ -94,9 +134,11 @@ def _substance_of(question: str) -> str | None:
 
 def _synthesis_prompt(question: str, bundle: dict[str, Any]) -> str:
     lines = [
-        "You answer regulatory compliance questions using ONLY the evidence below.",
-        "Every claim must trace to a stored clause. Cite clause IDs inline as [clause_id].",
-        'If the evidence does not cover the question, reply exactly:',
+        "You answer regulatory compliance questions using ONLY the evidence below:",
+        "stored clauses, requirement evaluations, recorded events, and open conflicts.",
+        "Events and conflicts describe what changed; cite the clause ids they name.",
+        "Every factual claim must trace to a stored clause id, cited inline as [clause_id].",
+        "If NO evidence addresses the question at all, reply exactly:",
         '"I do not have enough information to answer this."',
         "",
         f"Question: {question}",
@@ -112,6 +154,24 @@ def _synthesis_prompt(question: str, bundle: dict[str, Any]) -> str:
             f"[req:{r['id']}] product {r.get('product_value')} vs limit "
             f"{r.get('limit_value')} {r.get('unit')} — evaluation: {r.get('evaluation')}"
         )
+    for ev in bundle.get("events", [])[:8]:
+        before = (ev.get("before") or {}).get("status") or (ev.get("before") or {}).get("limit_value")
+        after = (ev.get("after") or {}).get("status") or (ev.get("after") or {}).get("limit_value")
+        cause = ev.get("cause") or {}
+        cause_clause = cause.get("clause_id") or cause.get("new_clause_id")
+        entity = ev.get("entity_id", "")
+        by_id = {c["id"]: c for c in bundle["clauses"]}
+        parts = [f"{ev.get('event_type')} on {entity}"]
+        entity_clause = by_id.get(entity)
+        if entity_clause:
+            parts.append(
+                f"limit {entity_clause.get('limit_value')} {entity_clause.get('unit')}"
+            )
+        if before is not None or after is not None:
+            parts.append(f"{before} -> {after}")
+        if cause_clause:
+            parts.append(f"involving {cause_clause}")
+        lines.append(f"[event:{ev['id']}] " + "; ".join(parts))
     for cfl in bundle["conflicts"][:5]:
         lines.append(
             f"[conflict:{cfl['id']}] between {cfl.get('clause_a')} and {cfl.get('clause_b')}"
@@ -188,7 +248,7 @@ def ask(question: str, product_id: str | None = None) -> dict[str, Any]:
     """POST /query entry. Retrieval → synthesis → grounding validation → log."""
     started = time.monotonic()
     intent = classify_intent(question)
-    bundle = _retrieve(question, product_id)
+    bundle = _retrieve(question, product_id, intent=intent)
     answer, cited = _synthesize(question, bundle)
     latency_ms = int((time.monotonic() - started) * 1000)
 
