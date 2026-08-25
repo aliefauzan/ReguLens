@@ -2,12 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createProduct, PRODUCT_TYPES, UNITS } from "@/lib/api";
+import { createProduct, PRODUCT_TYPES } from "@/lib/api";
 import { plain } from "../../_ui/status";
-
-type Row = { name: string; amount: string; unit: string };
-
-const EMPTY_ROW: Row = { name: "", amount: "", unit: "" };
+import IngredientsField, { type Row } from "./IngredientsField";
 
 const COUNTRIES = [
   { code: "ID", label: "Indonesia" },
@@ -32,14 +29,6 @@ export default function ProductForm() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  function updateRow(index: number, patch: Partial<Row>) {
-    setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
-  }
-
-  function removeRow(index: number) {
-    setRows((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)));
-  }
-
   function toggleMarket(id: string) {
     setMarkets((current) =>
       current.includes(id) ? current.filter((m) => m !== id) : [...current, id],
@@ -49,6 +38,15 @@ export default function ProductForm() {
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+
+    const numberWithoutUnit = rows.find((row) => row.name.trim() && row.amount.trim() && !row.unit);
+    if (numberWithoutUnit) {
+      setError(
+        `“${numberWithoutUnit.name}” has an amount but no unit. Pick a unit, or clear the amount.`,
+      );
+      return;
+    }
+
     setSaving(true);
     try {
       const ingredients = rows
@@ -171,77 +169,7 @@ export default function ProductForm() {
         </div>
       </fieldset>
 
-      <fieldset className="card p-6" data-testid="field-ingredients">
-        <legend className="t-headline float-left w-full">What is inside it?</legend>
-        <p className="help clear-both">
-          List the ingredients. For preservatives and additives, the amount matters — that is what
-          gets compared against the legal limit. Leave the amount blank if you do not know it.
-        </p>
-
-        <div className="mt-4 space-y-3">
-          {rows.map((row, index) => (
-            <div key={index} className="inset p-4">
-              <div className="grid gap-3 sm:grid-cols-[1fr_7rem_10rem_auto]">
-                <label className="block">
-                  <span className="label sm:sr-only">Ingredient</span>
-                  <input
-                    className="field"
-                    placeholder="e.g. sodium benzoate, or E211"
-                    value={row.name}
-                    onChange={(e) => updateRow(index, { name: e.target.value })}
-                    data-testid={`ingredient-name-${index}`}
-                  />
-                </label>
-                <label className="block">
-                  <span className="label sm:sr-only">Amount</span>
-                  <input
-                    className="field"
-                    placeholder="amount"
-                    inputMode="decimal"
-                    value={row.amount}
-                    onChange={(e) => updateRow(index, { amount: e.target.value })}
-                    data-testid={`ingredient-amount-${index}`}
-                  />
-                </label>
-                <label className="block">
-                  <span className="label sm:sr-only">Unit</span>
-                  <select
-                    className="field"
-                    value={row.unit}
-                    onChange={(e) => updateRow(index, { unit: e.target.value })}
-                    data-testid={`ingredient-unit-${index}`}
-                  >
-                    <option value="">unit…</option>
-                    {UNITS.map((unit) => (
-                      <option key={unit} value={unit}>
-                        {plain(unit)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  className="btn btn-quiet btn-small"
-                  onClick={() => removeRow(index)}
-                  aria-label={`Remove ingredient ${index + 1}`}
-                  disabled={rows.length === 1}
-                >
-                  Remove
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          className="btn btn-secondary btn-small mt-4"
-          onClick={() => setRows((current) => [...current, { ...EMPTY_ROW }])}
-          data-testid="add-ingredient"
-        >
-          Add another ingredient
-        </button>
-      </fieldset>
+      <IngredientsField rows={rows} setRows={setRows} />
 
       {error ? (
         <div className="card p-5" data-testid="form-error">

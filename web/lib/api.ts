@@ -104,6 +104,12 @@ export async function createProduct(body: unknown): Promise<Product> {
   return payload.product as Product;
 }
 
+export type Substance = { canonical: string; label: string; synonyms: string[] };
+
+export function listSubstances(): Promise<{ substances: Substance[] }> {
+  return get("/substances");
+}
+
 export const PRODUCT_TYPES = [
   "food_beverage_powder",
   "food_beverage_liquid",
@@ -213,6 +219,11 @@ export type ComplianceRequirement = {
   limit_value: number | null;
   unit: string | null;
   product_value: number | null;
+  product_unit?: string | null;
+  // Both sides converted to one unit — the comparison that was actually made.
+  comparable_value?: number | null;
+  comparable_limit?: number | null;
+  comparable_unit?: string | null;
   evaluation: string;
   severity: string;
   reason: string | null;

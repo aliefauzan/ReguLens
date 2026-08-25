@@ -52,19 +52,37 @@ Click **Add a product**. The form asks four things in plain words:
 - **What kind of product is it?** — `Drink powder`
 - **Where is it made?** — `Indonesia`
 - **Where do you want to sell it?** — tick **Germany** and **Indonesia**
-- **What is inside it?** — add `ginger`, `turmeric`, `honey powder`, and
-  `sodium benzoate` with amount `300` and unit `mg per kg`
+- **What is inside it?** — the fastest way is **Paste the list**: copy the
+  ingredients straight off your packaging and press **Read this list**. For the
+  demo product, paste:
 
-The amount matters. It is the number that gets compared against the legal limit.
-If you do not know an amount, leave it blank — the app will say the ingredient
-was not checked rather than guess.
+  ```
+  ginger, turmeric, honey powder, sodium benzoate (0.08%)
+  ```
+
+  ReguLens splits that into rows and fills in an amount only where the text was
+  unambiguous. Everything it read lands in an editable table so you can correct
+  it before anything is saved. If you would rather type them yourself, switch to
+  **Enter one by one** — the ingredient box suggests the names ReguLens already
+  knows, including E-numbers.
+
+Only preservatives and additives need an amount — that is the number compared
+against the legal limit. If you do not know an amount, leave it blank: the app
+will say the ingredient was not checked rather than guess. An amount without a
+unit is refused, because a bare number cannot be compared with a legal limit.
 
 Click **Save product**.
 
 ### 2. Read the first answer
 
 The product page opens on the question that matters: **Can you sell it?** Each
-country gets its own card:
+country gets its own card, and each broken rule shows the two numbers the
+verdict turns on — what your product contains against what the law allows. If
+you entered a percentage and the law is written in mg/kg, the line underneath
+shows both sides converted into the same unit, so you can check the comparison
+rather than take it on trust.
+
+Each country gets its own card:
 
 - **Indonesia (BPOM): Meets the rules** — the demo seed already loaded the
   Indonesian regulation, which allows up to 400 mg per kg. Your 300 is under it.
@@ -108,7 +126,13 @@ You can close this page. The work continues without you.
 
 ### 5. The moment the answer changes by itself
 
-Go back to **Products**. Within a minute or two, without you asking anything:
+Go back to **Products**. The card at the top always names the single most useful
+thing to do next, worked out from the actual state of your data — add rules for
+a market that has none, check something that was not confident enough, or look
+at a product that now breaks a rule. Underneath it, **What changed on its own**
+lists every verdict that moved without you asking.
+
+Within a minute or two, without you asking anything:
 
 - A red banner appears: **Germany (European Union): breaks a rule**
 - The Germany card on your product now reads **Breaks a rule**, and says

@@ -70,26 +70,35 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
 
                         {req.limit_value !== null && req.product_value !== null ? (
                           // The comparison is the whole answer. Show it as a
-                          // comparison, at a size that survives a glance.
-                          <div className="mt-4 grid max-w-md grid-cols-2 gap-4">
-                            <div>
-                              <p className="t-footnote t-secondary">Your product has</p>
-                              <p
-                                className="t-number figure mt-1"
-                                style={{ color: req.evaluation === "fail" ? "var(--danger)" : "var(--good)" }}
-                              >
-                                {req.product_value}
-                                <span className="figure-unit">{plain(req.unit)}</span>
-                              </p>
+                          // comparison, at a size that survives a glance — and
+                          // in the unit the comparison was actually made in.
+                          <>
+                            <div className="mt-4 grid max-w-md grid-cols-2 gap-4">
+                              <div>
+                                <p className="t-footnote t-secondary">Your product has</p>
+                                <p
+                                  className="t-number figure mt-1"
+                                  style={{ color: req.evaluation === "fail" ? "var(--danger)" : "var(--good)" }}
+                                >
+                                  {req.product_value}
+                                  <span className="figure-unit">{plain(req.product_unit ?? req.unit)}</span>
+                                </p>
+                              </div>
+                              <div>
+                                <p className="t-footnote t-secondary">Allowed up to</p>
+                                <p className="t-number figure mt-1">
+                                  {req.limit_value}
+                                  <span className="figure-unit">{plain(req.unit)}</span>
+                                </p>
+                              </div>
                             </div>
-                            <div>
-                              <p className="t-footnote t-secondary">Allowed up to</p>
-                              <p className="t-number figure mt-1">
-                                {req.limit_value}
-                                <span className="figure-unit">{plain(req.unit)}</span>
+                            {req.product_unit && req.product_unit !== req.unit && req.comparable_value != null ? (
+                              <p className="t-footnote t-secondary mt-2">
+                                In the same unit: {round4(req.comparable_value)} {plain(req.comparable_unit)} against{" "}
+                                {round4(req.comparable_limit)} {plain(req.comparable_unit)}.
                               </p>
-                            </div>
-                          </div>
+                            ) : null}
+                          </>
                         ) : null}
 
                         <p className="t-footnote mt-3">
@@ -205,6 +214,12 @@ const EVENT_WORDS: Record<string, string> = {
   clause_created: "Rule recorded",
   conflict_opened: "Two rules disagree",
 };
+
+/** Conversions produce long floats; nobody needs 200.00000000000003. */
+function round4(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return String(Math.round(value * 10000) / 10000);
+}
 
 /** Identifiers matter for an audit and mean nothing to a first-time reader. */
 function Provenance({ clauseId }: { clauseId: string }) {

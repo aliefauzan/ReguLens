@@ -37,6 +37,8 @@
   --danger: #d70015;          /* systemRed, text-safe */
   --danger-soft: #ff3b301f;
 
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%234a4a51' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
   /* Materials */
   --material: #ffffffcc;
   --shadow: 0 1px 2px #0000000d, 0 8px 24px #0000000a;
@@ -68,6 +70,8 @@
     --warn-soft: #ff9f0a26;
     --danger: #ff453a;
     --danger-soft: #ff453a26;
+
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23b9b9c2' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
     --material: #1c1c1ecc;
     --shadow: 0 1px 2px #00000059, 0 8px 24px #00000040;
@@ -155,16 +159,55 @@ body {
   font-weight: 500;
 }
 
+/* Every single-line control is the same height, whatever the browser thinks.
+   `min-height` was not enough: an <input> takes its height from body's
+   line-height while a <select> uses the browser's own, so the two ended up
+   47px and 44px side by side in the same row. Fix the height, kill the native
+   appearance, and draw one chevron for every select. */
 .field {
+  display: block;
   width: 100%;
-  min-height: var(--tap);
-  padding: 10px 14px;
+  height: 48px;
+  padding: 0 14px;
   border-radius: var(--radius-control);
   background: var(--surface-2);
   border: 1px solid var(--separator);
   color: var(--foreground);
   font-size: 17px;
+  font-family: inherit;
+  line-height: normal;
+  appearance: none;
+  -webkit-appearance: none;
 }
+
+select.field {
+  padding-right: 40px;
+  background-image: var(--chevron);
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 12px 8px;
+}
+
+/* Multi-line and file controls grow; they keep the same padding rhythm. */
+textarea.field {
+  height: auto;
+  min-height: 132px;
+  padding: 12px 14px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+input[type="file"].field {
+  height: auto;
+  padding: 12px 14px;
+  line-height: 1.4;
+}
+
+input[type="date"].field::-webkit-calendar-picker-indicator {
+  opacity: 0.6;
+  cursor: pointer;
+}
+
 .field:focus {
   outline: none;
   border-color: var(--accent);

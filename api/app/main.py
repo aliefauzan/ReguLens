@@ -73,6 +73,32 @@ def post_markets_seed() -> dict:
     return {"markets": markets.seed_markets(), "trace_id": get_trace_id()}
 
 
+@app.get("/substances")
+def get_substances() -> dict:
+    """The substance dictionary, so the UI can offer the names that will
+    actually match a clause.
+
+    An ingredient the dictionary does not know is flagged `unnormalized` and
+    matches nothing, which looks exactly like "no problems found". Letting a
+    user pick from the known set up front is the cheapest way to avoid that
+    false negative, so this is a product feature, not a convenience.
+    """
+    from app.core.normalization import SYNONYMS
+
+    return {
+        "substances": [
+            {
+                "canonical": canonical,
+                # The first synonym is the plain-English name in every entry.
+                "label": synonyms[0],
+                "synonyms": synonyms,
+            }
+            for canonical, synonyms in sorted(SYNONYMS.items())
+        ],
+        "trace_id": get_trace_id(),
+    }
+
+
 @app.post("/products", status_code=201)
 def create_product(payload: ProductIn) -> dict:
     product = products.create_product(payload)

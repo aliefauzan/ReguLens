@@ -172,7 +172,7 @@ export default function UploadForm() {
         <label className="mt-5 block">
           <span className="label">Or paste the text</span>
           <textarea
-            className="field min-h-32"
+            className="field"
             style={{ fontSize: 15, lineHeight: 1.5 }}
             placeholder={"Paste an announcement, a circular, or a forwarded message here."}
             value={text}

@@ -106,6 +106,10 @@ def materialize_for_product(product_id: str) -> list[dict]:
                 "limit_value": clause.get("limit_value"),
                 "unit": clause.get("unit"),
                 "product_value": evaluation["product_value"],
+                "product_unit": evaluation["product_unit"],
+                "comparable_value": evaluation["comparable_value"],
+                "comparable_limit": evaluation["comparable_limit"],
+                "comparable_unit": evaluation["comparable_unit"],
                 "evaluation": evaluation["evaluation"],
                 "severity": evaluation["severity"],
                 "reason": evaluation["reason"],
@@ -255,8 +259,14 @@ def run_impact_for_product(product_id: str) -> dict:
 
 
 def evaluate(product: dict, requirement_clause: dict) -> dict:
-    """Evaluate one clause against one product. Returns
-    {evaluation, severity, product_value, unit}."""
+    """Evaluate one clause against one product.
+
+    Returns the raw amount as the user entered it AND the converted value the
+    comparison actually used. Reporting `product_value` next to the clause's
+    unit — 0.02 alongside a mg/kg limit when the ingredient was given as 0.02%
+    — states a number that is off by four orders of magnitude, which is worse
+    than saying nothing.
+    """
     ingredient = next(
         (
             i for i in product.get("ingredients", [])
@@ -265,6 +275,8 @@ def evaluate(product: dict, requirement_clause: dict) -> dict:
         None,
     )
     amount = ingredient.get("amount") if ingredient else None
+    comparable_value: float | None = None
+    comparable_limit: float | None = None
 
     if requirement_clause.get("clause_type") != "numeric_limit":
         result = "needs_review"
@@ -281,6 +293,8 @@ def evaluate(product: dict, requirement_clause: dict) -> dict:
         lv = to_mg_per_kg(requirement_clause.get("limit_value"), requirement_clause.get("unit"))
         result = "pass" if pv <= lv else "fail"
         reason = None
+        comparable_value = pv
+        comparable_limit = lv
 
     if (requirement_clause.get("confidence") or 0) < 0.5 and result != "needs_review":
         result = "needs_review"
@@ -292,5 +306,10 @@ def evaluate(product: dict, requirement_clause: dict) -> dict:
         "severity": severity,
         "product_value": amount,
         "product_unit": (ingredient or {}).get("unit"),
+        # Both sides in one unit, so a reader can see the comparison that was
+        # actually made rather than being asked to trust it.
+        "comparable_value": comparable_value,
+        "comparable_limit": comparable_limit,
+        "comparable_unit": "mg_per_kg" if comparable_value is not None else None,
         "reason": reason,
     }
