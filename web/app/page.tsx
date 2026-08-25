@@ -40,7 +40,7 @@ export default async function Home() {
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="t-large-title">Your products</h1>
-          <p className="t-subhead t-secondary mt-2 max-w-xl">
+          <p className="t-body t-secondary prose-measure mt-2">
             Each product is checked against the rules of every market you sell into.
             When a new rule arrives, the answer here updates by itself.
           </p>
@@ -55,7 +55,7 @@ export default async function Home() {
       {error ? (
         <div className="card mt-8 p-5" data-testid="products-error">
           <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
-          <p className="t-subhead t-secondary mt-1">{error}</p>
+          <p className="t-footnote t-secondary mt-1">{error}</p>
         </div>
       ) : null}
 
@@ -63,22 +63,33 @@ export default async function Home() {
 
       {rows.length > 0 ? (
         <section className="mt-8">
-          <h2 className="t-footnote t-secondary uppercase tracking-wide">Products</h2>
-          <ul className="mt-3 grid gap-4 sm:grid-cols-2">
+          <h2 className="t-section">Products</h2>
+          <ul className="mt-4 grid gap-4">
             {rows.map(({ product, compliance }) => (
               <li key={product.id} className="card p-5" data-testid={`product-${product.id}`}>
-                <Link href={`/products/${product.id}`} className="t-headline">
-                  {product.name}
-                </Link>
-                <p className="t-footnote t-secondary mt-1">
-                  {plain(product.product_type)} · {product.ingredients.length} ingredients
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div>
+                    <Link href={`/products/${product.id}`} className="t-headline">
+                      {product.name}
+                    </Link>
+                    <p className="t-footnote t-secondary mt-1">
+                      {plain(product.product_type)} · {product.ingredients.length} ingredients
+                    </p>
+                  </div>
+                  <Link
+                    href={`/products/${product.id}`}
+                    className="btn btn-secondary btn-small"
+                    data-testid={`open-${product.id}`}
+                  >
+                    See the details
+                  </Link>
+                </div>
 
-                <div className="mt-4 space-y-2">
+                <div className="mt-5 grid gap-3 sm:grid-cols-2">
                   {compliance && Object.keys(compliance.statuses).length > 0 ? (
                     Object.entries(compliance.statuses).map(([marketId, status]) => (
-                      <div key={marketId} className="flex items-center justify-between gap-3">
-                        <span className="t-subhead">{marketName(marketId)}</span>
+                      <div key={marketId} className="inset flex items-center justify-between gap-3 p-4">
+                        <span className="t-body">{marketName(marketId)}</span>
                         <StatusBadge status={status} testId={`status-${marketId}-${status}`} />
                       </div>
                     ))
@@ -88,14 +99,6 @@ export default async function Home() {
                     </p>
                   )}
                 </div>
-
-                <Link
-                  href={`/products/${product.id}`}
-                  className="btn btn-secondary btn-small mt-4"
-                  data-testid={`open-${product.id}`}
-                >
-                  See the details
-                </Link>
               </li>
             ))}
           </ul>
@@ -105,15 +108,15 @@ export default async function Home() {
       {docs.length > 0 ? (
         <section className="mt-10">
           <div className="flex items-baseline justify-between">
-            <h2 className="t-footnote t-secondary uppercase tracking-wide">Rules you have added</h2>
+            <h2 className="t-section">Rules you have added</h2>
             <Link href="/documents/new" className="btn btn-quiet btn-small">Add another</Link>
           </div>
-          <ul className="card mt-3 overflow-hidden">
+          <ul className="card mt-4 overflow-hidden">
             {docs.slice(0, 5).map((doc) => (
               <li key={doc.id} className="row">
                 <Link href={`/documents/${doc.id}`} className="flex items-center justify-between gap-3 px-5 py-4">
                   <span className="min-w-0">
-                    <span className="t-subhead block truncate">{doc.source_name}</span>
+                    <span className="t-body block truncate">{doc.source_name}</span>
                     <span className="t-footnote t-secondary">
                       {jurisdictionName(doc.jurisdiction)}
                       {doc.filename ? ` · ${doc.filename}` : ""}
@@ -156,7 +159,7 @@ function StartHere() {
   return (
     <section className="card mt-8 p-6" data-testid="products-empty">
       <h2 className="t-title">Start here</h2>
-      <p className="t-subhead t-secondary mt-1">Three steps. You only do the first two.</p>
+      <p className="t-body t-secondary mt-2">Three steps. You only do the first two.</p>
       <ol className="mt-6 space-y-5">
         {steps.map((step, index) => (
           <li key={step.title} className="flex gap-4">
@@ -169,7 +172,7 @@ function StartHere() {
             </span>
             <div>
               <p className="t-headline">{step.title}</p>
-              <p className="t-subhead t-secondary mt-1">{step.body}</p>
+              <p className="t-footnote t-secondary prose-measure mt-1">{step.body}</p>
               {step.href ? (
                 <Link href={step.href} className="btn btn-secondary btn-small mt-3">
                   {step.cta}

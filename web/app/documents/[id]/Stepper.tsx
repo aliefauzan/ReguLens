@@ -13,23 +13,28 @@ const STAGES: { key: string; label: string; detail: string }[] = [
   { key: "uploaded", label: "Received", detail: "We have your document." },
   { key: "extracting", label: "Reading", detail: "Finding the rules and the numbers in them." },
   { key: "extracted", label: "Rules found", detail: "Each rule is listed below." },
-  { key: "reconciling", label: "Comparing", detail: "Checking these against rules we already had." },
-  { key: "updated", label: "Products updated", detail: "Any product affected has been re-checked." },
+  {
+    key: "updated",
+    label: "Compared and applied",
+    detail: "Checked against the rules we already had, and any affected product re-checked.",
+  },
 ];
 
-function stageIndex(status: string): number {
-  switch (status) {
-    case "uploaded":
-      return 1;
-    case "extracting":
-      return 2;
-    case "extracted":
-      return 3;
-    case "reconciled":
-      return 5;
-    default:
-      return 1;
-  }
+/** How many stages are finished.
+ *
+ * The document's own status stops at `extracted`: reconciliation happens per
+ * clause, on its own queue. So the last stage is derived from the clauses
+ * themselves — while any of them is still `pending_reconciliation`, the work is
+ * genuinely unfinished, and once none is, it genuinely is. A stepper that spins
+ * forever on a finished job teaches people to distrust it. */
+function completedStages(status: string, clauses: Clause[]): number {
+  if (status === "uploaded") return 1;
+  if (status === "extracting") return 2;
+  if (status !== "extracted" && status !== "reconciled") return 1;
+
+  const settled =
+    clauses.length > 0 && clauses.every((c) => c.status !== "pending_reconciliation");
+  return settled ? 4 : 3;
 }
 
 function pct(value?: number): string {
@@ -66,25 +71,25 @@ export default function Stepper({ documentId }: { documentId: string }) {
     return (
       <div className="card mt-8 p-5" data-testid="doc-error">
         <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
-        <p className="t-subhead t-secondary mt-1">{error}</p>
+        <p className="t-footnote t-secondary mt-1">{error}</p>
       </div>
     );
   }
 
   if (doc === null) {
-    return <p className="t-subhead t-secondary mt-8">Loading…</p>;
+    return <p className="t-body t-secondary mt-8">Loading…</p>;
   }
 
   const failed = doc.status === "failed";
-  const currentIndex = failed ? STAGES.length : stageIndex(doc.status);
-  const done = !failed && currentIndex >= STAGES.length;
+  const complete = completedStages(doc.status, clauses);
+  const done = !failed && complete >= STAGES.length;
 
   return (
     <div className="mt-8">
       <ol className="card overflow-hidden" data-testid="pipeline-stepper">
         {STAGES.map((stage, index) => {
-          const complete = index + 1 < currentIndex;
-          const active = !failed && index + 1 === currentIndex;
+          const finished = index < complete;
+          const active = !failed && !done && index === complete;
           return (
             <li
               key={stage.key}
@@ -95,15 +100,15 @@ export default function Stepper({ documentId }: { documentId: string }) {
                 aria-hidden="true"
                 className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full t-caption"
                 style={{
-                  background: complete ? "var(--good)" : active ? "var(--accent)" : "var(--fill)",
-                  color: complete || active ? "#fff" : "var(--secondary)",
+                  background: finished ? "var(--good)" : active ? "var(--accent)" : "var(--fill)",
+                  color: finished || active ? "#fff" : "var(--secondary)",
                   fontWeight: 600,
                 }}
               >
-                {complete ? "✓" : index + 1}
+                {finished ? "✓" : index + 1}
               </span>
               <span>
-                <span className="t-subhead block" style={{ fontWeight: active ? 600 : 400 }}>
+                <span className="t-body block" style={{ fontWeight: active ? 600 : 400 }}>
                   {stage.label}
                   {active ? <span className="t-footnote t-secondary"> · working…</span> : null}
                 </span>
@@ -117,7 +122,7 @@ export default function Stepper({ documentId }: { documentId: string }) {
       {done ? (
         <div className="card mt-4 p-5" style={{ borderLeft: "4px solid var(--good)" }}>
           <p className="t-headline">Finished</p>
-          <p className="t-subhead t-secondary mt-1">
+          <p className="t-footnote t-secondary mt-1">
             Your products have been re-checked against these rules.
           </p>
           <Link href="/" className="btn btn-secondary btn-small mt-3">See your products</Link>
@@ -127,7 +132,7 @@ export default function Stepper({ documentId }: { documentId: string }) {
       {failed ? (
         <div className="card mt-4 p-5" style={{ borderLeft: "4px solid var(--danger)" }} data-testid="failed-panel">
           <p className="t-headline" style={{ color: "var(--danger)" }}>We could not read this document</p>
-          <p className="t-subhead t-secondary mt-1">
+          <p className="t-footnote t-secondary mt-1">
             {doc.error ?? "Something went wrong while reading it."}
           </p>
           <p className="t-footnote t-secondary mt-2">
@@ -146,13 +151,11 @@ export default function Stepper({ documentId }: { documentId: string }) {
 
       {clauses.length > 0 ? (
         <section className="mt-8" data-testid="clause-list">
-          <h2 className="t-footnote t-secondary uppercase tracking-wide">
-            Rules found in this document ({clauses.length})
-          </h2>
+          <h2 className="t-section">Rules found in this document ({clauses.length})</h2>
           <ul className="mt-3 space-y-3">
             {clauses.map((clause) => (
               <li key={clause.id} className="card p-5" data-testid={"clause-" + clause.id}>
-                <p className="t-subhead">{clause.text}</p>
+                <p className="t-body">{clause.text}</p>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <Fact label="Substance" value={clause.substance ?? "—"} />
@@ -197,8 +200,8 @@ export default function Stepper({ documentId }: { documentId: string }) {
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <p className="t-caption t-secondary uppercase tracking-wide">{label}</p>
-      <p className="t-subhead mt-0.5">{value}</p>
+      <p className="t-footnote t-secondary">{label}</p>
+      <p className="t-body mt-1" style={{ fontWeight: 600 }}>{value}</p>
     </div>
   );
 }

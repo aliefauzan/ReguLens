@@ -36,13 +36,13 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       <h1 className="t-large-title mt-3" data-testid="product-name">
         {product.name}
       </h1>
-      <p className="t-subhead t-secondary mt-1">
+      <p className="t-body t-secondary mt-2">
         {plain(product.product_type)} · made in {countryName(product.origin)}
       </p>
 
       {/* --- The answer, first. Everything else explains it. ---------------- */}
       <section className="mt-8 space-y-4" data-testid="readiness-panel">
-        <h2 className="t-footnote t-secondary uppercase tracking-wide">Can you sell it?</h2>
+        <h2 className="t-section">Can you sell it?</h2>
         {compliance && Object.keys(compliance.statuses).length > 0 ? (
           Object.entries(compliance.statuses).map(([marketId, status]) => {
             const copy = statusCopy(status);
@@ -60,36 +60,55 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                 {rows.length > 0 ? (
                   <ul className="mt-4 space-y-3" data-testid={`requirements-${marketId}`}>
                     {rows.map((req) => (
-                      <li key={req.id} className="inset p-4">
-                        <div className="flex flex-wrap items-baseline justify-between gap-2">
-                          <span className="t-subhead">
-                            <Mark evaluation={req.evaluation} />{" "}
-                            {req.substance_normalized
-                              ? req.substance_normalized.replaceAll("_", " ")
-                              : plain(req.requirement_type ?? req.reason)}
-                          </span>
-                          {req.limit_value !== null ? (
-                            <span className="t-footnote t-secondary">
-                              allowed up to {req.limit_value} {plain(req.unit)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <p className="t-footnote t-secondary mt-1">
-                          {req.evaluation === "fail" && req.product_value !== null
-                            ? `Your product has ${req.product_value} ${plain(req.unit)} — over the limit.`
-                            : req.evaluation === "pass" && req.product_value !== null
-                              ? `Your product has ${req.product_value} ${plain(req.unit)} — under the limit.`
+                      <li key={req.id} className="inset p-5">
+                        <p className="t-headline">
+                          <Mark evaluation={req.evaluation} />{" "}
+                          {req.substance_normalized
+                            ? req.substance_normalized.replaceAll("_", " ")
+                            : plain(req.requirement_type ?? req.reason)}
+                        </p>
+
+                        {req.limit_value !== null && req.product_value !== null ? (
+                          // The comparison is the whole answer. Show it as a
+                          // comparison, at a size that survives a glance.
+                          <div className="mt-4 grid max-w-md grid-cols-2 gap-4">
+                            <div>
+                              <p className="t-footnote t-secondary">Your product has</p>
+                              <p
+                                className="t-number figure mt-1"
+                                style={{ color: req.evaluation === "fail" ? "var(--danger)" : "var(--good)" }}
+                              >
+                                {req.product_value}
+                                <span className="figure-unit">{plain(req.unit)}</span>
+                              </p>
+                            </div>
+                            <div>
+                              <p className="t-footnote t-secondary">Allowed up to</p>
+                              <p className="t-number figure mt-1">
+                                {req.limit_value}
+                                <span className="figure-unit">{plain(req.unit)}</span>
+                              </p>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <p className="t-footnote mt-3">
+                          {req.evaluation === "fail"
+                            ? "Over the limit — you cannot sell it here as it is."
+                            : req.evaluation === "pass"
+                              ? "Under the limit — this one is fine."
                               : req.reason === "non_numeric_clause"
                                 ? "This rule has no number in it, so a person has to read it."
                                 : "We do not know how much your product contains, so this was not checked."}
                         </p>
-                        <p className="t-caption t-secondary mono mt-2">{req.clause_id}</p>
+
+                        <Provenance clauseId={req.clause_id} />
                       </li>
                     ))}
                   </ul>
                 ) : null}
 
-                <p className="t-footnote t-secondary mt-4" data-testid={`issues-${marketId}`}>
+                <p className="t-footnote t-secondary mt-5" data-testid={`issues-${marketId}`}>
                   {failing > 0 || unchecked > 0
                     ? `${failing} rule${failing === 1 ? "" : "s"} broken · ${unchecked} to check by hand`
                     : "No problems found"}
@@ -114,7 +133,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
 
       {/* --- What we know about the product --------------------------------- */}
       <section className="card mt-10 p-6" data-testid="compliance-twin">
-        <h2 className="t-headline">What we know about this product</h2>
+        <h2 className="t-section">What we know about this product</h2>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2">
           <Fact label="Kind of product" testId="twin-product-type" value={plain(product.product_type)} />
           <Fact label="Made in" testId="twin-origin" value={countryName(product.origin)} />
@@ -126,11 +145,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           />
         </dl>
 
-        <h3 className="t-footnote t-secondary uppercase tracking-wide mt-8">Ingredients</h3>
+        <h3 className="t-headline mt-8">Ingredients</h3>
         <ul className="mt-3" data-testid="twin-ingredients">
           {product.ingredients.map((ingredient, index) => (
             <li key={`${ingredient.name}-${index}`} className="row flex items-baseline justify-between gap-3 py-3">
-              <span className="t-subhead">
+              <span className="t-body">
                 {ingredient.name}
                 {ingredient.unnormalized ? (
                   <span
@@ -143,7 +162,9 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                 ) : null}
               </span>
               <span className="t-footnote t-secondary">
-                {ingredient.amount !== null ? `${ingredient.amount} ${plain(ingredient.unit)}` : "amount not given"}
+                {ingredient.amount !== null
+                  ? `${ingredient.amount} ${plain(ingredient.unit)}`
+                  : "amount not given"}
               </span>
             </li>
           ))}
@@ -161,7 +182,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           </summary>
           <ol className="mt-4 space-y-2">
             {events.map((event) => (
-              <li key={event.id} className="row py-2 t-footnote" data-testid={`event-${event.event_type}`}>
+              <li key={event.id} className="row py-3 t-footnote" data-testid={`event-${event.event_type}`}>
                 <span className="t-subhead">{EVENT_WORDS[event.event_type] ?? plain(event.event_type)}</span>
                 {event.before && event.after ? <DiffCell before={event.before} after={event.after} /> : null}
                 {event.trace_id ? (
@@ -185,11 +206,21 @@ const EVENT_WORDS: Record<string, string> = {
   conflict_opened: "Two rules disagree",
 };
 
+/** Identifiers matter for an audit and mean nothing to a first-time reader. */
+function Provenance({ clauseId }: { clauseId: string }) {
+  return (
+    <details className="mt-3">
+      <summary className="t-caption cursor-pointer">Where this came from</summary>
+      <p className="t-caption mono mt-1">{clauseId}</p>
+    </details>
+  );
+}
+
 function Fact({ label, value, testId }: { label: string; value: string; testId: string }) {
   return (
     <div>
       <dt className="t-footnote t-secondary">{label}</dt>
-      <dd className="t-subhead mt-0.5" data-testid={testId}>{value}</dd>
+      <dd className="t-body mt-1" data-testid={testId}>{value}</dd>
     </div>
   );
 }

@@ -48,31 +48,31 @@ export default function ReviewQueuePage() {
   return (
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="review-page">
       <h1 className="t-large-title">Waiting for you to check</h1>
-      <p className="t-subhead t-secondary mt-2 max-w-2xl">
+      <p className="t-body t-secondary prose-measure mt-2">
         ReguLens refused to act on these by itself — it was not confident enough, or the source was not
         official enough. Read each one. If it is right, accept it and it starts counting.
       </p>
 
-      {loading ? <p className="t-subhead t-secondary mt-8">Loading…</p> : null}
+      {loading ? <p className="t-body t-secondary mt-8">Loading…</p> : null}
 
       {error ? (
         <div className="card mt-8 p-5" data-testid="review-error">
           <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
-          <p className="t-subhead t-secondary mt-1">{error}</p>
+          <p className="t-footnote t-secondary mt-1">{error}</p>
         </div>
       ) : null}
 
       {!loading && !error && clauses.length === 0 ? (
         <div className="card mt-8 p-8 text-center" data-testid="review-empty">
           <p className="t-headline">Nothing to check</p>
-          <p className="t-subhead t-secondary mt-1">Every rule we read was clear enough to apply on its own.</p>
+          <p className="t-footnote t-secondary mt-1">Every rule we read was clear enough to apply on its own.</p>
         </div>
       ) : null}
 
       <ul className="mt-8 space-y-4">
         {clauses.map((clause) => (
           <li key={clause.id} className="card p-5" data-testid={`review-${clause.id}`}>
-            <p className="t-subhead">{clause.text}</p>
+            <p className="t-body">{clause.text}</p>
 
             <ul className="mt-3 space-y-1">
               {clause.review_reasons?.map((reason) => (
@@ -84,7 +84,10 @@ export default function ReviewQueuePage() {
             </ul>
 
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <span className="t-caption t-secondary mono">{clause.id}</span>
+              <details>
+                <summary className="t-caption cursor-pointer">Where this came from</summary>
+                <p className="t-caption mono mt-1">{clause.id}</p>
+              </details>
               <button
                 className="btn btn-primary btn-small"
                 onClick={() => confirm(clause.id)}

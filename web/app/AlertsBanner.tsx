@@ -53,35 +53,30 @@ export default function AlertsBanner() {
             style={{ borderLeft: `4px solid ${accent}` }}
             data-testid="alert-row"
           >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div data-testid="impact-chain">
+            <div data-testid="impact-chain">
                 <p className="t-headline" style={{ color: accent }}>
                   {market ? `${marketName(market)}: ${after.label.toLowerCase()}` : after.label}
                 </p>
-                <p className="t-subhead t-secondary mt-1">
-                  {after.meaning} This changed on its own, because a rule you added says so.
-                </p>
-                <p className="t-footnote t-secondary mt-2">
-                  Was “{before.label}” · now “{after.label}”
-                  {alert.cause?.clause_id ? (
-                    <>
-                      {" "}· caused by rule <span className="mono">{alert.cause.clause_id}</span>
-                    </>
-                  ) : null}
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <Link href="/conflicts" className="btn btn-secondary btn-small">
-                  See why
-                </Link>
-                <button
-                  className="btn btn-quiet btn-small"
-                  onClick={() => ackAlert(alert.id)}
-                  data-testid="alert-ack"
-                >
-                  Got it
-                </button>
-              </div>
+              <p className="t-footnote t-secondary prose-measure mt-1">
+                {after.meaning} This changed on its own, because a rule you added says so.
+              </p>
+              <p className="t-footnote t-secondary mt-2">
+                Was “{before.label}” · now “{after.label}”
+              </p>
+            </div>
+
+            {/* One action row, same place on every alert. */}
+            <div className="mt-4 flex gap-2">
+              <Link href="/conflicts" className="btn btn-secondary btn-small">
+                See why
+              </Link>
+              <button
+                className="btn btn-quiet btn-small"
+                onClick={() => ackAlert(alert.id)}
+                data-testid="alert-ack"
+              >
+                Got it
+              </button>
             </div>
           </div>
         );

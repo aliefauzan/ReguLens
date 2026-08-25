@@ -21,7 +21,7 @@ export default async function ConflictsPage() {
   return (
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="conflicts-page">
       <h1 className="t-large-title">Rules that disagree</h1>
-      <p className="t-subhead t-secondary mt-2 max-w-2xl">
+      <p className="t-body t-secondary prose-measure mt-2">
         Two countries can allow different amounts of the same ingredient. Neither rule is wrong —
         they simply apply in different places. To sell in both, follow the stricter one.
       </p>
@@ -29,14 +29,14 @@ export default async function ConflictsPage() {
       {error ? (
         <div className="card mt-8 p-5" data-testid="conflicts-error">
           <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
-          <p className="t-subhead t-secondary mt-1">{error}</p>
+          <p className="t-footnote t-secondary mt-1">{error}</p>
         </div>
       ) : null}
 
       {conflicts.length === 0 && !error ? (
         <div className="card mt-8 p-8 text-center" data-testid="conflicts-empty">
           <p className="t-headline">Nothing disagrees right now</p>
-          <p className="t-subhead t-secondary mt-1">
+          <p className="t-footnote t-secondary mt-1">
             None of the rules you have added contradict each other across countries.
           </p>
           <Link href="/documents/new" className="btn btn-secondary btn-small mt-4">Add more rules</Link>
@@ -51,7 +51,7 @@ export default async function ConflictsPage() {
           return (
             <li key={conflict.id} className="card p-6" data-testid={`conflict-${conflict.id}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <h2 className="t-headline">{plain(conflict.type)}</h2>
+                <h2 className="t-section">{plain(conflict.type)}</h2>
                 <span className="badge badge-danger">{conflict.severity === "high" ? "Important" : conflict.severity}</span>
               </div>
 
@@ -75,7 +75,7 @@ export default async function ConflictsPage() {
               </div>
 
               {stricter ? (
-                <p className="inset mt-4 p-4 t-subhead">
+                <p className="inset mt-4 p-5 t-body">
                   <strong>What to do:</strong> stay at or below{" "}
                   {String(stricter === "a" ? conflict.detail?.a_limit : conflict.detail?.b_limit)}{" "}
                   {plain(String(stricter === "a" ? conflict.detail?.a_unit : conflict.detail?.b_unit))} and the
@@ -112,13 +112,19 @@ function Side({
       data-testid={testId}
     >
       <p className="t-headline">{jurisdictionName(clause?.jurisdiction)}</p>
-      <p className="t-title mt-2">
-        {String(limit ?? "—")} <span className="t-subhead t-secondary">{plain(unit as string)}</span>
+      <p className="t-footnote t-secondary mt-3">Maximum allowed</p>
+      <p className="t-number figure mt-1">
+        {String(limit ?? "—")}
+        <span className="figure-unit">{plain(unit as string)}</span>
       </p>
-      <p className="t-footnote t-secondary mt-1">maximum allowed</p>
-      {clause?.text ? <p className="t-footnote t-secondary mt-2">“{clause.text}”</p> : null}
       {strictest ? <span className="badge badge-muted mt-3">Stricter — follow this one</span> : null}
-      <p className="t-caption t-secondary mono mt-3">{clauseId}</p>
+      {clause?.text ? (
+        <p className="t-footnote t-secondary mt-4">“{clause.text}”</p>
+      ) : null}
+      <details className="mt-3">
+        <summary className="t-caption cursor-pointer">Where this came from</summary>
+        <p className="t-caption mono mt-1">{clauseId}</p>
+      </details>
     </div>
   );
 }

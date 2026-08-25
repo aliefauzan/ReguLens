@@ -31,8 +31,8 @@ export default function AskPanel({ productId }: { productId: string }) {
 
   return (
     <section className="card mt-10 p-6" data-testid="ask-panel">
-      <h2 className="t-headline">Ask a question</h2>
-      <p className="t-subhead t-secondary mt-1">
+      <h2 className="t-section">Ask a question</h2>
+      <p className="t-footnote t-secondary prose-measure mt-2">
         Plain English is fine. Every answer quotes the exact rule it came from — and if no rule covers
         your question, it says so instead of guessing.
       </p>
@@ -86,7 +86,7 @@ export default function AskPanel({ productId }: { productId: string }) {
 
       {result ? (
         <div className="inset mt-5 p-5" data-testid="answer-card">
-          <p className="t-subhead" data-testid="answer-text">{result.answer}</p>
+          <p className="t-body" data-testid="answer-text">{result.answer}</p>
 
           {result.refusal ? (
             <p className="badge badge-muted mt-3" data-testid="refusal-flag">
@@ -96,7 +96,7 @@ export default function AskPanel({ productId }: { productId: string }) {
 
           {result.cited_clauses.length > 0 ? (
             <div className="mt-4" data-testid="citations">
-              <p className="t-footnote t-secondary uppercase tracking-wide">Based on these rules</p>
+              <p className="t-headline">Based on these rules</p>
               <div className="mt-2 space-y-2">
                 {result.cited_clauses.map((clause) => (
                   <div
@@ -106,8 +106,8 @@ export default function AskPanel({ productId }: { productId: string }) {
                     data-testid={`citation-${clause.id}`}
                   >
                     <p className="t-footnote t-secondary">{jurisdictionName(clause.jurisdiction)}</p>
-                    <p className="t-subhead mt-1">{clause.text}</p>
-                    <p className="t-caption t-secondary mono mt-2">{clause.id}</p>
+                    <p className="t-body mt-1">{clause.text}</p>
+                    <p className="t-caption mono mt-2">{clause.id}</p>
                   </div>
                 ))}
               </div>
