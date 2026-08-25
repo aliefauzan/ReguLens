@@ -33,15 +33,9 @@ def extract_text(document_id: str) -> dict[str, Any]:
         }
 
     from app.core.extraction.text import extract_pdf
-    from app.settings import get_settings
+    from app.storage import download
 
-    settings = get_settings()
-    _, _, path = document.storage_uri.partition(f"gs://{settings.uploads_bucket}/")
-    from google.cloud import storage
-
-    data = storage.Client(project=settings.project_id).bucket(
-        settings.uploads_bucket
-    ).blob(path).download_as_bytes()
+    data = download(document.storage_uri)
     extraction = extract_pdf(data)
     return {
         "found": True,

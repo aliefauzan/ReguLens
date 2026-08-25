@@ -59,13 +59,9 @@ def _load_text(document: RegulatoryDocument) -> tuple[str, str]:
     if not document.storage_uri:
         raise PermanentExtractionError("document has neither inline text nor a storage URI")
 
-    from google.cloud import storage
+    from app.storage import download
 
-    settings = get_settings()
-    _, _, path = document.storage_uri.partition(f"gs://{settings.uploads_bucket}/")
-    data = storage.Client(project=settings.project_id).bucket(
-        settings.uploads_bucket
-    ).blob(path).download_as_bytes()
+    data = download(document.storage_uri)
 
     from app.core.extraction.text import extract_pdf
 

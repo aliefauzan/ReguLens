@@ -1,7 +1,14 @@
 // Single typed fetch client. Every call into the API goes through here so the
 // base URL, error shape, and trace_id handling live in one place.
 
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+// Two different hosts can be correct at once. In docker compose the browser
+// reaches the API on localhost:8080 while server components inside the web
+// container must call the service by its compose name. NEXT_PUBLIC_API_URL is
+// the browser's answer; API_INTERNAL_URL, when set, is the server's.
+const BASE =
+  typeof window === "undefined"
+    ? (process.env.API_INTERNAL_URL ?? process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080")
+    : (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080");
 
 export type Market = {
   id: string;
@@ -145,6 +152,7 @@ export type RegulatoryDocument = {
 export type Clause = {
   id: string;
   document_id: string;
+  jurisdiction?: string | null;
   text: string;
   clause_type: string;
   substance: string | null;
@@ -200,6 +208,7 @@ export type ComplianceRequirement = {
   id: string;
   market_id: string;
   clause_id: string;
+  requirement_type?: string | null;
   substance_normalized: string | null;
   limit_value: number | null;
   unit: string | null;

@@ -92,6 +92,7 @@ web/                   Next.js app (twin, upload+stepper, readiness, timeline,
 data/regulations/      real source PDFs (EU + BPOM) with provenance in SOURCES.md
 scripts/setup.sh       one-command GCP provisioning (idempotent)
 scripts/verify_e2e.sh  end-to-end verification against the deployed stack
+scripts/verify_local.sh  same drill against the local emulator stack
 plan/                  full build plan and per-phase evidence trail
 ```
 
@@ -124,23 +125,52 @@ gcloud run jobs execute regulens-job --region asia-southeast1 \
   --project $YOUR_PROJECT_ID --wait
 ```
 
-## Run it locally
+## Run it locally — no GCP, no cost
 
-Two options.
-
-### Option A: full local stack with emulators (experimental)
+The whole system runs on your machine: Firestore and Pub/Sub emulators, a
+filesystem stand-in for Cloud Storage, and `FAKE_LLM=1` canned extraction. No
+credentials, no billing, no network calls to Google.
 
 ```bash
-docker compose up
+docker compose up -d firestore pubsub api worker web
+docker compose up pubsub-init                 # creates topics + push subscriptions
+curl -X POST http://localhost:8080/markets/seed
+docker compose run --rm api python -m app.job # demo baseline, idempotent
+open http://localhost:3000
 ```
 
-Brings up Firestore + Pub/Sub emulators, api, worker, web, and a one-shot
-pubsub-init that creates push subscriptions pointing at the local worker.
-Honest note: this path is committed but was not exercised end-to-end on the
-dev machine (Docker daemon unavailable); treat it as a starting point, the
-cloud path above is the verified one.
+| Service | URL |
+|---|---|
+| Web | http://localhost:3000 |
+| API | http://localhost:8080 |
+| Worker | http://localhost:8081 |
 
-### Option B: run services directly against your own GCP project
+One command verifies the whole local pipeline end to end:
+
+```bash
+bash scripts/verify_local.sh
+```
+
+It asserts the baseline (Indonesia compliant, Germany unknown), uploads the
+real EU excerpt PDF, waits for extraction, checks that a cross-jurisdiction
+conflict opens, that Germany flips to non-compliant **with no user action**,
+that an alert fires, that an identical re-upload hits the cache, and that a
+redelivered Pub/Sub message creates no duplicate clauses.
+
+**What local mode proves:** the pipeline, the push wiring, idempotency, the
+guardrail, the conflict rule, the impact flip, and every screen in the UI.
+
+**What it cannot prove:** extraction accuracy, embedding quality, judge
+behaviour, IAM, and real Vertex output — `FAKE_LLM` returns canned clauses
+keyed on the document text (an Indonesian source yields 400 mg/kg, an EU source
+150 mg/kg). For those, run `scripts/verify_e2e.sh` against the deployed stack.
+
+Two local details worth knowing, both env-driven and absent in production:
+`FIRESTORE_DATABASE=local` (the emulator rejects the URL-encoded `(default)`
+id the client sends) and `LOCAL_STORAGE_DIR` (there is no Cloud Storage
+emulator, so api and worker share an uploads volume).
+
+### Run services directly against your own GCP project
 
 ```bash
 cd api
@@ -154,8 +184,9 @@ uvicorn app.worker:app --port 8081      # worker (second terminal)
 cd ../web && npm install && npm run dev  # web (third terminal)
 ```
 
-The web reads `NEXT_PUBLIC_API_URL` (default http://localhost:8080). Set
-`FAKE_LLM=1` for deterministic offline behaviour without Vertex calls.
+The browser reads `NEXT_PUBLIC_API_URL` (default http://localhost:8080); server
+components read `API_INTERNAL_URL` when set. `FAKE_LLM=1` gives deterministic
+offline behaviour without Vertex calls.
 
 ## Tests and verification
 
@@ -164,6 +195,9 @@ cd api
 pytest -q                       # 62 unit tests, no network
 REGULENS_EVAL=1 pytest tests/test_extraction_quality.py -q -s
                                 # live-Vertex fixture accuracy (costs tokens)
+
+bash scripts/verify_local.sh    # full E2E against the local emulator stack
+                                # (free, offline, ~2 minutes)
 
 bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
                                 # baseline, EU upload, conflict, unprompted
@@ -181,7 +215,10 @@ bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
 | `GEMINI_MODEL` | `gemini-3.5-flash` | pinned 3.5+ model |
 | `FAKE_LLM` | off | deterministic offline mode |
 | `DEBUG_VIEW` | off | enables `/debug/documents/{id}` |
-| `NEXT_PUBLIC_API_URL` | localhost:8080 | baked into the web build |
+| `NEXT_PUBLIC_API_URL` | localhost:8080 | API URL used by the browser |
+| `API_INTERNAL_URL` | unset | API URL used by server components (compose: `http://api:8080`) |
+| `FIRESTORE_DATABASE` | `(default)` | set to `local` against the emulator |
+| `LOCAL_STORAGE_DIR` | unset | filesystem uploads instead of GCS (local only) |
 
 Secrets: none exist. Everything authenticates via workload identity / service
 accounts; nothing to leak.

@@ -2,7 +2,7 @@
 
 **Single source of truth for what is done.** Check here before starting any work.
 
-Last updated: **23 Aug 2026** · Updated by: **phases 2–5 build + live-verify session**
+Last updated: **25 Aug 2026** · Updated by: **local-stack + HIG UI session**
 
 > **Read this first, every session.** If a phase below is `COMPLETE`, do not rebuild
 > it — read its phase file to see what exists. If it is `IN PROGRESS`, the unticked
@@ -42,7 +42,8 @@ Tracked here because it spans phases and is easy to lose.
 - [x] Cloud Build pipeline green, rollback practised (phase 0) — *manual trigger only; push trigger still to wire*
 - [ ] Secret Manager wired, no secrets in image or repo (phase 0)
 - [x] Budget cap + billing alert live (Rp 540,000 ≈ $30/month, 50/90/100%) — *email channel still needs the user to click Google's verification mail*
-- [ ] `docker compose up` brings up the full local stack (phase 0)
+- [x] `docker compose up` brings up the full local stack (phase 0) — verified 25 Aug;
+      `scripts/verify_local.sh` runs the whole drill offline, free, in ~2 minutes
 - [ ] Five alerts configured **and each one deliberately triggered once** (phase 0 → 7)
 - [x] Debug view `/debug/documents/{id}` (phase 2, extended in 3) — behind
       `DEBUG_VIEW`, live: stage_log, rejected candidates, reconciliation
@@ -56,7 +57,7 @@ Tracked here because it spans phases and is easy to lose.
       probe additionally caught and fixed a double-race hole
 - [x] Extraction fixture set + accuracy test checked in — verbatim corpus
       excerpts, live-Vertex run gated behind `REGULENS_EVAL=1`, result 5/5
-- [ ] `FAKE_LLM=1` fixtures covering the E2E suite — switch landed in phase 0; extraction canned responses landed in phase 2 (`llm.fake_candidates`); full E2E fixture set still phase 6
+- [~] `FAKE_LLM=1` fixtures covering the E2E suite — SKIPPED as a separate fixture set: `llm.fake_candidates` is now keyed on the document's own text (Indonesian source → 400 mg/kg, EU source → 150 mg/kg), which is enough to drive the entire local E2E drill including the conflict and the flip. A second fixture layer would duplicate it
 
 ## Decisions taken
 
@@ -111,3 +112,4 @@ a diary.
 | 23 Aug 2026 | phases 2–5 + deploy | Phases 2–5 built AND live-verified in one push. Phase 2 `COMPLETE` (5/5 fixture accuracy on live Vertex). Live E2E green: baseline compliant→upload EU excerpt PDF→conflict opens (UC-C)→**Germany flips non_compliant unprompted** (UC-B)→alert fires→grounded query cites 2 real clauses→Japan refusal honest→cache hit→redelivery no dupes. Fixed en route: SERVER_TIMESTAMP-in-ArrayUnion, transaction.get generator API, empty clause ids published, missing clause jurisdiction/unit fields, substance-family equivalence (benzoates), judge scope narrowed to genuinely ambiguous same-jurisdiction pairs, throwaway genai clients closed (shared cached client), unique image tags per deploy. Web deployed to Cloud Run (`regulens-web`); Vercel dependency dropped; taste-skill design pass (tokens, Geist, single accent, dark/light). 62 tests green, lint clean |
 | 23 Aug 2026 | drills | Two more live drills banked. **UC-D**: social-chat source produced a needs_review clause at confidence 0.47 (<0.5) with ZERO mutations to conflicts or statuses — authority tiering is demonstrably real. **Same-jurisdiction supersede**: BPOM amendment (350 mg/kg eff. 2026-12-01) superseded the active 400 mg/kg clause live (`superseded` + `superseded_by`). Two latent bugs found and fixed by these drills: cross-jurisdiction conflicts now only open against ACTIVE partners (a needs_review counterpart must not gain state), and a dominant conflict verdict no longer silently drops valid supersede findings — both findings apply |
 | 23 Aug 2026 | drills + close-out | Phase 3/4/5 → COMPLETE. Drills: DLQ→failed→retry recovered live; audit-integrity walker green over live data; concurrent-delivery probe found+fixed a double-race hole; UC-F second-product propagation proven; 10/10 grounding check. Log metrics `regulens_judge_invoked` + `regulens_guardrail_rejected` created. Web: impact-chain banner + red worsening-transition highlight. Honest gap recorded: upload→flip measured 183s vs 90s target (double ADK sampling dominates). Remaining open: Cloud Build push/PR triggers (needs GitHub-app OAuth by user), docker compose (daemon down, user-deferred), formal Playwright shell, phase-7 user items |
+| 25 Aug 2026 | local stack + UI | Full local stack now real and verified: `LOCAL_STORAGE_DIR` filesystem backend in `app/storage.py` (no Cloud Storage emulator exists) with the two direct-GCS readers routed through it, `FIRESTORE_DATABASE=local` for the emulator, `API_INTERNAL_URL` for server components, tracing disabled locally, jurisdiction-aware `fake_candidates`. `scripts/verify_local.sh` runs the whole drill offline: baseline → EU upload → conflict → unprompted Germany flip → alert → cache hit → redelivery-no-duplicates, all green with zero GCP calls. Web redesigned against Apple HIG for a non-technical first-time user: system type scale and colour set, translucent nav plus mobile tab bar, 44px targets, one `_ui/status.tsx` that translates every machine word once, "Start here" first-run guide, per-market verdicts on the home cards, conflicts page joined to clause text and country, plain-language failure copy. Google-font fetch dropped (system stack) so the web builds offline. 62 tests green, ruff clean, tsc clean |

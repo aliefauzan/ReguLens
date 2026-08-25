@@ -1,84 +1,125 @@
 import Link from "next/link";
-import { getAlerts, listDocuments, listProducts, type Product } from "@/lib/api";
+import { getCompliance, listDocuments, listProducts, type ComplianceView, type Product } from "@/lib/api";
 import AlertsBanner from "./AlertsBanner";
+import { StatusBadge, marketName, jurisdictionName, plain } from "./_ui/status";
 
 export const dynamic = "force-dynamic";
 
-async function loadAll(): Promise<{ products: Product[]; docs: Awaited<ReturnType<typeof listDocuments>>["documents"]; error: string | null }> {
+type Row = { product: Product; compliance: ComplianceView | null };
+
+async function loadAll(): Promise<{
+  rows: Row[];
+  docs: Awaited<ReturnType<typeof listDocuments>>["documents"];
+  error: string | null;
+}> {
   try {
     const [{ products }, { documents }] = await Promise.all([listProducts(), listDocuments()]);
-    return { products, docs: documents, error: null };
+    const rows = await Promise.all(
+      products.map(async (product) => {
+        try {
+          return { product, compliance: await getCompliance(product.id) };
+        } catch {
+          // A missing compliance view must not hide the product itself.
+          return { product, compliance: null };
+        }
+      }),
+    );
+    return { rows, docs: documents, error: null };
   } catch {
     // An unreachable API and an empty account must never look the same.
-    return { products: [], docs: [], error: "Could not reach the API." };
+    return { rows: [], docs: [], error: "We could not reach the ReguLens service. Check that it is running, then reload this page." };
   }
 }
 
 export default async function Home() {
-  const { products, docs, error } = await loadAll();
+  const { rows, docs, error } = await loadAll();
+  const firstRun = rows.length === 0 && !error;
 
   return (
-    <main className="mx-auto max-w-5xl p-10" data-testid="home">
-      <header className="flex items-baseline justify-between">
+    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="home">
+      <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Compliance twins</h1>
-          <p className="mt-1 text-sm opacity-70">
-            Describe a product once. See where it fails, in which market, against which clause.
+          <h1 className="t-large-title">Your products</h1>
+          <p className="t-subhead t-secondary mt-2 max-w-xl">
+            Each product is checked against the rules of every market you sell into.
+            When a new rule arrives, the answer here updates by itself.
           </p>
         </div>
-        <Link
-          href="/products/new"
-          className="rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white"
-          data-testid="new-product-link"
-        >
-          New product
+        <Link href="/products/new" className="btn btn-primary" data-testid="new-product-link">
+          Add a product
         </Link>
       </header>
 
       <AlertsBanner />
 
       {error ? (
-        <p className="mt-10 text-sm" style={{ color: "var(--danger)" }} data-testid="products-error">
-          {error}
-        </p>
+        <div className="card mt-8 p-5" data-testid="products-error">
+          <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
+          <p className="t-subhead t-secondary mt-1">{error}</p>
+        </div>
       ) : null}
 
-      <section className="mt-8">
-        {products.length === 0 && !error ? (
-          <div className="card p-8 text-center" data-testid="products-empty">
-            <p className="text-sm opacity-70">No products yet.</p>
-            <Link href="/products/new" className="mt-3 inline-block text-sm underline">
-              Create your compliance twin
-            </Link>
-          </div>
-        ) : (
-          <ul className="grid gap-3 sm:grid-cols-2">
-            {products.map((product) => (
-              <li key={product.id} className="card p-4" data-testid={`product-${product.id}`}>
-                <Link href={`/products/${product.id}`} className="font-medium underline-offset-2 hover:underline">
+      {firstRun ? <StartHere /> : null}
+
+      {rows.length > 0 ? (
+        <section className="mt-8">
+          <h2 className="t-footnote t-secondary uppercase tracking-wide">Products</h2>
+          <ul className="mt-3 grid gap-4 sm:grid-cols-2">
+            {rows.map(({ product, compliance }) => (
+              <li key={product.id} className="card p-5" data-testid={`product-${product.id}`}>
+                <Link href={`/products/${product.id}`} className="t-headline">
                   {product.name}
                 </Link>
-                <div className="mt-1 text-sm opacity-70">
-                  {product.product_type.replaceAll("_", " ")} · {product.ingredients.length} ingredients
+                <p className="t-footnote t-secondary mt-1">
+                  {plain(product.product_type)} · {product.ingredients.length} ingredients
+                </p>
+
+                <div className="mt-4 space-y-2">
+                  {compliance && Object.keys(compliance.statuses).length > 0 ? (
+                    Object.entries(compliance.statuses).map(([marketId, status]) => (
+                      <div key={marketId} className="flex items-center justify-between gap-3">
+                        <span className="t-subhead">{marketName(marketId)}</span>
+                        <StatusBadge status={status} testId={`status-${marketId}-${status}`} />
+                      </div>
+                    ))
+                  ) : (
+                    <p className="t-footnote t-secondary">
+                      Not checked yet — add a regulation to start.
+                    </p>
+                  )}
                 </div>
+
+                <Link
+                  href={`/products/${product.id}`}
+                  className="btn btn-secondary btn-small mt-4"
+                  data-testid={`open-${product.id}`}
+                >
+                  See the details
+                </Link>
               </li>
             ))}
           </ul>
-        )}
-      </section>
+        </section>
+      ) : null}
 
       {docs.length > 0 ? (
         <section className="mt-10">
-          <h2 className="text-sm font-medium uppercase tracking-wide opacity-60">Ingested sources</h2>
-          <ul className="mt-3 grid gap-2">
+          <div className="flex items-baseline justify-between">
+            <h2 className="t-footnote t-secondary uppercase tracking-wide">Rules you have added</h2>
+            <Link href="/documents/new" className="btn btn-quiet btn-small">Add another</Link>
+          </div>
+          <ul className="card mt-3 overflow-hidden">
             {docs.slice(0, 5).map((doc) => (
-              <li key={doc.id}>
-                <Link
-                  href={`/documents/${doc.id}`}
-                  className="card block p-3 text-sm hover:border-[var(--accent)]"
-                >
-                  {doc.filename} · {doc.jurisdiction}
-                  <span className="ml-2 opacity-50">{doc.status}</span>
+              <li key={doc.id} className="row">
+                <Link href={`/documents/${doc.id}`} className="flex items-center justify-between gap-3 px-5 py-4">
+                  <span className="min-w-0">
+                    <span className="t-subhead block truncate">{doc.source_name}</span>
+                    <span className="t-footnote t-secondary">
+                      {jurisdictionName(doc.jurisdiction)}
+                      {doc.filename ? ` · ${doc.filename}` : ""}
+                    </span>
+                  </span>
+                  <span className="t-footnote t-secondary whitespace-nowrap">{plain(doc.status)}</span>
                 </Link>
               </li>
             ))}
@@ -86,5 +127,58 @@ export default async function Home() {
         </section>
       ) : null}
     </main>
+  );
+}
+
+/** First run only: the three steps, in order, with the door to step one open. */
+function StartHere() {
+  const steps = [
+    {
+      title: "Describe your product",
+      body: "Name it, list what is inside it, and tick the countries you want to sell it in. Two minutes, no jargon.",
+      href: "/products/new",
+      cta: "Add a product",
+    },
+    {
+      title: "Add the rules that apply",
+      body: "Upload a regulation PDF, or paste text from an announcement. ReguLens reads it and pulls out the limits.",
+      href: "/documents/new",
+      cta: "Add rules",
+    },
+    {
+      title: "Read the answer",
+      body: "Each market shows whether your product is allowed. If a later rule changes that, you are told without asking.",
+      href: null,
+      cta: null,
+    },
+  ];
+
+  return (
+    <section className="card mt-8 p-6" data-testid="products-empty">
+      <h2 className="t-title">Start here</h2>
+      <p className="t-subhead t-secondary mt-1">Three steps. You only do the first two.</p>
+      <ol className="mt-6 space-y-5">
+        {steps.map((step, index) => (
+          <li key={step.title} className="flex gap-4">
+            <span
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full t-footnote"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)", fontWeight: 600 }}
+              aria-hidden="true"
+            >
+              {index + 1}
+            </span>
+            <div>
+              <p className="t-headline">{step.title}</p>
+              <p className="t-subhead t-secondary mt-1">{step.body}</p>
+              {step.href ? (
+                <Link href={step.href} className="btn btn-secondary btn-small mt-3">
+                  {step.cta}
+                </Link>
+              ) : null}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }

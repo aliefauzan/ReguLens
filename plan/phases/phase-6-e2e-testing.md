@@ -118,8 +118,16 @@ claim to make in the submission.
 - [ ] `e2e/` with Playwright, running against a configurable base URL.
 - [ ] Fixtures: the demo documents and the hand-labelled clause set from phase 2,
       committed.
-- [ ] `FAKE_LLM=1` response fixtures covering every extraction used by the suite.
-- [ ] Integration tests for each Pub/Sub handler against the Compose emulators.
+- [~] `FAKE_LLM=1` response fixtures covering every extraction used by the suite —
+      SKIPPED as a separate layer: `llm.fake_candidates` is keyed on the document's
+      own text (Indonesian source → 400 mg/kg, EU source → 150 mg/kg, plus the
+      always-present labelling and deliberately-invalid candidates), which drives
+      the entire local drill including the conflict and the flip.
+- [x] Integration coverage for each Pub/Sub handler against the Compose emulators —
+      `scripts/verify_local.sh` (25 Aug) exercises extract, reconcile and impact
+      through real push subscriptions, and asserts redelivery creates no duplicate
+      clauses. Not yet a Playwright/pytest harness; it is a live drill, and it is
+      green offline in ~2 minutes.
 - [ ] The audit-integrity walker as a reusable assertion, not a one-off script.
 - [ ] Cloud Build step: run integration tests on every commit; run E2E against the
       deployed dev service after deploy.

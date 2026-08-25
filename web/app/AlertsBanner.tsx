@@ -1,7 +1,9 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ackAlert, getAlerts, type GraphEvent } from "@/lib/api";
+import { marketName, statusCopy } from "./_ui/status";
 
 type Alert = GraphEvent & {
   before?: { status?: string; market?: string } | null;
@@ -34,36 +36,56 @@ export default function AlertsBanner() {
   if (alerts.length === 0) return null;
 
   return (
-    <section className="mt-6 space-y-2" data-testid="alerts-banner">
-      {alerts.slice(0, 3).map((alert) => (
-        <div
-          key={alert.id}
-          className="flex items-center justify-between rounded-[10px] border p-3 text-sm"
-          style={{ borderColor: "var(--danger)", background: "var(--danger-soft)" }}
-          data-testid="alert-row"
-        >
-          <span data-testid="impact-chain">
-            <strong>{alert.after?.status === "non_compliant" ? "Non-compliant" : "Status changed"}</strong>
-            {" — "}
-            {(alert.after || {}).market ?? (alert.before || {}).market}
-            {" ← "}
-            <span className="font-mono text-xs">{alert.cause?.clause_id ?? "clause"}</span>
-            {" ← ingested document"}
-            {alert.before?.status ? (
-              <span className="opacity-70">
-                {" "}({String(alert.before.status)} → {String(alert.after?.status)})
-              </span>
-            ) : null}
-          </span>
-          <button
-            className="rounded-full border px-3 py-1 text-xs"
-            onClick={() => ackAlert(alert.id)}
-            data-testid="alert-ack"
+    <section className="mt-6 space-y-3" data-testid="alerts-banner">
+      {alerts.slice(0, 3).map((alert) => {
+        const after = statusCopy(alert.after?.status);
+        const before = statusCopy(alert.before?.status);
+        const market = alert.after?.market ?? alert.before?.market ?? "";
+        // An alert is not automatically bad news: a new rule can clear a
+        // product as easily as it can block one. Colour follows the outcome.
+        const worse = alert.after?.status === "non_compliant";
+        const better = alert.after?.status === "compliant";
+        const accent = worse ? "var(--danger)" : better ? "var(--good)" : "var(--warn)";
+        return (
+          <div
+            key={alert.id}
+            className="card p-5"
+            style={{ borderLeft: `4px solid ${accent}` }}
+            data-testid="alert-row"
           >
-            Acknowledge
-          </button>
-        </div>
-      ))}
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div data-testid="impact-chain">
+                <p className="t-headline" style={{ color: accent }}>
+                  {market ? `${marketName(market)}: ${after.label.toLowerCase()}` : after.label}
+                </p>
+                <p className="t-subhead t-secondary mt-1">
+                  {after.meaning} This changed on its own, because a rule you added says so.
+                </p>
+                <p className="t-footnote t-secondary mt-2">
+                  Was “{before.label}” · now “{after.label}”
+                  {alert.cause?.clause_id ? (
+                    <>
+                      {" "}· caused by rule <span className="mono">{alert.cause.clause_id}</span>
+                    </>
+                  ) : null}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Link href="/conflicts" className="btn btn-secondary btn-small">
+                  See why
+                </Link>
+                <button
+                  className="btn btn-quiet btn-small"
+                  onClick={() => ackAlert(alert.id)}
+                  data-testid="alert-ack"
+                >
+                  Got it
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
     </section>
   );
 }

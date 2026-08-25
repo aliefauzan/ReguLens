@@ -9,6 +9,14 @@ logger = logging.getLogger(__name__)
 
 
 def instrument(app, project_id: str) -> None:
+    from app.settings import get_settings
+
+    if get_settings().firestore_emulator_host:
+        # Fully-local stack: there is no Cloud Trace to export to, and the
+        # exporter would retry credentials it will never get.
+        logger.info("tracing disabled: local stack")
+        return
+
     try:
         from opentelemetry import trace
         from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter

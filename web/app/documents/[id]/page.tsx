@@ -1,6 +1,5 @@
 import Link from "next/link";
 import Stepper from "./Stepper";
-import { getDocument } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -9,19 +8,16 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
 
   // The stepper polls everything client-side; the server shell only needs to
   // exist so the route resolves. A missing document surfaces as the poll
-  // error state, which is honest enough for a debug-grade page.
+  // error state.
   return (
-    <main className="mx-auto max-w-3xl p-10" data-testid="document-detail">
-      <div className="flex items-baseline justify-between">
-        <Link href="/" className="text-sm underline opacity-70">
-          ← All products
-        </Link>
-        <span className="font-mono text-xs opacity-40" data-testid="document-id">
-          {id}
-        </span>
-      </div>
+    <main className="mx-auto max-w-3xl px-5 py-8 sm:px-6 sm:py-12" data-testid="document-detail">
+      <Link href="/" className="btn btn-quiet btn-small -ml-2">← Back</Link>
 
-      <h1 className="mt-4 text-2xl font-semibold">Document pipeline</h1>
+      <h1 className="t-large-title mt-3">Reading your document</h1>
+      <p className="t-subhead t-secondary mt-2">
+        This page updates itself. You can leave and come back — the work carries on without you.
+      </p>
+      <p className="t-caption t-secondary mono mt-2" data-testid="document-id">{id}</p>
 
       <Stepper documentId={id} />
     </main>

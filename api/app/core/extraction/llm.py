@@ -142,12 +142,31 @@ def _classify(exc: Exception) -> Exception:
 def fake_candidates(text: str) -> list[dict[str, Any]]:
     """Deterministic canned extraction for FAKE_LLM mode.
 
-    Deliberately includes one candidate that fails validation, so the rejection
-    path is exercised by every fake run instead of only by adversarial tests.
+    Keyed on the document's own text, so the local stack reproduces the real
+    divergence: an Indonesian/BPOM source yields 400 mg/kg, an EU source 150
+    mg/kg. Deliberately includes one candidate that fails validation, so the
+    rejection path is exercised by every fake run instead of only by
+    adversarial tests.
     """
     lowered = text.lower()
     clauses: list[dict[str, Any]] = []
-    if any(m in lowered for m in ("benzoate", "benzoat", "e211", "e 211")):
+    indonesian = any(m in lowered for m in ("bpom", "badan pom", "natrium benzoat", "batas maksimal"))
+    if indonesian:
+        clauses.append(
+            {
+                "text": (
+                    "Natrium benzoat (INS 211) dalam minuman berbasis air berperisa: "
+                    "batas maksimal 400 mg/kg dihitung sebagai asam benzoat."
+                ),
+                "clause_type": "numeric_limit",
+                "substance": "natrium benzoat",
+                "limit_value": 400,
+                "unit_raw": "mg/kg",
+                "product_type": "food_beverage_liquid",
+                "effective_date": None,
+            }
+        )
+    elif any(m in lowered for m in ("benzoate", "benzoat", "e211", "e 211")):
         clauses.append(
             {
                 "text": (
@@ -162,20 +181,24 @@ def fake_candidates(text: str) -> list[dict[str, Any]]:
                 "effective_date": None,
             }
         )
-    clauses.append(
-        {
-            "text": (
-                "Food business operators shall ensure that additives are labelled "
-                "in accordance with Regulation (EU) No 1169/2011."
-            ),
-            "clause_type": "labeling",
-            "substance": None,
-            "limit_value": None,
-            "unit_raw": None,
-            "product_type": None,
-            "effective_date": None,
-        }
-    )
+    if not indonesian:
+        # EU sources carry a labeling clause too; it has no numeric limit, so it
+        # lands in review. Kept off the BPOM baseline so the seeded product
+        # reads compliant there, exactly as it does against live Vertex.
+        clauses.append(
+            {
+                "text": (
+                    "Food business operators shall ensure that additives are labelled "
+                    "in accordance with Regulation (EU) No 1169/2011."
+                ),
+                "clause_type": "labeling",
+                "substance": None,
+                "limit_value": None,
+                "unit_raw": None,
+                "product_type": None,
+                "effective_date": None,
+            }
+        )
     # Invalid on purpose: missing required `clause_type`.
     clauses.append({"text": "Malformed emission with no clause type."})
     return clauses

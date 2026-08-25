@@ -44,6 +44,9 @@ class Settings(BaseSettings):
     # Emulators — set only in docker compose, never in production.
     firestore_emulator_host: str | None = None
     pubsub_emulator_host: str | None = None
+    # Filesystem stand-in for Cloud Storage. Set only in docker compose; when
+    # unset every object goes to the real uploads bucket.
+    local_storage_dir: str | None = None
 
     @property
     def cors_origin_list(self) -> list[str]:

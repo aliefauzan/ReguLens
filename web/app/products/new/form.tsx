@@ -3,10 +3,20 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { createProduct, PRODUCT_TYPES, UNITS } from "@/lib/api";
+import { plain } from "../../_ui/status";
 
 type Row = { name: string; amount: string; unit: string };
 
 const EMPTY_ROW: Row = { name: "", amount: "", unit: "" };
+
+const COUNTRIES = [
+  { code: "ID", label: "Indonesia" },
+  { code: "DE", label: "Germany" },
+  { code: "MY", label: "Malaysia" },
+  { code: "SG", label: "Singapore" },
+  { code: "TH", label: "Thailand" },
+  { code: "VN", label: "Vietnam" },
+];
 
 export default function ProductForm() {
   const router = useRouter();
@@ -24,6 +34,10 @@ export default function ProductForm() {
 
   function updateRow(index: number, patch: Partial<Row>) {
     setRows((current) => current.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  }
+
+  function removeRow(index: number) {
+    setRows((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)));
   }
 
   function toggleMarket(id: string) {
@@ -57,144 +71,191 @@ export default function ProductForm() {
       });
       router.push(`/products/${product.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
+      setError(err instanceof Error ? err.message : "Something went wrong. Nothing was saved.");
       setSaving(false);
     }
   }
 
   return (
     <form className="mt-8 space-y-6" onSubmit={submit} data-testid="product-form">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="block">
-          <span className="text-sm">Name</span>
-          <input
-            className="mt-1 w-full rounded border bg-transparent p-2"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            data-testid="field-name"
-          />
-        </label>
+      <section className="card p-6">
+        <h2 className="t-headline">The basics</h2>
+        <div className="mt-4 grid gap-5 sm:grid-cols-2">
+          <label className="block">
+            <span className="label">What is it called?</span>
+            <input
+              className="field"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              data-testid="field-name"
+            />
+          </label>
 
-        <label className="block">
-          <span className="text-sm">Product type</span>
-          <select
-            className="mt-1 w-full rounded border bg-transparent p-2"
-            value={productType}
-            onChange={(e) => setProductType(e.target.value)}
-            data-testid="field-product-type"
-          >
-            {PRODUCT_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {type.replaceAll("_", " ")}
-              </option>
-            ))}
-          </select>
-        </label>
+          <label className="block">
+            <span className="label">What kind of product is it?</span>
+            <select
+              className="field"
+              value={productType}
+              onChange={(e) => setProductType(e.target.value)}
+              data-testid="field-product-type"
+            >
+              {PRODUCT_TYPES.map((type) => (
+                <option key={type} value={type}>
+                  {plain(type)}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="block">
-          <span className="text-sm">Origin (ISO country code)</span>
-          <input
-            className="mt-1 w-full rounded border bg-transparent p-2"
-            value={origin}
-            maxLength={2}
-            onChange={(e) => setOrigin(e.target.value.toUpperCase())}
-            required
-            data-testid="field-origin"
-          />
-        </label>
+          <label className="block">
+            <span className="label">Where is it made?</span>
+            <select
+              className="field"
+              value={origin}
+              onChange={(e) => setOrigin(e.target.value)}
+              data-testid="field-origin"
+            >
+              {COUNTRIES.map((country) => (
+                <option key={country.code} value={country.code}>
+                  {country.label}
+                </option>
+              ))}
+            </select>
+          </label>
 
-        <label className="block">
-          <span className="text-sm">Packaging</span>
-          <input
-            className="mt-1 w-full rounded border bg-transparent p-2"
-            value={packaging}
-            onChange={(e) => setPackaging(e.target.value)}
-            data-testid="field-packaging"
-          />
-        </label>
-      </div>
+          <label className="block">
+            <span className="label">How is it packaged?</span>
+            <input
+              className="field"
+              value={packaging}
+              onChange={(e) => setPackaging(e.target.value)}
+              placeholder="250g plastic pouch"
+              data-testid="field-packaging"
+            />
+            <span className="help">Optional.</span>
+          </label>
+        </div>
+      </section>
 
-      <fieldset data-testid="field-markets">
-        <legend className="text-sm">Destination markets</legend>
-        <div className="mt-2 flex gap-4">
+      <fieldset className="card p-6" data-testid="field-markets">
+        <legend className="t-headline float-left w-full">Where do you want to sell it?</legend>
+        <p className="help clear-both">Pick every country you sell into, or plan to.</p>
+        <div className="mt-4 grid gap-2 sm:grid-cols-2">
           {[
-            { id: "market_de", label: "Germany (EU)" },
-            { id: "market_id", label: "Indonesia (BPOM)" },
-          ].map((market) => (
-            <label key={market.id} className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={markets.includes(market.id)}
-                onChange={() => toggleMarket(market.id)}
-                data-testid={`market-${market.id}`}
-              />
-              {market.label}
-            </label>
-          ))}
+            { id: "market_de", label: "Germany", sub: "European Union rules" },
+            { id: "market_id", label: "Indonesia", sub: "BPOM rules" },
+          ].map((market) => {
+            const checked = markets.includes(market.id);
+            return (
+              <label
+                key={market.id}
+                className="inset flex cursor-pointer items-center gap-3 p-4"
+                style={checked ? { boxShadow: "inset 0 0 0 2px var(--accent)" } : undefined}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => toggleMarket(market.id)}
+                  aria-label={`Sell in ${market.label}`}
+                  data-testid={`market-${market.id}`}
+                  style={{ width: 22, height: 22, accentColor: "var(--accent)" }}
+                />
+                <span>
+                  <span className="t-subhead block" style={{ fontWeight: 600 }}>{market.label}</span>
+                  <span className="t-footnote t-secondary">{market.sub}</span>
+                </span>
+              </label>
+            );
+          })}
         </div>
       </fieldset>
 
-      <fieldset data-testid="field-ingredients">
-        <legend className="text-sm">Ingredients</legend>
-        <div className="mt-2 space-y-2">
+      <fieldset className="card p-6" data-testid="field-ingredients">
+        <legend className="t-headline float-left w-full">What is inside it?</legend>
+        <p className="help clear-both">
+          List the ingredients. For preservatives and additives, the amount matters — that is what
+          gets compared against the legal limit. Leave the amount blank if you do not know it.
+        </p>
+
+        <div className="mt-4 space-y-3">
           {rows.map((row, index) => (
-            <div key={index} className="grid grid-cols-[1fr_6rem_9rem] gap-2">
-              <input
-                className="rounded border bg-transparent p-2"
-                placeholder="name, e.g. sodium benzoate or E211"
-                value={row.name}
-                onChange={(e) => updateRow(index, { name: e.target.value })}
-                data-testid={`ingredient-name-${index}`}
-              />
-              <input
-                className="rounded border bg-transparent p-2"
-                placeholder="amount"
-                inputMode="decimal"
-                value={row.amount}
-                onChange={(e) => updateRow(index, { amount: e.target.value })}
-                data-testid={`ingredient-amount-${index}`}
-              />
-              <select
-                className="rounded border bg-transparent p-2"
-                value={row.unit}
-                onChange={(e) => updateRow(index, { unit: e.target.value })}
-                data-testid={`ingredient-unit-${index}`}
-              >
-                <option value="">unit</option>
-                {UNITS.map((unit) => (
-                  <option key={unit} value={unit}>
-                    {unit}
-                  </option>
-                ))}
-              </select>
+            <div key={index} className="inset p-4">
+              <div className="grid gap-3 sm:grid-cols-[1fr_7rem_10rem_auto]">
+                <label className="block">
+                  <span className="label sm:sr-only">Ingredient</span>
+                  <input
+                    className="field"
+                    placeholder="e.g. sodium benzoate, or E211"
+                    value={row.name}
+                    onChange={(e) => updateRow(index, { name: e.target.value })}
+                    data-testid={`ingredient-name-${index}`}
+                  />
+                </label>
+                <label className="block">
+                  <span className="label sm:sr-only">Amount</span>
+                  <input
+                    className="field"
+                    placeholder="amount"
+                    inputMode="decimal"
+                    value={row.amount}
+                    onChange={(e) => updateRow(index, { amount: e.target.value })}
+                    data-testid={`ingredient-amount-${index}`}
+                  />
+                </label>
+                <label className="block">
+                  <span className="label sm:sr-only">Unit</span>
+                  <select
+                    className="field"
+                    value={row.unit}
+                    onChange={(e) => updateRow(index, { unit: e.target.value })}
+                    data-testid={`ingredient-unit-${index}`}
+                  >
+                    <option value="">unit…</option>
+                    {UNITS.map((unit) => (
+                      <option key={unit} value={unit}>
+                        {plain(unit)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-small"
+                  onClick={() => removeRow(index)}
+                  aria-label={`Remove ingredient ${index + 1}`}
+                  disabled={rows.length === 1}
+                >
+                  Remove
+                </button>
+              </div>
             </div>
           ))}
         </div>
+
         <button
           type="button"
-          className="mt-2 text-sm underline"
+          className="btn btn-secondary btn-small mt-4"
           onClick={() => setRows((current) => [...current, { ...EMPTY_ROW }])}
           data-testid="add-ingredient"
         >
-          Add ingredient
+          Add another ingredient
         </button>
       </fieldset>
 
       {error ? (
-        <p className="text-sm text-red-600" data-testid="form-error">
-          {error}
-        </p>
+        <div className="card p-5" data-testid="form-error">
+          <p className="t-headline" style={{ color: "var(--danger)" }}>That did not save</p>
+          <p className="t-subhead t-secondary mt-1">{error}</p>
+        </div>
       ) : null}
 
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded bg-black px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-white dark:text-black"
-        data-testid="submit-product"
-      >
-        {saving ? "Saving…" : "Create product"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button type="submit" disabled={saving} className="btn btn-primary" data-testid="submit-product">
+          {saving ? "Saving…" : "Save product"}
+        </button>
+        <span className="t-footnote t-secondary">You can edit any of this later.</span>
+      </div>
     </form>
   );
 }

@@ -126,13 +126,20 @@ costs one day and removes that risk permanently.
 - [x] Budget alert (first of the five) — live. *The email channel still needs the user to click Google's verification mail.*
 
 ### Local dev
-- [ ] **`docker-compose.yml`**: firestore-emulator, pubsub-emulator, a one-shot
+- [x] **`docker-compose.yml`**: firestore-emulator, pubsub-emulator, a one-shot
       idempotent `pubsub-init` creating topics and **push** subscriptions pointing at
       the `worker` container, plus api, worker, and web with hot reload.
       Push locally, push in production — never poll in one and push in the other.
+      Run and verified 25 Aug. Three local-only env vars carry the differences:
+      `FIRESTORE_DATABASE=local` (the emulator rejects the URL-encoded `(default)`
+      id the client sends), `LOCAL_STORAGE_DIR` (no Cloud Storage emulator exists,
+      so api and worker share an uploads volume through `app/storage.py`), and
+      `API_INTERNAL_URL` (server components inside the web container cannot reach
+      `localhost:8080`).
 - [x] `FAKE_LLM=1` mode returning canned responses — switch is in `settings` and
       honoured by the ADK path. Fixtures come in phase 6.
-- [ ] `docker compose up` is the entire local setup instruction.
+- [x] `docker compose up` is the entire local setup instruction — plus the one-shot
+      `pubsub-init` and the seed job, both documented in the README.
 - [x] `README.md` at repo root: architecture, config table, provisioning, deploy,
       the real rollback command, local dev, and how to verify the skeleton.
 
@@ -146,8 +153,11 @@ costs one day and removes that risk permanently.
 - [x] The pinned Gemini 3.5+ model identifier is confirmed and a one-line completion
       succeeds against it.
 - [ ] A pushed commit deploys both services without manual steps.
-- [ ] `docker compose up` from a clean clone brings up the full stack, and a locally
-      published message reaches the local worker.
+- [x] `docker compose up` from a clean clone brings up the full stack, and a locally
+      published message reaches the local worker — verified 25 Aug by
+      `scripts/verify_local.sh`, which additionally proves the EU upload, the
+      cross-jurisdiction conflict, the unprompted Germany flip, the alert, the
+      upload cache, and redelivery-without-duplicates, all with zero GCP calls.
 - [~] Cloud Build deploys both services and the Job, and the rollback command has
       been executed successfully once — SKIPPED (partial): builds are green and
       rollback is practised, but they are triggered manually with `gcloud builds

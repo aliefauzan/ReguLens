@@ -2,15 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCompliance, getProduct, getProductEvents, type ComplianceView, type GraphEvent } from "@/lib/api";
 import AskPanel from "./AskPanel";
+import { StatusBadge, countryName, marketName, plain, statusCopy } from "../../_ui/status";
 
 export const dynamic = "force-dynamic";
-
-const STATUS_STYLE: Record<string, { label: string; color: string; soft: string }> = {
-  compliant: { label: "Compliant", color: "var(--accent)", soft: "var(--accent-soft)" },
-  attention_required: { label: "Attention required", color: "var(--warn)", soft: "var(--warn-soft)" },
-  non_compliant: { label: "Non-compliant", color: "var(--danger)", soft: "var(--danger-soft)" },
-  unknown: { label: "No regulatory data", color: "var(--muted)", soft: "transparent" },
-};
 
 async function load(
   id: string,
@@ -36,153 +30,179 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const { product, events, compliance } = data;
 
   return (
-    <main className="mx-auto max-w-5xl p-10" data-testid="product-detail">
-      <div className="flex items-baseline justify-between">
-        <Link href="/" className="text-sm underline opacity-70">← All products</Link>
-        <span className="font-mono text-xs opacity-40">{id}</span>
-      </div>
+    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="product-detail">
+      <Link href="/" className="btn btn-quiet btn-small -ml-2">← All products</Link>
 
-      <h1 className="mt-4 text-2xl font-semibold tracking-tight" data-testid="product-name">
+      <h1 className="t-large-title mt-3" data-testid="product-name">
         {product.name}
       </h1>
+      <p className="t-subhead t-secondary mt-1">
+        {plain(product.product_type)} · made in {countryName(product.origin)}
+      </p>
 
-      <section className="card mt-6 p-5" data-testid="compliance-twin">
-        <h2 className="text-sm font-medium uppercase tracking-wide opacity-60">Compliance twin</h2>
-        <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div>
-            <dt className="text-sm opacity-60">Product type</dt>
-            <dd data-testid="twin-product-type">{product.product_type.replaceAll("_", " ")}</dd>
+      {/* --- The answer, first. Everything else explains it. ---------------- */}
+      <section className="mt-8 space-y-4" data-testid="readiness-panel">
+        <h2 className="t-footnote t-secondary uppercase tracking-wide">Can you sell it?</h2>
+        {compliance && Object.keys(compliance.statuses).length > 0 ? (
+          Object.entries(compliance.statuses).map(([marketId, status]) => {
+            const copy = statusCopy(status);
+            const rows = compliance.requirements.filter((r) => r.market_id === marketId);
+            const failing = rows.filter((r) => r.evaluation === "fail").length;
+            const unchecked = rows.filter((r) => r.evaluation === "needs_review").length;
+            return (
+              <div key={marketId} className="card p-6">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="t-headline">{marketName(marketId)}</h3>
+                  <StatusBadge status={status} />
+                </div>
+                <p className="t-subhead t-secondary mt-2">{copy.meaning}</p>
+
+                {rows.length > 0 ? (
+                  <ul className="mt-4 space-y-3" data-testid={`requirements-${marketId}`}>
+                    {rows.map((req) => (
+                      <li key={req.id} className="inset p-4">
+                        <div className="flex flex-wrap items-baseline justify-between gap-2">
+                          <span className="t-subhead">
+                            <Mark evaluation={req.evaluation} />{" "}
+                            {req.substance_normalized
+                              ? req.substance_normalized.replaceAll("_", " ")
+                              : plain(req.requirement_type ?? req.reason)}
+                          </span>
+                          {req.limit_value !== null ? (
+                            <span className="t-footnote t-secondary">
+                              allowed up to {req.limit_value} {plain(req.unit)}
+                            </span>
+                          ) : null}
+                        </div>
+                        <p className="t-footnote t-secondary mt-1">
+                          {req.evaluation === "fail" && req.product_value !== null
+                            ? `Your product has ${req.product_value} ${plain(req.unit)} — over the limit.`
+                            : req.evaluation === "pass" && req.product_value !== null
+                              ? `Your product has ${req.product_value} ${plain(req.unit)} — under the limit.`
+                              : req.reason === "non_numeric_clause"
+                                ? "This rule has no number in it, so a person has to read it."
+                                : "We do not know how much your product contains, so this was not checked."}
+                        </p>
+                        <p className="t-caption t-secondary mono mt-2">{req.clause_id}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+
+                <p className="t-footnote t-secondary mt-4" data-testid={`issues-${marketId}`}>
+                  {failing > 0 || unchecked > 0
+                    ? `${failing} rule${failing === 1 ? "" : "s"} broken · ${unchecked} to check by hand`
+                    : "No problems found"}
+                </p>
+              </div>
+            );
+          })
+        ) : (
+          <div className="card p-8 text-center" data-testid="readiness-empty">
+            <p className="t-headline">Nothing to compare against yet</p>
+            <p className="t-subhead t-secondary mt-1">
+              We have not read any regulation for this product’s markets, so there is no answer to give.
+              Adding one takes a minute.
+            </p>
+            <Link href="/documents/new" className="btn btn-primary btn-small mt-4">Add rules</Link>
           </div>
-          <div>
-            <dt className="text-sm opacity-60">Origin</dt>
-            <dd data-testid="twin-origin">{product.origin}</dd>
-          </div>
-          <div>
-            <dt className="text-sm opacity-60">Packaging</dt>
-            <dd data-testid="twin-packaging">{product.packaging ?? "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-sm opacity-60">Destination markets</dt>
-            <dd data-testid="twin-markets">{product.target_markets.join(", ") || "—"}</dd>
-          </div>
+        )}
+      </section>
+
+      {/* --- Ask ------------------------------------------------------------ */}
+      <AskPanel productId={id} />
+
+      {/* --- What we know about the product --------------------------------- */}
+      <section className="card mt-10 p-6" data-testid="compliance-twin">
+        <h2 className="t-headline">What we know about this product</h2>
+        <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+          <Fact label="Kind of product" testId="twin-product-type" value={plain(product.product_type)} />
+          <Fact label="Made in" testId="twin-origin" value={countryName(product.origin)} />
+          <Fact label="Packaging" testId="twin-packaging" value={product.packaging ?? "—"} />
+          <Fact
+            label="Selling into"
+            testId="twin-markets"
+            value={product.target_markets.map(marketName).join(", ") || "—"}
+          />
         </dl>
-        <h3 className="mt-6 text-sm font-medium uppercase tracking-wide opacity-60">Ingredients</h3>
-        <ul className="mt-3 space-y-2" data-testid="twin-ingredients">
+
+        <h3 className="t-footnote t-secondary uppercase tracking-wide mt-8">Ingredients</h3>
+        <ul className="mt-3" data-testid="twin-ingredients">
           {product.ingredients.map((ingredient, index) => (
-            <li key={`${ingredient.name}-${index}`} className="flex items-baseline justify-between text-sm" >
-              <span>
+            <li key={`${ingredient.name}-${index}`} className="row flex items-baseline justify-between gap-3 py-3">
+              <span className="t-subhead">
                 {ingredient.name}
-                <span className="ml-2 opacity-50">{ingredient.normalized}</span>
                 {ingredient.unnormalized ? (
                   <span
-                    className="ml-2 rounded-full px-1.5 py-0.5 text-xs"
-                    style={{ background: "var(--warn-soft)", color: "var(--warn)" }}
-                    title="Not in the substance dictionary — it will not match any clause"
+                    className="badge badge-warn ml-2"
+                    title="We do not recognise this name, so no rule can be matched to it. Try the common name or its E-number."
                     data-testid="unnormalized-flag"
                   >
-                    unrecognised
+                    not recognised
                   </span>
                 ) : null}
               </span>
-              <span className="opacity-70">
-                {ingredient.amount !== null ? `${ingredient.amount} ${ingredient.unit}` : "—"}
+              <span className="t-footnote t-secondary">
+                {ingredient.amount !== null ? `${ingredient.amount} ${plain(ingredient.unit)}` : "amount not given"}
               </span>
             </li>
           ))}
         </ul>
       </section>
 
-      {/* Readiness per market */}
-      <section className="mt-6 space-y-4" data-testid="readiness-panel">
-        {compliance && Object.keys(compliance.statuses).length > 0 ? (
-          Object.entries(compliance.statuses).map(([marketId, status]) => (
-            <div key={marketId} className="card p-5">
-              <div className="flex items-baseline justify-between">
-                <h2 className="font-medium">{marketId}</h2>
-                <StatusBadge status={status} />
-              </div>
-              <ul className="mt-3 space-y-2 text-sm" data-testid={`requirements-${marketId}`}>
-                {compliance.requirements
-                  .filter((r) => r.market_id === marketId)
-                  .map((req) => (
-                    <li key={req.id} className="flex items-baseline justify-between gap-3">
-                      <span>
-                        <Mark evaluation={req.evaluation} />{" "}
-                        <span className="font-mono text-xs opacity-70">{req.clause_id}</span>{" "}
-                        {req.substance_normalized ?? req.reason ?? ""}
-                        {req.limit_value !== null ? (
-                          <span className="opacity-70">
-                            {" "}
-                            · limit {req.limit_value} {req.unit}
-                          </span>
-                        ) : null}
-                      </span>
-                      <span className="opacity-70">
-                        {req.product_value !== null ? `product ${req.product_value} ${req.unit}` : "amount unknown"}
-                      </span>
-                    </li>
-                  ))}
-              </ul>
-              <p className="mt-3 text-xs opacity-60" data-testid={`issues-${marketId}`}>
-                {compliance.issue_counts.total > 0
-                  ? `${compliance.issue_counts.total} issues — ${compliance.issue_counts.critical} critical`
-                  : "no issues"}
-              </p>
-            </div>
-          ))
-        ) : (
-          <div className="card p-5 text-sm opacity-70" data-testid="readiness-empty">
-            No regulatory data ingested yet. Nothing has been evaluated against this product,
-            so there is no readiness figure to report.
-          </div>
-        )}
-      </section>
-
-      {/* Ask panel */}
-      <AskPanel productId={id} />
-
-      {/* Timeline */}
-      <section className="mt-10" data-testid="event-log">
-        <h2 className="text-sm font-medium uppercase tracking-wide opacity-60">Audit trail</h2>
-        <ol className="mt-3 space-y-2 text-sm">
-          {events.map((event) => (
-            <li key={event.id} className="card px-3 py-2" data-testid={`event-${event.event_type}`}>
-              <span className="font-medium">{event.event_type}</span>
-              {event.before && event.after ? (
-                <DiffCell before={event.before} after={event.after} />
-              ) : null}
-              {event.trace_id ? (
-                <span className="ml-2 font-mono text-xs opacity-40">{event.trace_id.slice(0, 8)}</span>
-              ) : null}
-            </li>
-          ))}
-        </ol>
+      {/* --- History: available, but folded away for a first-time reader ---- */}
+      <section className="mt-8" data-testid="event-log">
+        <details className="card p-5">
+          <summary className="t-headline cursor-pointer">
+            Full history
+            <span className="t-footnote t-secondary ml-2">
+              every change, and what caused it ({events.length})
+            </span>
+          </summary>
+          <ol className="mt-4 space-y-2">
+            {events.map((event) => (
+              <li key={event.id} className="row py-2 t-footnote" data-testid={`event-${event.event_type}`}>
+                <span className="t-subhead">{EVENT_WORDS[event.event_type] ?? plain(event.event_type)}</span>
+                {event.before && event.after ? <DiffCell before={event.before} after={event.after} /> : null}
+                {event.trace_id ? (
+                  <span className="mono t-caption t-secondary ml-2">{event.trace_id.slice(0, 8)}</span>
+                ) : null}
+              </li>
+            ))}
+          </ol>
+        </details>
       </section>
     </main>
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const style = STATUS_STYLE[status] ?? STATUS_STYLE.unknown;
+const EVENT_WORDS: Record<string, string> = {
+  product_created: "Product added",
+  product_status_changed: "Verdict changed",
+  requirement_created: "Rule applied to this product",
+  document_ingested: "Regulation added",
+  clause_created: "Rule recorded",
+  conflict_opened: "Two rules disagree",
+};
+
+function Fact({ label, value, testId }: { label: string; value: string; testId: string }) {
   return (
-    <span
-      className="rounded-full px-2.5 py-0.5 text-xs font-medium"
-      style={{ color: style.color, background: style.soft }}
-      data-testid={`status-${status}`}
-    >
-      {style.label}
-    </span>
+    <div>
+      <dt className="t-footnote t-secondary">{label}</dt>
+      <dd className="t-subhead mt-0.5" data-testid={testId}>{value}</dd>
+    </div>
   );
 }
 
 function Mark({ evaluation }: { evaluation: string }) {
   const glyph = evaluation === "pass" ? "✓" : evaluation === "fail" ? "✕" : "⚠";
+  const label = evaluation === "pass" ? "passes" : evaluation === "fail" ? "fails" : "needs a person";
   return (
     <span
-      aria-label={evaluation}
+      aria-label={label}
       style={{
         color:
-          evaluation === "pass" ? "var(--accent)"
+          evaluation === "pass" ? "var(--good)"
           : evaluation === "fail" ? "var(--danger)"
           : "var(--warn)",
       }}
@@ -199,7 +219,7 @@ function DiffCell({ before, after }: { before: unknown; after: unknown }) {
   const a = (after ?? {}) as DiffSide;
   if (b.limit_value !== undefined || a.limit_value !== undefined) {
     return (
-      <span className="ml-2 font-mono text-xs">
+      <span className="mono t-caption ml-2">
         {String(b.limit_value)} → {String(a.limit_value)}
       </span>
     );
@@ -209,8 +229,8 @@ function DiffCell({ before, after }: { before: unknown; after: unknown }) {
     const am = a.status_map ?? {};
     const changed = Object.keys(am)
       .filter((k) => bm[k] !== am[k])
-      .map((k) => `${k}: ${bm[k] ?? "?"} → ${am[k]}`);
-    if (changed.length) return <span className="ml-2 font-mono text-xs">{changed.join(", ")}</span>;
+      .map((k) => `${marketName(k)}: ${statusCopy(bm[k]).label} → ${statusCopy(am[k]).label}`);
+    if (changed.length) return <span className="t-caption ml-2">{changed.join(", ")}</span>;
   }
   if (b.status !== a.status) {
     const worsened =
@@ -218,11 +238,11 @@ function DiffCell({ before, after }: { before: unknown; after: unknown }) {
       (a.status === "attention_required" && b.status !== "non_compliant");
     return (
       <span
-        className="ml-2 font-mono text-xs"
-        style={worsened ? { color: "var(--danger)", fontWeight: 600 } : undefined}
+        className="t-caption ml-2"
+        style={worsened ? { color: "var(--danger)", fontWeight: 600 } : { color: "var(--secondary)" }}
         data-testid="status-transition"
       >
-        {String(b.status)} → {String(a.status)}
+        {statusCopy(b.status).label} → {statusCopy(a.status).label}
       </span>
     );
   }
