@@ -99,6 +99,42 @@ def get_substances() -> dict:
     }
 
 
+@app.get("/samples")
+def get_samples() -> dict:
+    """Regulation excerpts bundled with the app.
+
+    Someone evaluating ReguLens rarely has a regulation PDF open. Without one
+    they cannot reach any page that shows an answer, so the samples are part of
+    the product, not a test fixture.
+    """
+    from app.core import samples
+
+    return {"samples": samples.list_samples(), "trace_id": get_trace_id()}
+
+
+@app.post("/demo/seed", status_code=202)
+def post_demo_seed() -> JSONResponse:
+    """Create the demo product and ingest one real rule for it.
+
+    Returns 202: extraction runs on the worker, so the document arrives
+    `uploaded` and the caller polls it like any other upload. Safe to call
+    repeatedly — the product is matched by name and the document by content
+    hash.
+    """
+    from app.core import demo
+
+    product, document, cached = demo.seed_demo()
+    return JSONResponse(
+        {
+            "product": product.model_dump(mode="json"),
+            "document": document.model_dump(mode="json"),
+            "cached": cached,
+            "trace_id": get_trace_id(),
+        },
+        status_code=200 if cached else 202,
+    )
+
+
 @app.post("/products", status_code=201)
 def create_product(payload: ProductIn) -> dict:
     product = products.create_product(payload)

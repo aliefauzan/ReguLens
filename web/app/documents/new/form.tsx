@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
-import { uploadDocument, type SourceType } from "@/lib/api";
+import { useEffect, useState } from "react";
+import { listSamples, uploadDocument, type Sample, type SourceType } from "@/lib/api";
 
 // The source-type selector is a product feature, not a form field: it sets the
 // authority tier that caps what the system will do with a clause. The copy says
@@ -50,6 +50,27 @@ export default function UploadForm() {
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [samples, setSamples] = useState<Sample[]>([]);
+  const [usedSample, setUsedSample] = useState<string | null>(null);
+
+  // A bundled excerpt is the only way to get through this page without a
+  // regulation of your own. If the list cannot be fetched the page still works
+  // with a file or pasted text, so the failure stays silent.
+  useEffect(() => {
+    listSamples()
+      .then(({ samples: loaded }) => setSamples(loaded))
+      .catch(() => setSamples([]));
+  }, []);
+
+  function useSample(sample: Sample) {
+    setSourceType(sample.source_type);
+    setSourceName(sample.source_name);
+    setJurisdiction(sample.jurisdiction);
+    setFile(null);
+    setText(sample.text);
+    setUsedSample(sample.id);
+    setError(null);
+  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -75,6 +96,35 @@ export default function UploadForm() {
 
   return (
     <form className="mt-8 space-y-6" onSubmit={submit} data-testid="upload-form">
+      {samples.length > 0 ? (
+        <section className="card p-6" data-testid="samples">
+          <h2 className="t-headline">No document to hand?</h2>
+          <p className="help">
+            Start from a real excerpt we ship with the app. It fills this form in — you still press
+            the button, and it goes through exactly the same reading as your own upload.
+          </p>
+          <div className="mt-4 grid gap-2">
+            {samples.map((sample) => (
+              <div key={sample.id} className="inset flex flex-wrap items-center justify-between gap-3 p-4">
+                <span className="min-w-0">
+                  <span className="t-subhead block" style={{ fontWeight: 600 }}>{sample.title}</span>
+                  <span className="t-footnote t-secondary block">{sample.summary}</span>
+                  <span className="t-caption t-secondary block mt-1">{sample.citation}</span>
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-small"
+                  onClick={() => useSample(sample)}
+                  data-testid={`use-sample-${sample.id}`}
+                >
+                  {usedSample === sample.id ? "Filled in below ✓" : "Use this one"}
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <fieldset className="card p-6" data-testid="authority-selector">
         <legend className="t-headline float-left w-full">Where did this come from?</legend>
         <p className="help clear-both">

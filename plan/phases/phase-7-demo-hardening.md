@@ -3,7 +3,7 @@
 **Estimate:** 1 day (Aug 31) — includes the submission itself
 **Demo sentence:** "Run one command, get the exact same demo, every time."
 
-**Status:** `NOT STARTED` · **Started:** — · **Completed:** —
+**Status:** `IN PROGRESS` · **Started:** 26 Aug 2026 · **Completed:** —
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion
@@ -36,6 +36,41 @@ that fails once on stage scores worse than a smaller system that never does.
 - [ ] Seeding is idempotent and takes under 30 seconds.
 - [ ] Fixture documents committed to the repo so seeding needs no network fetch of
       third-party files.
+
+### First-run self-service (added 26 Aug)
+
+The plan's "Out of scope" line below says *onboarding flows*. That was written
+assuming the demo is always driven by us. It is not: a judge opens the hosted URL
+cold, with no product, no regulation PDF, and nobody to ask. Two hours of
+onboarding is cheaper than a judge who reaches an empty page and leaves. Scope is
+deliberately minimal — no tour, no coach marks, no modal.
+
+Verified on the local docker-compose stack. **Not yet redeployed to Cloud Run.**
+
+- [x] `GET /samples` — regulation excerpts bundled in the image (`app/core/samples.py`),
+      quoted verbatim from the corpus with their citations. Needed because only
+      `app/` is copied into the container, so `data/regulations/` is not there.
+- [x] `POST /demo/seed` — creates the demo product and ingests the BPOM rule
+      **through the normal async path** (Pub/Sub → worker), so the button exercises
+      the real pipeline rather than writing state directly. Returns 202 while
+      extraction runs, 200 when an identical seed already exists.
+- [x] Seeding idempotent twice over: product matched by name, document by content
+      hash. Pressed twice → same product id, same document id, one product.
+- [x] The EU rule stays un-ingested by the seed, so the inflection point is still
+      the user's own upload — now available as a one-click sample.
+- [x] Home page: "Try it with sample data" on an empty workspace, landing on the
+      document page while extraction runs (landing on the product would show
+      "no rules added yet" and read as a broken button).
+- [x] Add-rules page: sample picker fills the form (source type, publisher,
+      jurisdiction, text) and the user still presses the button.
+- [x] Three-step checklist persists until all three steps are genuinely done,
+      computed from real state — a product exists, a document reached `extracted`,
+      a market reads something other than `unknown`. It previously vanished the
+      moment the first product existed, taking step two with it.
+- [x] `tests/test_samples.py` — nine tests pinning the thing the samples claim:
+      EU excerpt yields 150, BPOM yields 400, the two disagree, the demo product's
+      300 mg/kg sits between them, and every demo ingredient normalizes.
+- [ ] Redeploy api + web to Cloud Run so the hosted URL has the seed button.
 
 ### Failure survival
 - [ ] Every async stage has a timeout and a visible failure state in the stepper.
@@ -113,7 +148,8 @@ that fails once on stage scores worse than a smaller system that never does.
 ## Out of scope
 
 Load testing, monitoring dashboards, error tracking integration, analytics,
-onboarding flows, marketing site.
+marketing site. *Onboarding flows were out of scope until 26 Aug; see "First-run
+self-service" above for why the minimal case came back in.*
 
 ## Risk notes
 

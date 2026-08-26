@@ -24,6 +24,7 @@ from app.core.extraction.pipeline import run_extraction
 from app.core.impact import run_impact_for_product
 from app.core.products import create_product
 from app.core.reconciliation import reconcile_clause
+from app.core.samples import BPOM_EXCERPT, DEMO_PRODUCT, DEMO_PRODUCT_NAME
 from app.models import DocumentIn, ProductIn, SourceType
 from app.observability import configure_logging, log, set_trace_id
 from app.settings import get_settings
@@ -31,15 +32,6 @@ from app.settings import get_settings
 settings = get_settings()
 configure_logging(settings.log_level, "regulens-job")
 logger = logging.getLogger(__name__)
-
-# Verbatim excerpt from BPOM Perka 11/2019 annex (see data/regulations/SOURCES.md).
-BPOM_EXCERPT = """Peraturan Badan POM Nomor 11 Tahun 2019 tentang Bahan Tambahan Pangan.
-
-Natrium benzoat (Sodium benzoate), INS: 211. Golongan: Pengawet.
-
-Nomor Kategori Pangan 14.1.4.1 - Minuman Berbasis Air Berperisa yang Berkarbonat:
-Batas Maksimal (mg/kg) dihitung sebagai asam benzoat: 400.
-"""
 
 
 def seed() -> int:
@@ -49,25 +41,8 @@ def seed() -> int:
     from app.core.products import list_products
 
     existing = list_products()
-    demo = next((p for p in existing if p.name == "Herbal Drink Powder"), None)
-    if demo is None:
-        product = create_product(
-            ProductIn(
-                name="Herbal Drink Powder",
-                product_type="food_beverage_powder",
-                origin="ID",
-                packaging="250g plastic pouch",
-                ingredients=[
-                    {"name": "ginger"},
-                    {"name": "turmeric"},
-                    {"name": "honey powder"},
-                    {"name": "sodium benzoate", "amount": 300, "unit": "mg_per_kg"},
-                ],
-                target_markets=["market_de", "market_id"],
-            )
-        )
-    else:
-        product = demo
+    demo = next((p for p in existing if p.name == DEMO_PRODUCT_NAME), None)
+    product = demo if demo is not None else create_product(ProductIn(**DEMO_PRODUCT))
 
     document, cached = create_document(
         meta=DocumentIn(

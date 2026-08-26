@@ -9,6 +9,7 @@ import {
   type Product,
 } from "@/lib/api";
 import AlertsBanner from "./AlertsBanner";
+import GetStarted, { type Progress } from "./GetStarted";
 import { StatusBadge, marketName, jurisdictionName, plain } from "./_ui/status";
 
 export const dynamic = "force-dynamic";
@@ -137,10 +138,30 @@ function nextStep(
   };
 }
 
+/**
+ * How far through the three opening steps this workspace is.
+ *
+ * Read from real state, never from a flag: a step counts as done when the
+ * thing it produces exists. "Rules added" therefore means a document that
+ * finished extraction — one still being read has not yet told anyone anything.
+ */
+function progressOf(rows: Row[], docs: Awaited<ReturnType<typeof listDocuments>>["documents"]): Progress {
+  return {
+    product: rows.length > 0,
+    rules: docs.some((doc) => doc.status === "extracted" || doc.status === "reconciled"),
+    answer: rows.some(({ compliance }) =>
+      Object.values(compliance?.statuses ?? {}).some((status) => status !== "unknown"),
+    ),
+  };
+}
+
 export default async function Home() {
   const { rows, docs, toCheck, disagreements, error } = await loadAll();
-  const firstRun = rows.length === 0 && !error;
-  const step = firstRun || error ? null : nextStep(rows, docs.length, toCheck, disagreements);
+  const progress = progressOf(rows, docs);
+  const onboarding = !error && !(progress.product && progress.rules && progress.answer);
+  // While the checklist is up it *is* the next step; two cards competing to say
+  // what to do next is worse than either alone.
+  const step = onboarding || error ? null : nextStep(rows, docs.length, toCheck, disagreements);
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="home">
@@ -181,7 +202,7 @@ export default async function Home() {
         </div>
       ) : null}
 
-      {firstRun ? <StartHere /> : null}
+      {onboarding ? <GetStarted progress={progress} /> : null}
 
       {rows.length > 0 ? (
         <section className="mt-8">
@@ -252,58 +273,5 @@ export default async function Home() {
         </section>
       ) : null}
     </main>
-  );
-}
-
-/** First run only: the three steps, in order, with the door to step one open. */
-function StartHere() {
-  const steps = [
-    {
-      title: "Describe your product",
-      body: "Name it, list what is inside it, and tick the countries you want to sell it in. Two minutes, no jargon.",
-      href: "/products/new",
-      cta: "Add a product",
-    },
-    {
-      title: "Add the rules that apply",
-      body: "Upload a regulation PDF, or paste text from an announcement. ReguLens reads it and pulls out the limits.",
-      href: "/documents/new",
-      cta: "Add rules",
-    },
-    {
-      title: "Read the answer",
-      body: "Each market shows whether your product is allowed. If a later rule changes that, you are told without asking.",
-      href: null,
-      cta: null,
-    },
-  ];
-
-  return (
-    <section className="card mt-8 p-6" data-testid="products-empty">
-      <h2 className="t-title">Start here</h2>
-      <p className="t-body t-secondary mt-2">Three steps. You only do the first two.</p>
-      <ol className="mt-6 space-y-5">
-        {steps.map((step, index) => (
-          <li key={step.title} className="flex gap-4">
-            <span
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full t-footnote"
-              style={{ background: "var(--accent)", color: "var(--accent-ink)", fontWeight: 600 }}
-              aria-hidden="true"
-            >
-              {index + 1}
-            </span>
-            <div>
-              <p className="t-headline">{step.title}</p>
-              <p className="t-footnote t-secondary prose-measure mt-1">{step.body}</p>
-              {step.href ? (
-                <Link href={step.href} className="btn btn-secondary btn-small mt-3">
-                  {step.cta}
-                </Link>
-              ) : null}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
   );
 }

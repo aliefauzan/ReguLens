@@ -104,6 +104,35 @@ export async function createProduct(body: unknown): Promise<Product> {
   return payload.product as Product;
 }
 
+export type Sample = {
+  id: string;
+  title: string;
+  summary: string;
+  source_type: SourceType;
+  source_name: string;
+  jurisdiction: string;
+  citation: string;
+  text: string;
+};
+
+/** Regulation excerpts bundled with the app, for a user who has no PDF to hand. */
+export function listSamples(): Promise<{ samples: Sample[] }> {
+  return get("/samples");
+}
+
+/** Create the demo product and ingest one real rule for it. Safe to repeat. */
+export async function seedDemo(): Promise<{
+  product: Product;
+  document: RegulatoryDocument;
+  cached: boolean;
+}> {
+  const response = await fetch(`${BASE}/demo/seed`, { method: "POST" });
+  if (!response.ok) {
+    throw new Error("We could not load the sample data. Check that the service is running.");
+  }
+  return (await response.json()) as { product: Product; document: RegulatoryDocument; cached: boolean };
+}
+
 export type Substance = { canonical: string; label: string; synonyms: string[] };
 
 export function listSubstances(): Promise<{ substances: Substance[] }> {
