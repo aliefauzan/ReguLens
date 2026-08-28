@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { listClauses, listConflicts, type Clause, type Conflict } from "@/lib/api";
+import { listClauses, listConflicts, listDocuments, type Clause, type Conflict } from "@/lib/api";
+import Provenance from "../_ui/Provenance";
 import Term from "../_ui/Term";
 import { jurisdictionName, plain } from "../_ui/status";
 
@@ -8,13 +9,19 @@ export const dynamic = "force-dynamic";
 export default async function ConflictsPage() {
   let conflicts: Conflict[] = [];
   let byId: Record<string, Clause> = {};
+  let sourceById: Record<string, string> = {};
   let error: string | null = null;
   try {
     // The conflict record stores ids; a reader needs countries and wording, so
     // join the clauses here rather than teaching the reader what an id is.
-    const [conflictResult, clauseResult] = await Promise.all([listConflicts(), listClauses({})]);
+    const [conflictResult, clauseResult, documentResult] = await Promise.all([
+      listConflicts(),
+      listClauses({}),
+      listDocuments(),
+    ]);
     conflicts = conflictResult.conflicts;
     byId = Object.fromEntries(clauseResult.clauses.map((c) => [c.id, c]));
+    sourceById = Object.fromEntries(documentResult.documents.map((d) => [d.id, d.source_name]));
   } catch {
     error = "We could not reach the ReguLens service. Check that it is running, then reload this page.";
   }
@@ -62,6 +69,7 @@ export default async function ConflictsPage() {
                   testId={`conflict-a-${conflict.id}`}
                   clause={byId[conflict.clause_a]}
                   clauseId={conflict.clause_a}
+                  sourceName={sourceById[byId[conflict.clause_a]?.document_id ?? ""]}
                   limit={conflict.detail?.a_limit}
                   unit={conflict.detail?.a_unit}
                   strictest={stricter === "a"}
@@ -70,6 +78,7 @@ export default async function ConflictsPage() {
                   testId={`conflict-b-${conflict.id}`}
                   clause={byId[conflict.clause_b]}
                   clauseId={conflict.clause_b}
+                  sourceName={sourceById[byId[conflict.clause_b]?.document_id ?? ""]}
                   limit={conflict.detail?.b_limit}
                   unit={conflict.detail?.b_unit}
                   strictest={stricter === "b"}
@@ -96,6 +105,7 @@ function Side({
   testId,
   clause,
   clauseId,
+  sourceName,
   limit,
   unit,
   strictest,
@@ -103,6 +113,7 @@ function Side({
   testId: string;
   clause?: Clause;
   clauseId: string;
+  sourceName?: string;
   limit: unknown;
   unit: unknown;
   strictest: boolean;
@@ -123,10 +134,12 @@ function Side({
       {clause?.text ? (
         <p className="t-footnote t-secondary mt-4">“{clause.text}”</p>
       ) : null}
-      <details className="mt-3">
-        <summary className="t-caption cursor-pointer">Where this came from</summary>
-        <p className="t-caption mono mt-1">{clauseId}</p>
-      </details>
+      <Provenance
+        clauseId={clauseId}
+        documentId={clause?.document_id}
+        sourceName={sourceName}
+        jurisdiction={clause?.jurisdiction}
+      />
     </div>
   );
 }

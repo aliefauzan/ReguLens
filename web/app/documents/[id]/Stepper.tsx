@@ -8,6 +8,18 @@ import { plain } from "../../_ui/status";
 
 const POLL_MS = 2000;
 
+// Same words as /rules, deliberately. A rule found in a document is not
+// necessarily a rule being applied, and the page previously said "Finished"
+// over a clause nobody had accepted yet.
+const CLAUSE_STANDING: Record<string, { label: string; tone: string }> = {
+  active: { label: "In use", tone: "var(--good)" },
+  conflicted: { label: "Disagrees with another country", tone: "var(--danger)" },
+  needs_review: { label: "Waiting for you to check", tone: "var(--warn)" },
+  dismissed: { label: "You ignored this one", tone: "var(--secondary)" },
+  superseded: { label: "Replaced by a newer rule", tone: "var(--secondary)" },
+  pending_reconciliation: { label: "Still being sorted", tone: "var(--secondary)" },
+};
+
 // Measured on the deployed stack, upload to re-checked product: 183s. Saying
 // "about a minute" and then taking three is how a working system gets read as
 // a broken one, so both this and the upload button quote the same number.
@@ -46,6 +58,18 @@ function completedStages(status: string, clauses: Clause[]): number {
 function pct(value?: number): string {
   if (value === undefined || value === null) return "—";
   return Math.round(value * 100) + "%";
+}
+
+/** Says exactly what is waiting, without claiming a "rest" that may not exist. */
+function waitingSentence(waiting: number, total: number): string {
+  const them = waiting === 1 ? "it is right" : "they are right";
+  const rules = waiting === 1 ? "rule" : "rules";
+  const needs = waiting === 1 ? "needs" : "need";
+  if (waiting === total) {
+    return `Nothing here counts yet: ${waiting === 1 ? "this rule needs" : `all ${waiting} ${rules} ${needs}`} you to say whether ${them}.`;
+  }
+  const applied = total - waiting;
+  return `${waiting} of the ${total} rules ${needs} you to say whether ${them} before ${waiting === 1 ? "it changes" : "they change"} anything. The other ${applied} ${applied === 1 ? "has" : "have"} been applied and your products re-checked.`;
 }
 
 function mmss(seconds: number): string {
@@ -104,6 +128,7 @@ export default function Stepper({ documentId }: { documentId: string }) {
   const complete = completedStages(doc.status, clauses);
   const done = !failed && complete >= STAGES.length;
   const working = !failed && !done;
+  const waiting = clauses.filter((clause) => clause.status === "needs_review").length;
   const slow = working && elapsed > SLOW_SECONDS;
 
   return (
@@ -166,12 +191,27 @@ export default function Stepper({ documentId }: { documentId: string }) {
       </ol>
 
       {done ? (
-        <div className="card mt-4 p-5" style={{ borderLeft: "4px solid var(--good)" }}>
-          <p className="t-headline">Finished</p>
-          <p className="t-footnote t-secondary mt-1">
-            Your products have been re-checked against these rules.
+        <div
+          className="card mt-4 p-5"
+          style={{ borderLeft: `4px solid ${waiting > 0 ? "var(--warn)" : "var(--good)"}` }}
+          data-testid="finished-panel"
+        >
+          <p className="t-headline">
+            {waiting > 0 ? "Read — but not all of it counts yet" : "Finished"}
           </p>
-          <Link href="/" className="btn btn-secondary btn-small mt-3">See your products</Link>
+          <p className="t-footnote t-secondary prose-measure mt-1">
+            {waiting === 0
+              ? "Your products have been re-checked against these rules."
+              : waitingSentence(waiting, clauses.length)}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {waiting > 0 ? (
+              <Link href="/review" className="btn btn-primary btn-small" data-testid="go-review">
+                Check {waiting === 1 ? "it" : "them"} now
+              </Link>
+            ) : null}
+            <Link href="/" className="btn btn-secondary btn-small">See your products</Link>
+          </div>
         </div>
       ) : null}
 
@@ -201,7 +241,18 @@ export default function Stepper({ documentId }: { documentId: string }) {
           <ul className="mt-3 space-y-3">
             {clauses.map((clause) => (
               <li key={clause.id} className="card p-5" data-testid={"clause-" + clause.id}>
-                <p className="t-body">{clause.text}</p>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="t-body prose-measure">{clause.text}</p>
+                  {CLAUSE_STANDING[clause.status] ? (
+                    <span
+                      className="badge badge-muted whitespace-nowrap"
+                      style={{ color: CLAUSE_STANDING[clause.status].tone }}
+                      data-testid={"standing-" + clause.id}
+                    >
+                      {CLAUSE_STANDING[clause.status].label}
+                    </span>
+                  ) : null}
+                </div>
 
                 <div className="mt-4 grid gap-3 sm:grid-cols-3">
                   <Fact label="Substance" value={clause.substance ?? "—"} />

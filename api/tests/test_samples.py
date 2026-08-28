@@ -78,3 +78,39 @@ def test_demo_product_sits_between_the_two_limits():
         i for i in DEMO_PRODUCT["ingredients"] if normalize_substance(i["name"])[0] == "sodium_benzoate"
     )
     assert _numeric_limits(EU_EXCERPT)[0] < benzoate["amount"] < _numeric_limits(BPOM_EXCERPT)[0]
+
+
+def test_local_answer_quotes_the_country_that_was_asked_about():
+    """The canned local answer used to quote whichever clause came back first,
+    so "why does this break the rules in Germany?" was answered with Indonesia's
+    limit. FAKE_LLM never runs in production, but it is the whole of what
+    anyone evaluating the local stack reads."""
+    from app.core.query import _fake_pick
+
+    bundle = {
+        "clauses": [
+            {"id": "clause_id", "jurisdiction": "ID_BPOM", "limit_value": 400, "text": "400 mg/kg"},
+            {"id": "clause_eu", "jurisdiction": "EU", "limit_value": 150, "text": "150 mg/kg"},
+        ],
+        "requirements": [],
+    }
+    assert _fake_pick("Can I sell this in Germany?", bundle)["id"] == "clause_eu"
+    assert _fake_pick("Bagaimana aturan BPOM?", bundle)["id"] == "clause_id"
+
+
+def test_local_answer_falls_back_to_the_failing_rule():
+    """With no country named, the rule that actually failed is the one worth
+    quoting."""
+    from app.core.query import _fake_pick
+
+    bundle = {
+        "clauses": [
+            {"id": "clause_passing", "jurisdiction": "ID_BPOM", "limit_value": 400, "text": "ok"},
+            {"id": "clause_failing", "jurisdiction": "EU", "limit_value": 150, "text": "over"},
+        ],
+        "requirements": [
+            {"clause_id": "clause_passing", "evaluation": "pass"},
+            {"clause_id": "clause_failing", "evaluation": "fail"},
+        ],
+    }
+    assert _fake_pick("What is wrong with my product?", bundle)["id"] == "clause_failing"

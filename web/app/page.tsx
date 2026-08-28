@@ -268,7 +268,12 @@ export default async function Home() {
                     <span className="t-body block truncate">{doc.source_name}</span>
                     <span className="t-footnote t-secondary">
                       {jurisdictionName(doc.jurisdiction)}
-                      {doc.filename ? ` · ${doc.filename}` : ""}
+                      {/* Pasted text gets a generated `doc_x.txt` name that means
+                          nothing to anyone; only a real uploaded file is worth
+                          naming. */}
+                      {doc.filename && !/^doc_[a-z0-9]+\.txt$/.test(doc.filename)
+                        ? ` · ${doc.filename}`
+                        : " · pasted text"}
                     </span>
                   </span>
                   <span className="t-footnote t-secondary whitespace-nowrap">{plain(doc.status)}</span>

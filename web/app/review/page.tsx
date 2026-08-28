@@ -1,13 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { confirmClause, dismissClause, listClauses, type Clause } from "@/lib/api";
+import {
+  confirmClause,
+  dismissClause,
+  listClauses,
+  listDocuments,
+  type Clause,
+  type RegulatoryDocument,
+} from "@/lib/api";
+import Provenance from "../_ui/Provenance";
 import Term from "../_ui/Term";
 import { plain } from "../_ui/status";
 
 // Why a clause waits here, said without the vocabulary of the pipeline.
 const REASONS: Record<string, string> = {
   low_confidence: "We are not sure we read this correctly.",
+  // Written by the guardrail as a single `review_reason`; without an entry here
+  // the queue showed the rule with no explanation at all.
+  low_confidence_or_flagged:
+    "Either we are not sure we read this correctly, or the source is not official enough to act on by itself.",
   low_authority: "The source is not official enough to change anything on its own.",
   unnormalized_substance: "We do not recognise the ingredient name.",
   unnormalized_unit: "We do not recognise the unit of measurement.",
@@ -15,15 +27,29 @@ const REASONS: Record<string, string> = {
   ambiguous_relationship: "It is unclear whether this replaces an existing rule.",
 };
 
+/** Both shapes of "why is this here", in one list, never empty. */
+function reasonsOf(clause: Clause): string[] {
+  const listed = clause.review_reasons ?? [];
+  if (listed.length > 0) return listed;
+  if (clause.review_reason) return [clause.review_reason];
+  return ["low_confidence_or_flagged"];
+}
+
 export default function ReviewQueuePage() {
   const [clauses, setClauses] = useState<Clause[]>([]);
+  const [documents, setDocuments] = useState<RegulatoryDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
 
   async function load() {
     try {
-      setClauses((await listClauses({ status: "needs_review" })).clauses);
+      const [clauseResult, documentResult] = await Promise.all([
+        listClauses({ status: "needs_review" }),
+        listDocuments().catch(() => ({ documents: [] as RegulatoryDocument[] })),
+      ]);
+      setClauses(clauseResult.clauses);
+      setDocuments(documentResult.documents);
       setError(null);
     } catch {
       setError("We could not reach the ReguLens service. Check that it is running, then reload this page.");
@@ -59,6 +85,10 @@ export default function ReviewQueuePage() {
     }
   }
 
+  const sourceById: Record<string, string> = Object.fromEntries(
+    documents.map((doc) => [doc.id, doc.source_name]),
+  );
+
   return (
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="review-page">
       <h1 className="t-large-title">Waiting for you to check</h1>
@@ -91,7 +121,7 @@ export default function ReviewQueuePage() {
             <p className="t-body">{clause.text}</p>
 
             <ul className="mt-3 space-y-1">
-              {clause.review_reasons?.map((reason) => (
+              {reasonsOf(clause).map((reason) => (
                 <li key={reason} className="t-footnote flex items-start gap-2" style={{ color: "var(--warn)" }}>
                   <span aria-hidden="true">•</span>
                   {REASONS[reason] ?? plain(reason)}
@@ -99,11 +129,20 @@ export default function ReviewQueuePage() {
               ))}
             </ul>
 
+            <p className="t-footnote t-secondary mt-2">
+              Read from {sourceById[clause.document_id] ?? "a document you added"}
+              {typeof clause.confidence === "number"
+                ? ` · we are ${Math.round(clause.confidence * 100)}% sure we read it correctly`
+                : ""}
+            </p>
+
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-              <details>
-                <summary className="t-caption cursor-pointer">Where this came from</summary>
-                <p className="t-caption mono mt-1">{clause.id}</p>
-              </details>
+              <Provenance
+                clauseId={clause.id}
+                documentId={clause.document_id}
+                sourceName={sourceById[clause.document_id]}
+                jurisdiction={clause.jurisdiction}
+              />
               <div className="flex flex-wrap gap-2">
                 <button
                   className="btn btn-primary btn-small"

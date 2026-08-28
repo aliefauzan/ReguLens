@@ -4,11 +4,13 @@ import {
   getCompliance,
   getProduct,
   getProductEvents,
+  listDocuments,
   type ComplianceRequirement,
   type ComplianceView,
   type GraphEvent,
 } from "@/lib/api";
 import AskPanel from "./AskPanel";
+import Provenance from "../../_ui/Provenance";
 import ProductActions from "./ProductActions";
 import { StatusBadge, countryName, marketName, plain, statusCopy } from "../../_ui/status";
 
@@ -16,7 +18,12 @@ export const dynamic = "force-dynamic";
 
 async function load(
   id: string,
-): Promise<{ product: ProductShape; events: GraphEvent[]; compliance: ComplianceView | null } | null> {
+): Promise<{
+  product: ProductShape;
+  events: GraphEvent[];
+  compliance: ComplianceView | null;
+  documents: Awaited<ReturnType<typeof listDocuments>>["documents"];
+} | null> {
   try {
     let compliance: ComplianceView | null = null;
     try {
@@ -24,8 +31,14 @@ async function load(
     } catch {
       // Compliance view is additive; a 404 keeps the page usable.
     }
-    const [{ product }, { events }] = await Promise.all([getProduct(id), getProductEvents(id)]);
-    return { product, events, compliance };
+    const [{ product }, { events }, documents] = await Promise.all([
+      getProduct(id),
+      getProductEvents(id),
+      // Names for the documents behind each rule. Additive: if this fails the
+      // page still renders, just without the source names.
+      listDocuments().then((r) => r.documents).catch(() => []),
+    ]);
+    return { product, events, compliance, documents };
   } catch {
     return null;
   }
@@ -76,7 +89,8 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const { id } = await params;
   const data = await load(id);
   if (!data) notFound();
-  const { product, events, compliance } = data;
+  const { product, events, compliance, documents } = data;
+  const sourceById = Object.fromEntries(documents.map((doc) => [doc.id, doc]));
 
   return (
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="product-detail">
@@ -100,7 +114,13 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         {compliance && Object.keys(compliance.statuses).length > 0 ? (
           Object.entries(compliance.statuses).map(([marketId, status]) => {
             const copy = statusCopy(status);
-            const rows = compliance.requirements.filter((r) => r.market_id === marketId);
+            // Worst first. A labelling note that needs a human should not sit
+            // above the ingredient that is actually over the limit.
+            const severityRank = (evaluation: string) =>
+              evaluation === "fail" ? 0 : evaluation === "needs_review" ? 1 : 2;
+            const rows = compliance.requirements
+              .filter((r) => r.market_id === marketId)
+              .sort((a, b) => severityRank(a.evaluation) - severityRank(b.evaluation));
             const failing = rows.filter((r) => r.evaluation === "fail").length;
             const unchecked = rows.filter((r) => r.evaluation === "needs_review").length;
             return (
@@ -192,7 +212,13 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                           );
                         })()}
 
-                        <Provenance clauseId={req.clause_id} />
+                        <Provenance
+                          clauseId={req.clause_id}
+                          documentId={req.document_id}
+                          sourceName={sourceById[req.document_id ?? ""]?.source_name}
+                          jurisdiction={req.jurisdiction ?? sourceById[req.document_id ?? ""]?.jurisdiction}
+                          testId={`provenance-${req.id}`}
+                        />
                       </li>
                     ))}
                   </ul>
@@ -278,24 +304,59 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           <summary className="t-headline cursor-pointer">
             Full history
             <span className="t-footnote t-secondary ml-2">
-              every change, and what caused it ({events.length})
+              every change, and what caused it ({readableEvents(events).length})
             </span>
           </summary>
           <ol className="mt-4 space-y-2">
-            {events.map((event) => (
+            {readableEvents(events).map((event) => (
               <li key={event.id} className="row py-3 t-footnote" data-testid={`event-${event.event_type}`}>
                 <span className="t-subhead">{EVENT_WORDS[event.event_type] ?? plain(event.event_type)}</span>
                 {event.before && event.after ? <DiffCell before={event.before} after={event.after} /> : null}
-                {event.trace_id ? (
-                  <span className="mono t-caption t-secondary ml-2">{event.trace_id.slice(0, 8)}</span>
-                ) : null}
+                <span className="t-caption t-secondary ml-2">{when(event.occurred_at)}</span>
               </li>
             ))}
           </ol>
+          <p className="t-caption t-secondary mt-4">
+            Every entry above is a change ReguLens made and why. Nothing here can be edited.
+          </p>
         </details>
       </section>
     </main>
   );
+}
+
+/**
+ * The history a person can read.
+ *
+ * Two things made it unreadable. Rows where the verdict did not actually change
+ * ("No rules added yet → No rules added yet") are a side effect of writing one
+ * event per market, and they outnumbered the real ones. And every row ended in
+ * eight characters of hexadecimal — the trace id, which is ours, not theirs.
+ */
+function readableEvents(events: GraphEvent[]): GraphEvent[] {
+  return events.filter((event) => {
+    const before = (event.before as { status?: string } | null)?.status;
+    const after = (event.after as { status?: string } | null)?.status;
+    if (before === undefined && after === undefined) return true;
+    // Compare the words the reader sees, not the values underneath. A first
+    // evaluation writes `null → "unknown"`, which is a real difference in the
+    // data and the identical sentence on screen: "No rules added yet → No
+    // rules added yet", printed once per market.
+    return statusCopy(before).label !== statusCopy(after).label;
+  });
+}
+
+/** A timestamp people read, not an ISO string. */
+function when(occurredAt: string | null): string {
+  if (!occurredAt) return "";
+  const then = new Date(occurredAt).getTime();
+  if (Number.isNaN(then)) return "";
+  const minutes = Math.round((Date.now() - then) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  return new Date(occurredAt).toLocaleDateString();
 }
 
 const EVENT_WORDS: Record<string, string> = {
@@ -314,14 +375,6 @@ function round4(value: number | null | undefined): string {
 }
 
 /** Identifiers matter for an audit and mean nothing to a first-time reader. */
-function Provenance({ clauseId }: { clauseId: string }) {
-  return (
-    <details className="mt-3">
-      <summary className="t-caption cursor-pointer">Where this came from</summary>
-      <p className="t-caption mono mt-1">{clauseId}</p>
-    </details>
-  );
-}
 
 function Fact({ label, value, testId }: { label: string; value: string; testId: string }) {
   return (

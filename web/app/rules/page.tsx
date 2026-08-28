@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listClauses, listDocuments, type Clause } from "@/lib/api";
+import Provenance from "../_ui/Provenance";
 import Term from "../_ui/Term";
 import { jurisdictionName, plain } from "../_ui/status";
 
@@ -132,13 +133,24 @@ export default async function RulesPage() {
                 <p className="t-footnote t-secondary mt-3">{status.meaning}</p>
               ) : null}
 
-              <details className="mt-3">
-                <summary className="t-caption cursor-pointer">Where this came from</summary>
-                <p className="t-caption mono mt-1">{clause.id}</p>
-                <Link href={`/documents/${clause.document_id}`} className="t-caption">
-                  Open the document it was read from
+              {/* Telling someone a rule is waiting for them, on a page with no
+                  way to deal with it, is half a sentence. */}
+              {clause.status === "needs_review" ? (
+                <Link
+                  href="/review"
+                  className="btn btn-secondary btn-small mt-3"
+                  data-testid={`check-${clause.id}`}
+                >
+                  Check this one
                 </Link>
-              </details>
+              ) : null}
+
+              <Provenance
+                clauseId={clause.id}
+                documentId={clause.document_id}
+                sourceName={sourceById[clause.document_id]}
+                jurisdiction={clause.jurisdiction}
+              />
             </li>
           );
         })}

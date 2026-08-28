@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ask, type QueryResult } from "@/lib/api";
 import { jurisdictionName, marketName } from "../../_ui/status";
@@ -20,6 +21,37 @@ function suggestionsFor(name: string, failingMarket: string | null, markets: str
   }
   out.push(`What rules apply to ${name}?`);
   return out.slice(0, 3);
+}
+
+/**
+ * Answers are grounded by quoting clause ids inline — that is the contract the
+ * model is held to, and the check that rejects an invented citation. It is also
+ * unreadable: "as stated in [clause_1359e26f44a6]" means nothing to the person
+ * asking. The ids are therefore renumbered against the citation cards below, so
+ * the grounding survives and the sentence becomes readable.
+ */
+function withNumberedCitations(
+  answer: string,
+  citedIds: string[],
+): { text: string; numbering: Record<string, number> } {
+  const numbering: Record<string, number> = {};
+  citedIds.forEach((id, index) => {
+    numbering[id] = index + 1;
+  });
+  const text = answer
+    .replace(/\[?(clause_[a-z0-9]+)\]?/g, (match, id: string) =>
+      numbering[id] ? `[${numbering[id]}]` : match,
+    )
+    // With the id gone, the scaffolding around it reads as a stray fragment.
+    .replace(/^Based on ingested regulation\s*/i, "The rule that covers this: ")
+    .trim();
+  return { text, numbering };
+}
+
+/** Milliseconds are a fact about our servers, not an answer to the question. */
+function speed(ms: number): string {
+  if (ms < 1000) return "answered straight away";
+  return `answered in ${Math.round(ms / 1000)} seconds`;
 }
 
 export default function AskPanel({
@@ -109,7 +141,9 @@ export default function AskPanel({
 
       {result ? (
         <div className="inset mt-5 p-5" data-testid="answer-card">
-          <p className="t-body" data-testid="answer-text">{result.answer}</p>
+          <p className="t-body" data-testid="answer-text">
+            {withNumberedCitations(result.answer, result.cited_clauses.map((c) => c.id)).text}
+          </p>
 
           {result.refusal ? (
             <p className="badge badge-muted mt-3" data-testid="refusal-flag">
@@ -121,16 +155,25 @@ export default function AskPanel({
             <div className="mt-4" data-testid="citations">
               <p className="t-headline">Based on these rules</p>
               <div className="mt-2 space-y-2">
-                {result.cited_clauses.map((clause) => (
+                {result.cited_clauses.map((clause, index) => (
                   <div
                     key={clause.id}
                     className="p-4"
                     style={{ background: "var(--surface)", borderRadius: "var(--radius-control)" }}
                     data-testid={`citation-${clause.id}`}
                   >
-                    <p className="t-footnote t-secondary">{jurisdictionName(clause.jurisdiction)}</p>
+                    <p className="t-footnote t-secondary">
+                      [{index + 1}] · {jurisdictionName(clause.jurisdiction)}
+                    </p>
                     <p className="t-body mt-1">{clause.text}</p>
-                    <p className="t-caption mono mt-2">{clause.id}</p>
+                    {clause.document_id ? (
+                      <Link
+                        href={`/documents/${clause.document_id}`}
+                        className="t-footnote mt-2 inline-block"
+                      >
+                        Open the document this came from
+                      </Link>
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -138,8 +181,10 @@ export default function AskPanel({
           ) : null}
 
           <p className="t-caption t-secondary mt-4">
-            {result.confidence !== null ? `Confidence ${Math.round(result.confidence * 100)}%` : "Confidence —"} ·
-            answered in {result.latency_ms} ms
+            {result.confidence !== null
+              ? `We are ${Math.round(result.confidence * 100)}% sure of this answer`
+              : "Confidence not available"}{" "}
+            · {speed(result.latency_ms)}
           </p>
         </div>
       ) : null}

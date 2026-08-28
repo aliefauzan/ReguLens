@@ -191,6 +191,52 @@ def _validate_citations(answer: str, bundle: dict[str, Any]) -> list[str]:
     return sorted(found & retrieved)
 
 
+# Country words a question is likely to use, mapped to the jurisdiction the
+# clauses carry. Local-only: the real path has a model to do this.
+_FAKE_JURISDICTION_HINTS = {
+    "germany": "EU",
+    "german": "EU",
+    "europe": "EU",
+    "european": "EU",
+    "eu": "EU",
+    "indonesia": "ID_BPOM",
+    "indonesian": "ID_BPOM",
+    "bpom": "ID_BPOM",
+}
+
+
+def _fake_pick(question: str, bundle: dict[str, Any]) -> dict[str, Any]:
+    """Choose the clause a canned answer should quote.
+
+    Taking `clauses[0]` answered "why does this break the rules in Germany?"
+    with the Indonesian limit — technically a real retrieved clause, and
+    nonsense to read. This is presentation only: FAKE_LLM never runs in
+    production, but it is what anyone evaluating the local stack sees.
+    """
+    clauses = bundle["clauses"]
+    lowered = question.lower()
+    wanted = next(
+        (juris for word, juris in _FAKE_JURISDICTION_HINTS.items() if word in lowered),
+        None,
+    )
+    if wanted:
+        match = next(
+            (c for c in clauses if str(c.get("jurisdiction") or "").upper() == wanted
+             and c.get("limit_value") is not None),
+            None,
+        )
+        if match:
+            return match
+    # Otherwise prefer a clause that actually failed the product — the thing
+    # someone asking an open question most likely wants to know about.
+    failing = {
+        r.get("clause_id")
+        for r in bundle["requirements"]
+        if r.get("evaluation") == "fail"
+    }
+    return next((c for c in clauses if c["id"] in failing), clauses[0])
+
+
 def _synthesize(question: str, bundle: dict[str, Any]) -> tuple[str, list[str]]:
     """One Gemini call; citations validated against the retrieved set. A
     retry follows one failure; after that an honest refusal."""
@@ -206,9 +252,13 @@ def _synthesize(question: str, bundle: dict[str, Any]) -> tuple[str, list[str]]:
     if not bundle["clauses"] and not bundle["requirements"]:
         return refuse()
     if settings.fake_llm:
-        first = bundle["clauses"][0]
-        fake_answer = f"Based on ingested regulation [{first['id']}]: {str(first.get('text'))[:200]}"
-        return (fake_answer, [first["id"]])
+        chosen = _fake_pick(question, bundle)
+        # Keeps the bracketed id so the local path exercises the same citation
+        # validation and the same UI renumbering as a real model answer.
+        fake_answer = (
+            f"The rule that covers this [{chosen['id']}]: {str(chosen.get('text'))[:200]}"
+        )
+        return (fake_answer, [chosen["id"]])
 
     from google.genai import types
 

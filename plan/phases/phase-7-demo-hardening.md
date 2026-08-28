@@ -121,6 +121,54 @@ Three real defects surfaced by building these, all fixed here:
       deleted product left an alert linking to a 404. Events stay in the audit
       trail; they are no longer presented as needing attention.
 
+### Plain-language pass (28 Aug)
+
+A walk through every page as somebody who does not work here. Nine things were
+confusing enough to stop a reader; all fixed, all rechecked in the browser at
+phone width in both themes.
+
+- [x] **"Where this came from" showed a bare `clause_2da66be9e735`** on four
+      pages — the one thing a reader cannot use, shown exactly when they are
+      deciding whether to trust the number above it. One `_ui/Provenance.tsx`
+      now names the document, the country, and links to it; the id survives one
+      line down, labelled as a reference for quoting to us.
+- [x] **The review queue never said why anything was waiting.** The UI read
+      `review_reasons` (a list the extractor writes) while the guardrail writes
+      a single `review_reason`, so every card showed an empty bullet list. Both
+      are read now, `low_confidence_or_flagged` has words, and each card says
+      what it was read from and how sure we are.
+- [x] **Answers quoted clause ids inline.** That is the grounding contract — the
+      model must cite `[clause_id]` and an uncited answer is refused — but it
+      reads as noise. Ids are renumbered against the citation cards, so the
+      grounding is unchanged and the sentence is readable. "answered in 19 ms"
+      became "answered straight away".
+- [x] **404 was the Next.js default** with no way back. Now says what happened,
+      says the data is fine, and offers two doors.
+- [x] **The document page was titled "Reading your document" over a raw id**,
+      even long after it finished. Titled with the document's own name now, and
+      the copy changes once reading is done.
+- [x] **A document could say "Finished" over a rule nobody had accepted.** Each
+      rule found now carries its standing (in use / waiting for you / replaced /
+      ignored), and the finished panel says how many still need a person, with
+      a link to the queue.
+- [x] **History was unreadable**: no dates, a raw trace-id fragment on every
+      row, and rows reading "No rules added yet → No rules added yet" (a real
+      `null → unknown` difference in the data, the identical sentence on
+      screen). Filtered on the rendered label, timestamps in plain words, trace
+      fragment gone.
+- [x] **Server validation spoke schema.** "Input should be 'percent_w_w',
+      'mg_per_kg' or 'ppm'" became "Pick one of these for the unit on row 2:
+      % of weight, mg per kg, ppm" (`humanizeValidation`).
+- [x] **Smaller ones:** requirement rows sorted worst-first (a labelling note
+      sat above the ingredient that actually failed); a waiting rule on `/rules`
+      now has a button to act on it; generated `doc_x.txt` filenames read as
+      "pasted text".
+- [x] The local canned answer picked whichever clause came back first, so
+      "why does this break the rules in Germany?" was answered with Indonesia's
+      limit. `_fake_pick` now matches the country in the question, then any
+      failing rule. Two tests pin it. FAKE_LLM never runs in production, but it
+      is the whole of what anyone evaluating the local stack reads.
+
 ### Failure survival
 - [ ] Every async stage has a timeout and a visible failure state in the stepper.
 - [ ] Confirm the five alerts from `../04-observability.md` are firing correctly by

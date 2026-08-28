@@ -87,6 +87,86 @@ export function getProductEvents(id: string): Promise<{ events: GraphEvent[] }> 
   return get(`/products/${id}/events`);
 }
 
+type ValidationDetail = {
+  msg?: string;
+  type?: string;
+  loc?: (string | number)[];
+  ctx?: Record<string, unknown>;
+};
+
+/** Field names as the form asks for them, not as the schema stores them. */
+const FIELD_WORDS: Record<string, string> = {
+  name: "the product name",
+  product_type: "the kind of product",
+  origin: "where it is made",
+  packaging: "the packaging",
+  ingredients: "the ingredient list",
+  unit: "the unit",
+  amount: "the amount",
+  target_markets: "the countries you sell into",
+  source_name: "who published it",
+  jurisdiction: "which country's rules",
+  text: "the pasted text",
+};
+
+const UNIT_WORDS: Record<string, string> = {
+  percent_w_w: "% of weight",
+  mg_per_kg: "mg per kg",
+  ppm: "ppm",
+};
+
+/**
+ * Server validation, in the words the form uses.
+ *
+ * FastAPI answers a bad field with the schema's own vocabulary — "String should
+ * have at least 1 character", "Input should be 'percent_w_w', 'mg_per_kg' or
+ * 'ppm'". That is a correct message written for whoever wrote the schema. The
+ * person looking at it filled in a form and now has to guess which box was
+ * wrong and what `percent_w_w` is.
+ */
+export function humanizeValidation(detail: unknown, fallback: string): string {
+  if (!Array.isArray(detail)) {
+    return typeof detail === "string" && detail ? detail : fallback;
+  }
+  const messages = (detail as ValidationDetail[]).map((item) => {
+    const path = (item.loc ?? []).filter((part) => part !== "body");
+    const fieldKey = [...path].reverse().find((part) => typeof part === "string") as string | undefined;
+    const field = fieldKey ? (FIELD_WORDS[fieldKey] ?? fieldKey.replaceAll("_", " ")) : "one of the fields";
+    const row = path.find((part) => typeof part === "number");
+    const where = row === undefined ? field : `${field} on row ${(row as number) + 1}`;
+
+    switch (item.type) {
+      case "string_too_short":
+      case "missing":
+        return `Please fill in ${where}.`;
+      case "string_too_long":
+        return `${where} is too long.`;
+      case "enum": {
+        const allowed = String(item.ctx?.expected ?? "")
+          .split(",")
+          .map((raw) => raw.trim().replaceAll("'", ""))
+          .map((raw) => UNIT_WORDS[raw] ?? raw.replaceAll("_", " "))
+          .filter(Boolean);
+        return allowed.length > 0
+          ? `Pick one of these for ${where}: ${allowed.join(", ")}.`
+          : `That is not a valid choice for ${where}.`;
+      }
+      case "greater_than":
+      case "greater_than_equal":
+        return `${where} has to be a positive number.`;
+      case "float_parsing":
+      case "int_parsing":
+        return `${where} has to be a number.`;
+      case "too_short":
+        return `Add at least one entry to ${where}.`;
+      default:
+        return item.msg ? `${where}: ${item.msg}` : fallback;
+    }
+  });
+  // Capitalised, de-duplicated, and joined into something readable as prose.
+  return [...new Set(messages)].join(" ") || fallback;
+}
+
 export async function createProduct(body: unknown): Promise<Product> {
   const response = await fetch(`${BASE}/products`, {
     method: "POST",
@@ -95,11 +175,7 @@ export async function createProduct(body: unknown): Promise<Product> {
   });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(
-      Array.isArray(payload?.detail)
-        ? payload.detail.map((d: { msg: string }) => d.msg).join("; ")
-        : (payload?.detail ?? "Could not create the product."),
-    );
+    throw new Error(humanizeValidation(payload?.detail, "Could not save the product."));
   }
   return payload.product as Product;
 }
@@ -141,11 +217,7 @@ export async function updateProduct(id: string, body: unknown): Promise<Product>
   });
   const payload = await response.json();
   if (!response.ok) {
-    throw new Error(
-      Array.isArray(payload?.detail)
-        ? payload.detail.map((d: { msg: string }) => d.msg).join("; ")
-        : (payload?.detail ?? "Could not save the changes."),
-    );
+    throw new Error(humanizeValidation(payload?.detail, "Could not save the changes."));
   }
   return payload.product as Product;
 }
@@ -224,6 +296,9 @@ export type Clause = {
   confidence_breakdown?: Record<string, number>;
   needs_review: boolean;
   review_reasons: string[];
+  // The queue writes a single reason; the extractor writes the list. Both are
+  // read, because a clause carrying neither tells the reader nothing.
+  review_reason?: string | null;
   unnormalized_unit: boolean;
   status: string;
 };
@@ -232,12 +307,15 @@ export async function uploadDocument(form: FormData): Promise<{ document: Regula
   const response = await fetch(`${BASE}/documents`, { method: "POST", body: form });
   const traceId = response.headers.get("x-trace-id");
   if (!response.ok) {
-    let message = `Upload failed (${response.status}).`;
+    let message =
+      response.status === 413
+        ? "That file is too big. Try a shorter excerpt, or paste just the part that matters."
+        : "The upload did not go through. Check the file, then try again.";
     try {
       const payload = await response.json();
-      if (typeof payload?.detail === "string") message = payload.detail;
+      if (payload?.detail) message = humanizeValidation(payload.detail, message);
     } catch {
-      // keep default message
+      // keep the plain message
     }
     throw new Error(message);
   }
@@ -266,6 +344,10 @@ export type ComplianceRequirement = {
   id: string;
   market_id: string;
   clause_id: string;
+  // The document the clause was read from, so a verdict can be traced back to
+  // a source a person recognises rather than to an id.
+  document_id?: string | null;
+  jurisdiction?: string | null;
   requirement_type?: string | null;
   substance_normalized: string | null;
   limit_value: number | null;
