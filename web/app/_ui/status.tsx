@@ -118,6 +118,11 @@ export const PLAIN: Record<string, string> = {
   active: "In use",
   superseded: "Replaced by a newer rule",
   conflicted: "Disagrees with another rule",
+  dismissed: "Ignored by you",
+  pending_reconciliation: "Still being sorted",
+  product_amount_unknown: "We do not know how much your product contains",
+  unit_unconvertible: "The units do not convert",
+  non_numeric_clause: "This rule has no number in it",
 };
 
 export function plain(value: string | null | undefined): string {

@@ -15,11 +15,13 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   let sourceName: string | null = null;
   let jurisdiction: string | null = null;
   let finished = false;
+  let ruleCount = 0;
   try {
-    const { document } = await getDocument(id);
+    const { document, clauses } = await getDocument(id);
     sourceName = document.source_name;
     jurisdiction = document.jurisdiction;
     finished = document.status === "extracted" || document.status === "reconciled";
+    ruleCount = clauses.length;
   } catch {
     // The stepper polls and shows its own error state; the shell still renders.
   }
@@ -31,9 +33,11 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
       <h1 className="t-large-title mt-3">{sourceName ?? "Your document"}</h1>
       <p className="t-body t-secondary prose-measure mt-2">
         {jurisdiction ? `${jurisdictionName(jurisdiction)} · ` : ""}
-        {finished
-          ? "Everything we found in this document is listed below."
-          : "This page updates itself. You can leave and come back — the work carries on without you."}
+        {!finished
+          ? "This page updates itself. You can leave and come back — the work carries on without you."
+          : ruleCount === 0
+            ? "We could not find any rules in this one."
+            : "Everything we found in this document is listed below."}
       </p>
 
       <Stepper documentId={id} />

@@ -169,6 +169,24 @@ phone width in both themes.
       failing rule. Two tests pin it. FAKE_LLM never runs in production, but it
       is the whole of what anyone evaluating the local stack reads.
 
+### Second recheck (28 Aug)
+
+A sweep of every route for machine vocabulary — a script reading each rendered
+page for ids, `snake_case`, `null`, and millisecond readouts. What it found:
+
+- [x] **A document with no usable rules never finished.** `completedStages`
+      read an empty clause list as "not settled yet", so the stepper span on
+      stage three of four forever for anyone who uploaded something that turned
+      out not to be a regulation. That is an ordinary mistake, not a failure,
+      and the page now says so — and stops printing "Rules found" and
+      "Everything we found is listed below" over an empty list.
+- [x] `dismissed`, `pending_reconciliation` and the three evaluation reasons
+      added to the one vocabulary map, so nothing falls through to
+      `snake case with the underscores swapped for spaces`.
+- [x] Sweep now comes back clean: the only ids left on any page are the ones
+      inside a collapsed "Where this came from", labelled as the reference to
+      quote to us.
+
 ### Failure survival
 - [ ] Every async stage has a timeout and a visible failure state in the stepper.
 - [ ] Confirm the five alerts from `../04-observability.md` are firing correctly by

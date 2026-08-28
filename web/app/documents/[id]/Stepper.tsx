@@ -50,8 +50,12 @@ function completedStages(status: string, clauses: Clause[]): number {
   if (status === "extracting") return 2;
   if (status !== "extracted" && status !== "reconciled") return 1;
 
-  const settled =
-    clauses.length > 0 && clauses.every((c) => c.status !== "pending_reconciliation");
+  // A document with nothing usable in it is finished, not stuck. Reading
+  // `clauses.length > 0` as "not settled yet" left the stepper spinning on
+  // stage three forever for anyone who uploaded something that turned out not
+  // to contain rules — which is an ordinary mistake, not a failure.
+  if (clauses.length === 0) return 4;
+  const settled = clauses.every((c) => c.status !== "pending_reconciliation");
   return settled ? 4 : 3;
 }
 
@@ -129,6 +133,7 @@ export default function Stepper({ documentId }: { documentId: string }) {
   const done = !failed && complete >= STAGES.length;
   const working = !failed && !done;
   const waiting = clauses.filter((clause) => clause.status === "needs_review").length;
+  const nothingFound = done && clauses.length === 0;
   const slow = working && elapsed > SLOW_SECONDS;
 
   return (
@@ -180,10 +185,18 @@ export default function Stepper({ documentId }: { documentId: string }) {
               </span>
               <span>
                 <span className="t-body block" style={{ fontWeight: active ? 600 : 400 }}>
-                  {stage.label}
+                  {/* "Rules found" over an empty list is the app contradicting
+                      itself on the same screen. */}
+                  {nothingFound && stage.key === "extracted" ? "Nothing found" : stage.label}
                   {active ? <span className="t-footnote t-secondary"> · working…</span> : null}
                 </span>
-                <span className="t-footnote t-secondary">{stage.detail}</span>
+                <span className="t-footnote t-secondary">
+                  {nothingFound && stage.key === "extracted"
+                    ? "No limits in this document that a product can be checked against."
+                    : nothingFound && stage.key === "updated"
+                      ? "Nothing to compare, so nothing changed."
+                      : stage.detail}
+                </span>
               </span>
             </li>
           );
@@ -193,21 +206,36 @@ export default function Stepper({ documentId }: { documentId: string }) {
       {done ? (
         <div
           className="card mt-4 p-5"
-          style={{ borderLeft: `4px solid ${waiting > 0 ? "var(--warn)" : "var(--good)"}` }}
+          style={{
+            borderLeft: `4px solid ${
+              clauses.length === 0 || waiting > 0 ? "var(--warn)" : "var(--good)"
+            }`,
+          }}
           data-testid="finished-panel"
         >
           <p className="t-headline">
-            {waiting > 0 ? "Read — but not all of it counts yet" : "Finished"}
+            {clauses.length === 0
+              ? "We read it, but found no rules in it"
+              : waiting > 0
+                ? "Read — but not all of it counts yet"
+                : "Finished"}
           </p>
           <p className="t-footnote t-secondary prose-measure mt-1">
-            {waiting === 0
-              ? "Your products have been re-checked against these rules."
-              : waitingSentence(waiting, clauses.length)}
+            {clauses.length === 0
+              ? "Nothing in this document sets a limit we can check a product against. That usually means it is not a regulation, or the part with the limits was not included. Nothing has changed for your products."
+              : waiting === 0
+                ? "Your products have been re-checked against these rules."
+                : waitingSentence(waiting, clauses.length)}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {waiting > 0 ? (
               <Link href="/review" className="btn btn-primary btn-small" data-testid="go-review">
                 Check {waiting === 1 ? "it" : "them"} now
+              </Link>
+            ) : null}
+            {clauses.length === 0 ? (
+              <Link href="/documents/new" className="btn btn-primary btn-small">
+                Try a different document
               </Link>
             ) : null}
             <Link href="/" className="btn btn-secondary btn-small">See your products</Link>
