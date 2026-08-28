@@ -20,9 +20,11 @@ const CLAUSE_STANDING: Record<string, { label: string; tone: string }> = {
   pending_reconciliation: { label: "Still being sorted", tone: "var(--secondary)" },
 };
 
-// Measured on the deployed stack, upload to re-checked product: 183s. Saying
-// "about a minute" and then taking three is how a working system gets read as
-// a broken one, so both this and the upload button quote the same number.
+// Measured on the deployed stack, upload to re-checked product: 174s for the
+// 4-page annex excerpt, 26s for a single pasted rule (scripts/measure_latency.py,
+// 29 Aug). The slow case is the one worth quoting: saying "about a minute" and
+// then taking three is how a working system gets read as a broken one, so both
+// this and the upload button quote the same number.
 const TYPICAL_SECONDS = 180;
 const SLOW_SECONDS = 300;
 

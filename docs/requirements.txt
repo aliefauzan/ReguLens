@@ -1,0 +1,6 @@
+# Tooling for regenerating docs/architecture.png. Not needed to run or test
+# ReguLens — kept out of api/requirements*.txt on purpose.
+#
+#   pip install -r docs/requirements.txt   # also needs Graphviz on PATH
+#   python docs/architecture.py
+diagrams==0.25.1

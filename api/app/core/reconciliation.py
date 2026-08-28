@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+from functools import lru_cache
 
 from google.cloud import firestore
 
@@ -43,43 +44,79 @@ RECONCILED_STATUSES = {
 # Embeddings + retrieval
 
 
-def embed_text(text: str) -> list[float]:
-    """Embed one clause text. FAKE_LLM returns a deterministic pseudo-vector
-    so tests stay free and stable.
+@lru_cache
+def _embed_client():
+    """One embedding client per process. Building a fresh `genai.Client` per
+    clause meant a TLS handshake per clause; the generation path has shared one
+    since 23 Aug and this is the same fix on the embedding side."""
+    from google import genai
+
+    settings = get_settings()
+    if settings.use_gemini_api:
+        return genai.Client(vertexai=False, api_key=settings.gemini_api_key)
+    return genai.Client(
+        vertexai=True, project=settings.project_id, location=settings.embed_location
+    )
+
+
+# Both backends take a list of texts in one request. The cap keeps a 200-clause
+# annex under the per-request instance limit and bounds the payload size.
+EMBED_BATCH = 32
+
+
+def embed_texts(texts: list[str]) -> list[list[float]]:
+    """Embed many clause texts in as few requests as possible.
+
+    One document's clauses were embedded one HTTP call at a time, serially,
+    inside reconciliation — the single largest term in the measured 183s
+    upload-to-flip. Batching keeps the same vectors and the same model.
 
     Vectors are model-specific: switching between the Vertex and Gemini API
     paths invalidates everything already stored. find_similar scores a
     length mismatch as -1.0 rather than crashing, so a half-migrated corpus
     degrades to bad matches instead of errors — run scripts/reembed.py."""
+    if not texts:
+        return []
     settings = get_settings()
     if settings.fake_llm:
         import hashlib
 
-        digest = hashlib.sha256(text.encode()).digest()
-        return [b / 255.0 for b in digest[:32]]
+        return [
+            [b / 255.0 for b in hashlib.sha256(t.encode()).digest()[:32]] for t in texts
+        ]
 
-    from google import genai
     from google.genai import types
 
-    if settings.use_gemini_api:
-        client = genai.Client(vertexai=False, api_key=settings.gemini_api_key)
-        result = client.models.embed_content(
-            model=settings.gemini_embed_model,
-            contents=text[:5000],
-            config=types.EmbedContentConfig(output_dimensionality=settings.embed_dimensions),
-        )
-    else:
-        client = genai.Client(
-            vertexai=True, project=settings.project_id, location=settings.embed_location
-        )
-        result = client.models.embed_content(
-            model=settings.embed_model,
-            contents=text[:5000],
-        )
-    vectors = getattr(result, "embeddings", None)
-    if not vectors:
-        raise RuntimeError("embedding call returned no vectors")
-    return list(vectors[0].values)
+    client = _embed_client()
+    vectors: list[list[float]] = []
+    for start in range(0, len(texts), EMBED_BATCH):
+        chunk = [t[:5000] for t in texts[start : start + EMBED_BATCH]]
+        if settings.use_gemini_api:
+            result = client.models.embed_content(
+                model=settings.gemini_embed_model,
+                contents=chunk,
+                config=types.EmbedContentConfig(
+                    output_dimensionality=settings.embed_dimensions
+                ),
+            )
+        else:
+            result = client.models.embed_content(
+                model=settings.embed_model,
+                contents=chunk,
+            )
+        returned = getattr(result, "embeddings", None)
+        if not returned or len(returned) != len(chunk):
+            raise RuntimeError(
+                f"embedding call returned {len(returned or [])} vectors for {len(chunk)} texts"
+            )
+        vectors.extend(list(v.values) for v in returned)
+    return vectors
+
+
+def embed_text(text: str) -> list[float]:
+    """Embed one clause text. Kept for the single-clause paths (reconciliation
+    fallback, scripts/reembed.py)."""
+    return embed_texts([text])[0]
 
 
 def find_similar(clause: dict, k: int = 10) -> list[dict]:

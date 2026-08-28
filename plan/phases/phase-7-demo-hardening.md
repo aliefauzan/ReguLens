@@ -401,6 +401,11 @@ Known and not defects:
       triggering each one deliberately. An alert you have never seen fire is not an
       alert.
 - [ ] Confirm the Cloud Build rollback command works — practise it once.
+- [ ] Fold the `gemini-api-key` secret into `scripts/setup.sh`: create it if
+      absent and grant `roles/secretmanager.secretAccessor` to `regulens-api`
+      and `regulens-worker`. `cloudbuild.yaml` mounts it with `--set-secrets`,
+      so a bare project cannot deploy without this. README documents the manual
+      steps as an interim; setup.sh should own it.
 - [ ] Retry button on failed documents, tested by forcing a failure.
 - [ ] If Vertex AI is unreachable, the API returns a clear error and the UI says so
       — no infinite spinner, no silent empty state.
@@ -435,6 +440,9 @@ Known and not defects:
       deploy. Have someone else follow it cold.
 - [ ] **Architecture diagram as an image** — required. Render the topology from
       `01-architecture.md`. ASCII in a README does not satisfy this.
+      Built, not yet committed: `docs/architecture.py` (`mingrammer/diagrams`,
+      GCP nodes) generates `docs/architecture.png`; README embeds it. Tick once
+      committed and pushed. Regenerate after any infra change.
 - [ ] **~4-minute demo video that proves the backend runs on Google Cloud.** Not
       only the UI. Budget ~40 seconds to show the Cloud Run services, a Pub/Sub
       subscription delivering, and Firestore documents changing live. Compress

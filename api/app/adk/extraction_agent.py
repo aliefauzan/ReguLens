@@ -19,9 +19,11 @@ logger = logging.getLogger(__name__)
 EXTRACTION_AGENT_NAME = "regulens_extraction"
 
 _INSTRUCTION = """You are ReguLens's regulatory-clause extraction engine.
-You will be given a document id. Work in order:
+You will be given a document id and a part number. Work in order:
 
-1. Call extract_text with that document id to load its text.
+1. Call extract_text with that document id AND that part number to load the
+   text of your part. A long document is split into parts; you are responsible
+   for exactly the part you were given and for none of the others.
 2. Read the text and extract every distinct regulatory statement that imposes
    a requirement on food, beverage, cosmetic or supplement products.
 3. Call emit_clause_candidates ONCE with the complete JSON array of candidates.
@@ -52,8 +54,8 @@ def build_extraction_agent():
     )
 
 
-async def run_extraction_agent(document_id: str) -> list[dict]:
-    """Run the ADK extraction agent over one document.
+async def run_extraction_agent(document_id: str, part: int = 0) -> list[dict]:
+    """Run the ADK extraction agent over one part of one document.
 
     Returns the raw candidate dicts collected from `emit_clause_candidates`
     function calls. Empty list means the agent never emitted — callers fall
@@ -74,7 +76,7 @@ async def run_extraction_agent(document_id: str) -> list[dict]:
         session_id=session.id,
         new_message=types.Content(
             role="user",
-            parts=[types.Part(text=f"document_id={document_id}")],
+            parts=[types.Part(text=f"document_id={document_id} part={part}")],
         ),
     ):
         content = getattr(event, "content", None)
@@ -87,6 +89,6 @@ async def run_extraction_agent(document_id: str) -> list[dict]:
 
     log(
         logger, logging.INFO, "adk extraction complete",
-        document_id=document_id, candidates=len(collected),
+        document_id=document_id, part=part, candidates=len(collected),
     )
     return collected

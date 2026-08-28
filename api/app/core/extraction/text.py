@@ -38,6 +38,46 @@ def extract_pdf(data: bytes) -> TextExtraction:
     )
 
 
+# One model pass over a four-page annex spends two minutes emitting fifty-five
+# verbatim clauses, and almost all of that is output tokens leaving the model
+# one after another. Splitting the document lets those passes run at the same
+# time. 12,000 characters is roughly a page and a half of annex — small enough
+# to shorten each pass materially, large enough that a limit table and the
+# header stating its unit stay in the same piece.
+CHUNK_CHARS = 12_000
+
+
+def split_for_extraction(text: str, max_chars: int | None = None) -> list[str]:
+    """Split a document into extraction-sized pieces on blank lines.
+
+    Never mid-line: a limit table row carries its number and its substance on
+    one line, and half a row is a wrong clause rather than a missing one. A
+    single paragraph longer than the budget is left whole for the same reason —
+    the budget is a target, not a guarantee.
+
+    A document that fits returns as one piece, so short uploads take exactly the
+    path they took before chunking existed.
+    """
+    # Read at call time, not bound as a default, so the budget stays one knob.
+    max_chars = CHUNK_CHARS if max_chars is None else max_chars
+    if len(text) <= max_chars:
+        return [text] if text else []
+
+    chunks: list[str] = []
+    current: list[str] = []
+    size = 0
+    for block in text.split("\n\n"):
+        block_size = len(block) + 2
+        if current and size + block_size > max_chars:
+            chunks.append("\n\n".join(current))
+            current, size = [], 0
+        current.append(block)
+        size += block_size
+    if current:
+        chunks.append("\n\n".join(current))
+    return [c for c in chunks if c.strip()]
+
+
 def compute_parse_quality(
     *,
     char_count: int,

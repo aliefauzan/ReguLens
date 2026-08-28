@@ -17,7 +17,10 @@ A 5-minute click-by-click walkthrough lives in
 ## The core loop
 
 ```
-regulation document arrives
+regulation enters — bundled library entry, uploaded PDF, or pasted announcement
+  -> a deterministic pass reads the document's own words for jurisdiction,
+     publisher, source type and effective date (no model call); a low-confidence
+     guess is handed back to the user, never silently defaulted
   -> extracted into structured, confidence-scored clauses (Gemini x2 samples)
   -> deterministic guardrail decides whether two clauses may be compared
   -> judge (LLM) only settles genuinely ambiguous same-jurisdiction pairs
@@ -25,6 +28,11 @@ regulation document arrives
   -> impact engine re-evaluates every affected product and market
   -> product status flips on its own; an alert names the cause and the sources
 ```
+
+A first-time user with no regulation of their own starts from the built-in
+library — verbatim excerpts of the two real corpus regulations — and still gets
+a grounded answer. Every uploaded clause and every library clause travels the
+identical hash → store → publish → extract → reconcile path.
 
 ## Why you can trust the answers
 
@@ -41,22 +49,36 @@ regulation document arrives
 
 ## Architecture
 
-Three Cloud Run runtimes from one container image, plus a fourth for the web:
+Three Cloud Run runtimes from one container image, plus a fourth for the web,
+one Cloud Run Job, Pub/Sub push with dead-lettering, Firestore, Cloud Storage,
+Secret Manager, and Gemini 3.5 through either Vertex AI or the Gemini Developer
+API.
+
+![ReguLens on Google Cloud](docs/architecture.png)
+
+The diagram is generated, not drawn — [`docs/architecture.py`](docs/architecture.py)
+uses [`mingrammer/diagrams`](https://github.com/mingrammer/diagrams) with GCP
+nodes. Regenerate it after any infrastructure change:
+
+```bash
+brew install graphviz                      # or apt-get install graphviz
+pip install -r docs/requirements.txt
+python docs/architecture.py                # rewrites docs/architecture.png
+```
+
+The request path and the event pipeline in words:
 
 ```
-Next.js web (Cloud Run, public)
-        |
-        v
-API service (Cloud Run)  --publish-->  Pub/Sub: document.uploaded
-        |                                      |
-   Firestore                          Worker (Cloud Run, private)
-   GCS uploads                        /internal/document-uploaded  -> extract (ADK agent)
-                                              | clause.extracted
-                                      /internal/clause-extracted -> reconcile (guardrail + judge)
-                                              | graph.changed
-                                      /internal/graph-changed -> impact (pure code)
-                                              |
-                                      alerts, readiness, timeline, query
+Exporter (browser)
+  -> regulens-web (Cloud Run, public)
+  -> regulens-api (Cloud Run, public)  -- writes Firestore + GCS, publishes --> Pub/Sub: document.uploaded
+                                                                                     |  push, OIDC
+                                                                              regulens-worker (Cloud Run, private)
+   /internal/document-uploaded -> extract (Gemini x2)            -> clause.extracted
+   /internal/clause-extracted  -> reconcile (guardrail + judge)  -> graph.changed
+   /internal/graph-changed     -> impact (pure code)             -> Firestore verdict + graph_events
+   /internal/dead-letter       <- any topic after max retries
+  -> alerts, readiness, timeline, grounded query
 ```
 
 | ADK agent | What it actually does | Honest label |
@@ -71,26 +93,34 @@ Google ADK is used throughout; every tool body is a plain Python function in
 
 ## Tech stack
 
-Next.js 16 (App Router) · FastAPI · Google ADK 2.7 · Vertex AI
-(`gemini-3.5-flash` global endpoint; `text-multilingual-embedding-002` in
-asia-southeast1) · Firestore · Pub/Sub push · Cloud Run x4 · Cloud Run Jobs ·
-GCS · Cloud Build.
+Next.js 16 (App Router) · FastAPI · Google ADK 2.7 · Gemini 3.5 through **either**
+Vertex AI (`gemini-3.5-flash` global endpoint; `text-multilingual-embedding-002`
+in asia-southeast1) **or** the Gemini Developer API (`gemini-3.5-flash` +
+`gemini-embedding-001`), chosen at runtime by whether `GEMINI_API_KEY` is set ·
+Firestore · Cloud Storage · Pub/Sub push · Secret Manager · Cloud Run x4 ·
+Cloud Run Jobs · Artifact Registry · Cloud Build · Cloud Logging.
 
 ## Repository layout
 
 ```
-api/app/main.py        API service (upload, products, clauses, conflicts,
-                       compliance, alerts, query, debug view)
+api/app/main.py        API service (upload, detect, products, clauses, conflicts,
+                       compliance, alerts, query, library, substances, debug view)
 api/app/worker.py      Pub/Sub push consumers: extract / reconcile / impact / DLQ
 api/app/job.py         Cloud Run Job: idempotent demo seed
-api/app/core/          the plain-Python engine: extraction/, guardrail.py,
-                       reconciliation.py, impact.py, query.py, normalization.py
+api/app/core/          the plain-Python engine: extraction/, detection.py (what is
+                       this document), guardrail.py, reconciliation.py, impact.py,
+                       query.py, citations.py (grounded source spans),
+                       normalization.py, substances.py, library.py + library_data.json,
+                       integrity.py (state vs event-log walker)
 api/app/adk/           thin ADK registrations over those functions
-api/tests/             62 unit tests + fixture corpus + live-Vertex eval
-web/                   Next.js app (twin, upload+stepper, readiness, timeline,
-                       ask panel, conflicts, review queue)
+api/tests/             257 unit tests + fixture corpus + live-Vertex eval
+web/                   Next.js app (twin, self-describing upload + stepper,
+                       readiness, timeline, ask panel, conflicts, review queue,
+                       rulebook, cited source-text view)
 data/regulations/      real source PDFs (EU + BPOM) with provenance in SOURCES.md
 scripts/setup.sh       one-command GCP provisioning (idempotent)
+scripts/build_library.py  rebuild api/app/core/library_data.json from the corpus
+scripts/measure_latency.py  upload -> re-evaluated, stage by stage
 scripts/verify_e2e.sh  end-to-end verification against the deployed stack
 scripts/verify_local.sh  same drill against the local emulator stack
 plan/                  full build plan and per-phase evidence trail
@@ -108,21 +138,35 @@ gcloud auth login && gcloud auth application-default login
 #    subscriptions with OIDC and dead-lettering, service accounts with narrow
 #    IAM, budget alert. Re-running is a no-op.
 export PROJECT_ID=your-project-id
-PROJECT_ID=$YOUR_PROJECT_ID bash scripts/setup.sh
+bash scripts/setup.sh
 
-# 3. Deploy API + worker + job + web in one pipeline.
-gcloud builds submit --project $YOUR_PROJECT_ID --config cloudbuild.yaml \
+# 3. Put your Gemini Developer API key in Secret Manager. cloudbuild.yaml mounts
+#    gemini-api-key:latest into api and worker, so the secret must exist and both
+#    service accounts must be able to read it. The key must come from a project
+#    with no billing linked, or the free tier disappears.
+printf %s "$GEMINI_KEY" | gcloud secrets create gemini-api-key \
+  --project "$PROJECT_ID" --data-file=- \
+  || printf %s "$GEMINI_KEY" | gcloud secrets versions add gemini-api-key \
+       --project "$PROJECT_ID" --data-file=-
+for sa in regulens-api regulens-worker; do
+  gcloud secrets add-iam-policy-binding gemini-api-key --project "$PROJECT_ID" \
+    --member "serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" \
+    --role roles/secretmanager.secretAccessor
+done
+
+# 4. Deploy API + worker + job + web in one pipeline.
+gcloud builds submit --project "$PROJECT_ID" --config cloudbuild.yaml \
   --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)-$(date +%H%M%S)
 
-# 4. Push subscriptions need the worker URL, so re-run provisioning once.
-PROJECT_ID=$YOUR_PROJECT_ID bash scripts/setup.sh
+# 5. Push subscriptions need the worker URL, so re-run provisioning once.
+bash scripts/setup.sh
 
-# 5. Edit cloudbuild.yaml once: point NEXT_PUBLIC_API_URL and the CORS origin
+# 6. Edit cloudbuild.yaml once: point NEXT_PUBLIC_API_URL and the CORS origin
 #    at your real *.run.app URLs (they are derived from project id).
 
-# 6. Seed the demo baseline (idempotent).
+# 7. Seed the demo baseline (idempotent).
 gcloud run jobs execute regulens-job --region asia-southeast1 \
-  --project $YOUR_PROJECT_ID --wait
+  --project "$PROJECT_ID" --wait
 ```
 
 ## Run it locally — no GCP, no cost
@@ -192,12 +236,17 @@ offline behaviour without Vertex calls.
 
 ```bash
 cd api
-pytest -q                       # 62 unit tests, no network
+pytest -q                       # 257 unit tests, no network
 REGULENS_EVAL=1 pytest tests/test_extraction_quality.py -q -s
                                 # live-Vertex fixture accuracy (costs tokens)
 
 bash scripts/verify_local.sh    # full E2E against the local emulator stack
                                 # (free, offline, ~2 minutes)
+
+python3 scripts/measure_latency.py \
+  data/regulations/excerpts/EU-annex-II-14.1.4-flavoured-drinks-excerpt.pdf
+                                # upload -> re-evaluated, stage by stage,
+                                # against whichever stack $API points at
 
 bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
                                 # baseline, EU upload, conflict, unprompted
@@ -212,6 +261,7 @@ bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
 | Env var | Default | Purpose |
 |---|---|---|
 | `PROJECT_ID` | `regulens-506014` | GCP project |
+| `GEMINI_API_KEY` | unset | when set, every model call goes to the Gemini Developer API; unset keeps the Vertex path |
 | `GEMINI_MODEL` | `gemini-3.5-flash` | pinned 3.5+ model |
 | `FAKE_LLM` | off | deterministic offline mode |
 | `DEBUG_VIEW` | off | enables `/debug/documents/{id}` |
@@ -220,8 +270,13 @@ bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
 | `FIRESTORE_DATABASE` | `(default)` | set to `local` against the emulator |
 | `LOCAL_STORAGE_DIR` | unset | filesystem uploads instead of GCS (local only) |
 
-Secrets: none exist. Everything authenticates via workload identity / service
-accounts; nothing to leak.
+Secrets: exactly one. `GEMINI_API_KEY` is stored in Secret Manager as
+`gemini-api-key` and mounted into the api and worker services as an ordinary env
+var (`cloudbuild.yaml`, `--set-secrets`). It is never committed — `.gitignore`
+excludes every `.env` — and never logged. Everything else authenticates via
+service accounts with narrow IAM. If `GEMINI_API_KEY` is unset the stack falls
+back to Vertex AI and keeps working, so a missing secret is a cost line, not an
+outage.
 
 ## Rollback
 
@@ -235,18 +290,42 @@ and lies about what is running.
 
 ## Honest limitations
 
+Things the system does not do. Not excuses — the list is here so nobody has to
+discover them in a demo.
+
 - Numeric limits only are evaluated pass/fail. Labelling, certification and
   documentation clauses are extracted and surfaced as `needs_review`, never
   silently counted as checks we did not run.
 - Uploads are PDFs with a text layer plus pasted text. No OCR, no screenshots.
 - One hardcoded workspace; no auth. `/internal/*` endpoints are private and
   OIDC-gated — that is the security boundary that matters here.
-- Propagation latency measured ~183s in an unattended run against a 90s
-  target; double-sampling and judge calls dominate. Recorded, not hidden.
+- Propagation latency scales with how many rules a document contains, not with
+  pipeline overhead, and a dense annex misses the 90s target. Measured 29 Aug
+  on the deployed stack with [`scripts/measure_latency.py`](scripts/measure_latency.py),
+  upload to re-evaluated product:
+
+  | Document | Clauses | Extraction | Reconciliation | Impact | Total |
+  |---|---|---|---|---|---|
+  | One pasted rule | 1 | 15.9s | 6.8s | 2.7s | **25.5s** |
+  | EU Annex II excerpt, 4 pages | 55 | 125.7s | 47.9s | 0.7s | **174.3s** |
+
+  Extraction is ~72% of the annex figure and is bound by output tokens: 55
+  verbatim clauses have to leave the model. The two self-consistency samples
+  run concurrently — logged at 95.9s and 110.4s inside a 110.4s window — so
+  sampling twice costs wall clock only for the slower of the two, not the sum.
+  The 90s target holds for announcement-sized documents and does not hold for
+  an annex.
+
+### Deliberate choices, not shortfalls
+
+These read like limitations and are not. Each is a decision with a reason, and
+the reason is recorded in `plan/PROGRESS.md` under **Decisions taken**.
+
 - The substance-family table (benzoates, sorbates) is documented domain
   mapping, not inferred magic; both source regulations state the shared basis.
-- Readiness shows issue counts, not a percentage — we do not claim coverage
-  we do not have.
+  A guessed equivalence would be worse than none.
+- Readiness shows issue counts, not a percentage. A percentage would need a
+  denominator — the number of rules that *should* apply — which nobody has.
 
 ## Evidence trail
 

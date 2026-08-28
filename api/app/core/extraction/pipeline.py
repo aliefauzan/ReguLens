@@ -91,55 +91,110 @@ def _load_text(document: RegulatoryDocument) -> tuple[str, str]:
 
 
 def _direct_samples(text: str) -> list[list[dict[str, Any]]]:
-    samples: list[list[dict[str, Any]]] = []
-    for sample_index in range(_SAMPLES):
-        try:
-            samples.append(generate_candidates(text, sample_index=sample_index))
-        except TransientLLMError as exc:
-            raise TransientExtractionError(str(exc)) from exc
-        except PermanentLLMError as exc:
-            raise PermanentExtractionError(str(exc)) from exc
-    return samples
+    """Both samples of one piece of text at once. They are independent by
+    construction — the second exists only to disagree with the first — so
+    running them in sequence spent a whole extra model pass of wall clock for
+    nothing. Order is preserved: sample 0 stays the primary one whose
+    candidates become clauses."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=_SAMPLES) as pool:
+        futures = [
+            pool.submit(generate_candidates, text, sample_index=i) for i in range(_SAMPLES)
+        ]
+        results = []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except TransientLLMError as exc:
+                raise TransientExtractionError(str(exc)) from exc
+            except PermanentLLMError as exc:
+                raise PermanentExtractionError(str(exc)) from exc
+    return results
+
+
+def _direct_pairs(text: str) -> list[tuple[list[dict[str, Any]], list[dict[str, Any]]]]:
+    """Every chunk's two samples, all in flight together.
+
+    A four-page annex is one model pass emitting fifty-five verbatim clauses,
+    and that pass is output-token bound: nothing about it is faster than the
+    tokens leaving the model. Splitting the document does not make the model
+    faster, it makes the passes concurrent — and a document that fits in one
+    chunk takes exactly the path it took before, one pair, unchanged.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    from app.core.extraction.text import split_for_extraction
+
+    chunks = split_for_extraction(text)
+    if len(chunks) <= 1:
+        samples = _direct_samples(text)
+        return [(samples[0] if samples else [], samples[1] if len(samples) > 1 else [])]
+
+    log(logger, logging.INFO, "extraction_chunked", chunks=len(chunks), chars=len(text))
+    with ThreadPoolExecutor(max_workers=len(chunks) * _SAMPLES) as pool:
+        futures = [
+            [pool.submit(generate_candidates, chunk, sample_index=i) for i in range(_SAMPLES)]
+            for chunk in chunks
+        ]
+        pairs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
+        for chunk_futures in futures:
+            try:
+                primary, secondary = (f.result() for f in chunk_futures)
+            except TransientLLMError as exc:
+                raise TransientExtractionError(str(exc)) from exc
+            except PermanentLLMError as exc:
+                raise PermanentExtractionError(str(exc)) from exc
+            pairs.append((primary, secondary))
+    return pairs
 
 
 def _apply(
     document: RegulatoryDocument,
-    samples: list[list[dict[str, Any]]],
+    pairs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]],
     parse_quality: float,
     text: str,
 ) -> ExtractionResult:
-    """The single gate from model output to Firestore state."""
-    raw_a, raw_b = (list(samples) + [[], []])[:_SAMPLES]
-    primary, secondary = raw_a or [], raw_b or []
+    """The single gate from model output to Firestore state.
+
+    One `(primary, secondary)` pair per piece of the document. Self-consistency
+    is scored inside a pair and never across them: two samples of the same text
+    agreeing means something, a sample of page one agreeing with a sample of
+    page four means nothing at all.
+    """
     log(
         logger, logging.INFO, "extraction_candidates",
-        document_id=document.id, sample_a=len(primary), sample_b=len(secondary),
+        document_id=document.id,
+        parts=len(pairs),
+        sample_a=sum(len(p) for p, _ in pairs),
+        sample_b=sum(len(s) for _, s in pairs),
     )
 
     candidates: list[Any] = []
     rejected: list[dict[str, Any]] = []
-    for raw in primary:
-        candidate, rejection = build_candidate(
-            raw,
-            document_id=document.id,
-            source_type=str(document.source_type),
-            declared_effective_date=document.declared_effective_date,
-            source_jurisdiction=str(document.jurisdiction or ""),
-        )
-        if rejection:
-            rejected.append(rejection)
-            log(
-                logger, logging.INFO, "candidate_rejected",
+    for primary, secondary in pairs:
+        for raw in primary:
+            candidate, rejection = build_candidate(
+                raw,
                 document_id=document.id,
-                reason=rejection.get("reason"), detail=rejection.get("detail"),
+                source_type=str(document.source_type),
+                declared_effective_date=document.declared_effective_date,
+                source_jurisdiction=str(document.jurisdiction or ""),
             )
-            continue
-        assert candidate is not None
-        consistency = best_consistency(raw, secondary)
-        candidate = candidate.model_copy(
-            update={"parse_quality": parse_quality, "self_consistency": consistency}
-        )
-        candidates.append(finalize_confidence(candidate))
+            if rejection:
+                rejected.append(rejection)
+                log(
+                    logger, logging.INFO, "candidate_rejected",
+                    document_id=document.id,
+                    reason=rejection.get("reason"), detail=rejection.get("detail"),
+                )
+                continue
+            assert candidate is not None
+            consistency = best_consistency(raw, secondary)
+            candidate = candidate.model_copy(
+                update={"parse_quality": parse_quality, "self_consistency": consistency}
+            )
+            candidates.append(finalize_confidence(candidate))
 
     mean_consistency = (
         round(sum(c.self_consistency for c in candidates) / len(candidates), 4)
@@ -159,6 +214,7 @@ def _apply(
         # persist_clauses assigns the Firestore ids and echoes them back in
         # order — the publish below depends on them being real.
         clause_ids = persist_clauses(candidates)
+        _embed_batch(candidates, clause_ids)
     else:
         clause_ids = []
 
@@ -200,42 +256,97 @@ def run_extraction(document_id: str) -> ExtractionResult:
     except Exception as exc:  # noqa: BLE001 - unreadable bytes are permanent
         raise PermanentExtractionError(f"text extraction failed: {exc}") from exc
 
-    return _apply(document, _direct_samples(text), _parse_quality(document, text, method), text)
+    return _apply(document, _direct_pairs(text), _parse_quality(document, text, method), text)
 
 
 async def run_extraction_via_agent(document_id: str) -> ExtractionResult:
     """ADK-agent extraction: the agent loads the text itself via its tool and
     emits candidates through `emit_clause_candidates`. Two agent runs feed the
     self-consistency term. Empty emissions degrade to the direct path."""
-    document = _begin(document_id)
+    import asyncio
+
+    # Everything in this function except the agent runs is blocking I/O:
+    # Firestore, GCS, pdf parsing, the direct-path model calls. On the worker's
+    # event loop that stalls every other push delivery in flight, so each piece
+    # goes to a thread.
+    document = await asyncio.to_thread(_begin, document_id)
     if document is None:
         return ExtractionResult(document_id=document_id, skipped=True)
     try:
-        text, method = _load_text(document)
+        text, method = await asyncio.to_thread(_load_text, document)
     except PermanentExtractionError:
         raise
     except Exception as exc:  # noqa: BLE001 - unreadable bytes are permanent
         raise PermanentExtractionError(f"text extraction failed: {exc}") from exc
 
-    from app.adk.extraction_agent import run_extraction_agent
+    import time
 
-    samples: list[list[dict[str, Any]]] = []
+    from app.adk.extraction_agent import run_extraction_agent
+    from app.core.extraction.text import split_for_extraction
+
+    part_count = max(1, len(split_for_extraction(text)))
+    pairs: list[tuple[list[dict[str, Any]], list[dict[str, Any]]]] = []
     try:
-        for _ in range(_SAMPLES):
-            emitted = await run_extraction_agent(document_id)
-            if emitted:
-                samples.append(emitted)
+        # Every part's two samples at once. The two samples are independent by
+        # construction and the parts are independent of each other, so the whole
+        # grid runs concurrently; in sequence it was the sum of all of them.
+        async def timed(part: int, sample: int) -> list[dict]:
+            begun = time.monotonic()
+            emitted = await run_extraction_agent(document_id, part)
+            log(
+                logger, logging.INFO, "adk_sample_timing",
+                document_id=document_id, part=part, sample=sample,
+                seconds=round(time.monotonic() - begun, 1), candidates=len(emitted),
+            )
+            return emitted
+
+        gather_started = time.monotonic()
+        runs = await asyncio.gather(
+            *(
+                timed(part, sample)
+                for part in range(part_count)
+                for sample in range(_SAMPLES)
+            ),
+            return_exceptions=True,
+        )
+        log(
+            logger, logging.INFO, "adk_samples_complete",
+            document_id=document_id, parts=part_count,
+            seconds=round(time.monotonic() - gather_started, 1),
+        )
+        for part in range(part_count):
+            pair = runs[part * _SAMPLES : part * _SAMPLES + _SAMPLES]
+            cleaned: list[list[dict]] = []
+            for emitted in pair:
+                if isinstance(emitted, BaseException):
+                    log(
+                        logger, logging.WARNING, "adk_path_failed",
+                        document_id=document_id, part=part, error=str(emitted),
+                    )
+                    continue
+                if emitted:
+                    cleaned.append(emitted)
+            if len(cleaned) == _SAMPLES:
+                pairs.append((cleaned[0], cleaned[1]))
+            else:
+                # A part the agent did not answer for is a part whose rules
+                # would silently not exist. Fall back for the whole document
+                # rather than store a document that is quietly missing pages.
+                pairs = []
+                break
     except Exception as exc:  # noqa: BLE001 - any ADK failure degrades, never aborts
         log(logger, logging.WARNING, "adk_path_failed", document_id=document_id, error=str(exc))
+        pairs = []
 
-    if len(samples) < _SAMPLES:
+    if not pairs:
         log(
             logger, logging.WARNING, "adk_fallback_to_direct",
-            document_id=document_id, adk_samples=len(samples),
+            document_id=document_id, parts=part_count,
         )
-        samples.extend(_direct_samples(text))
+        pairs = await asyncio.to_thread(_direct_pairs, text)
 
-    return _apply(document, samples[:_SAMPLES], _parse_quality(document, text, method), text)
+    quality = _parse_quality(document, text, method)
+    return await asyncio.to_thread(_apply, document, pairs, quality, text)
 
 
 def _begin(document_id: str) -> RegulatoryDocument | None:
@@ -266,6 +377,27 @@ def _parse_quality(document: RegulatoryDocument, text: str, method: str) -> floa
         method=method,
         text=text[:5000],
     )
+
+
+def _embed_batch(candidates: list[Any], clause_ids: list[str]) -> None:
+    """Embed the whole document's clauses in one place, before reconciliation
+    asks for them.
+
+    Reconciliation still embeds a clause it finds without a vector, so this is
+    a fast path and not a new dependency: if the batch call fails the pipeline
+    carries on exactly as it did before, one clause at a time.
+    """
+    from app.core.clauses import store_embeddings
+    from app.core.reconciliation import embed_texts
+
+    try:
+        vectors = embed_texts([c.text or "" for c in candidates])
+        store_embeddings(dict(zip(clause_ids, vectors, strict=False)))
+    except Exception as exc:  # noqa: BLE001 - retrieval degrades, extraction does not fail
+        log(
+            logger, logging.WARNING, "batch_embed_failed",
+            count=len(clause_ids), error=str(exc)[:200],
+        )
 
 
 def _publish_clause_messages(document_id: str, clause_ids: list[str]) -> None:

@@ -9,11 +9,23 @@
 > compliant -> EU upload -> Germany **non_compliant with zero user
 > interaction** -> alert with impact chain (market ← clause ← document) and
 > before/after transition. UC-F proven: a second product created after
-> ingestion immediately read non_compliant for both markets. Honest gap
-> recorded: measured upload→flip latency was **183s** in an unattended
-> debug-laden run vs the 90s target — the double ADK sampling + judge calls
-> dominate; single-sampling is the obvious lever if the target becomes
-> binding on demo day.
+> ingestion immediately read non_compliant for both markets.
+>
+> **Latency, re-measured 29 Aug** with `scripts/measure_latency.py` against the
+> deployed stack, so the number is reproducible rather than remembered:
+>
+> | Document | Clauses | Extract | Reconcile | Impact | Total |
+> |---|---|---|---|---|---|
+> | One pasted rule | 1 | 15.9s | 6.8s | 2.7s | **25.5s** |
+> | EU Annex II excerpt, 4 pages | 55 | 125.7s | 47.9s | 0.7s | **174.3s** |
+>
+> The 90s target is met for an announcement-sized document and missed for an
+> annex, because the cost is output tokens: 55 verbatim clauses have to leave
+> the model. The two self-consistency samples now run concurrently (logged at
+> 95.9s and 110.4s inside a 110.4s window) so double-sampling costs the slower
+> of the two rather than the sum. What was tried and did not move the number:
+> splitting the document into concurrent pieces — the 4-page excerpt is under
+> 12,000 characters, so it is one piece; it is *dense*, not long.
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion
@@ -113,9 +125,11 @@ If the schedule slips, protect this phase over phase 5.
 - [x] Baseline compliant — with real corpus numbers: BPOM 400 mg/kg active,
       product at 300 mg/kg, Indonesia reads `compliant` (LIVE).
 - [~] EU ingestion flips Germany to `non_compliant` **with no user interaction**
-      — LIVE-verified; the 90-second part measured at 183s in an unattended run
-      (see note above) — SKIPPED as written: real corpus numbers replace the
-      sketch pair, and the latency target is recorded honestly rather than met.
+      — LIVE-verified; the 90-second part is met for a single pasted rule
+      (25.5s) and missed for the 4-page annex excerpt (174.3s), both measured
+      29 Aug by `scripts/measure_latency.py` (see note above) — SKIPPED as
+      written: real corpus numbers replace the sketch pair, and the latency
+      target is recorded honestly rather than met.
 - [x] The alert names the market, the causing clause, and the transition (impact-chain banner, live).
 - [x] Unmeasured/non-numeric requirements → needs_review → market reads
       `attention_required`, never `compliant` (observed live on ascorbic-acid rows).

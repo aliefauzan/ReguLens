@@ -62,7 +62,12 @@ steps:
       - --region=${_REGION}
       - --service-account=regulens-worker@${PROJECT_ID}.iam.gserviceaccount.com
       - --no-allow-unauthenticated
-      - --max-instances=3
+      # 3 capped the pipeline, not the bill: a document fans out to one push per
+      # clause, and the work per clause is short. Cloud Run bills per request
+      # and per vCPU-second, so the same clauses cost the same across 10
+      # instances as across 3 — they simply stop queueing. The api and web
+      # services stay at 3; only the fan-out consumer needed room.
+      - --max-instances=10
       - --set-env-vars=VERSION=${SHORT_SHA},SERVICE_NAME=regulens-worker,PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global
       - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --command=uvicorn

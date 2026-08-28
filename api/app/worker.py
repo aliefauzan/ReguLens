@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import FastAPI, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 
 from app.core.extraction.pipeline import (
@@ -41,6 +42,13 @@ HANDLER_EXTRACT = "extract"
 HANDLER_RECONCILE = "reconcile"
 HANDLER_IMPACT = "impact"
 
+# Every consumer here is `async def` because a push envelope has to be awaited,
+# but the work behind it — Firestore, embeddings, Gemini — is blocking and
+# synchronous. Called directly it holds the event loop, so one instance handled
+# one clause at a time no matter how many Pub/Sub deliveries were in flight, and
+# a document's clauses reconciled in single file. `run_in_threadpool` hands each
+# one to a worker thread and lets the fan-out Pub/Sub already provides be real.
+
 
 @app.post("/internal/graph-changed")
 async def graph_changed(request: Request) -> JSONResponse:
@@ -61,7 +69,7 @@ async def graph_changed(request: Request) -> JSONResponse:
 
     from app.core.impact import run_impact
 
-    summary = run_impact(str(clause_id), payload.get("document_id"))
+    summary = await run_in_threadpool(run_impact, str(clause_id), payload.get("document_id"))
     mark_processed(HANDLER_IMPACT, envelope.message_id)
     return JSONResponse({"status": "ok", "summary": summary["products"]})
 
@@ -98,7 +106,7 @@ async def document_uploaded(request: Request) -> JSONResponse:
 
     try:
         if settings.fake_llm:
-            result = run_extraction(document_id)
+            result = await run_in_threadpool(run_extraction, document_id)
         else:
             result = await run_extraction_via_agent(document_id)
     except PermanentExtractionError as exc:
@@ -152,7 +160,7 @@ async def clause_extracted(request: Request) -> JSONResponse:
     )
 
     try:
-        result = reconcile_clause(clause_id)
+        result = await run_in_threadpool(reconcile_clause, clause_id)
     except PermanentReconcileError as exc:
         log(logger, logging.ERROR, "reconcile permanent failure",
             clause_id=clause_id, error=str(exc)[:300])

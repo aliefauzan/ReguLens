@@ -50,6 +50,28 @@ def persist_clauses(candidates: list[ClauseCandidate]) -> list[str]:
     return ids
 
 
+def store_embeddings(vectors: dict[str, list[float]]) -> None:
+    """Attach embeddings to already-written clauses in one batch.
+
+    Retrieval plumbing, not a decision, so it is a plain merge with no event —
+    exactly what reconciliation did per clause before extraction started doing
+    it for the whole document at once.
+    """
+    if not vectors:
+        return
+    db = get_db()
+    items = list(vectors.items())
+    # A Firestore batch takes 500 writes; a long annex can exceed that.
+    for start in range(0, len(items), 400):
+        batch = db.batch()
+        for clause_id, vector in items[start : start + 400]:
+            batch.set(
+                db.collection(COLLECTION).document(clause_id), {"embedding": vector}, merge=True
+            )
+        batch.commit()
+    log(logger, logging.INFO, "clause embeddings stored", count=len(items))
+
+
 def clauses_for_document(document_id: str) -> list[dict[str, Any]]:
     query = (
         get_db()
