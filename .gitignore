@@ -1,10 +1,18 @@
 # Secrets — never committed. Anything genuinely secret belongs in Secret Manager;
 # these are local-only overrides.
+.env
+.env.*
+!.env.example
+!.env.*.example
 .env.local
 .env.*.local
 *.pem
+*.key
 *-key.json
+*-credentials.json
 service-account*.json
+gcp-*.json
+**/application_default_credentials.json
 
 # Python
 api/.venv/
@@ -26,3 +34,6 @@ next-env.d.ts
 
 # The regulation corpus IS committed on purpose — the PDFs are the evidence base
 # and data/regulations/SOURCES.md pins their provenance and checksums.
+
+# Firecrawl scratch — fetched pages are copied into data/ when they are kept
+.firecrawl/

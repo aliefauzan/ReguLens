@@ -44,8 +44,13 @@ RECONCILED_STATUSES = {
 
 
 def embed_text(text: str) -> list[float]:
-    """Vertex text-embedding for one clause text. FAKE_LLM returns a
-    deterministic pseudo-vector so tests stay free and stable."""
+    """Embed one clause text. FAKE_LLM returns a deterministic pseudo-vector
+    so tests stay free and stable.
+
+    Vectors are model-specific: switching between the Vertex and Gemini API
+    paths invalidates everything already stored. find_similar scores a
+    length mismatch as -1.0 rather than crashing, so a half-migrated corpus
+    degrades to bad matches instead of errors — run scripts/reembed.py."""
     settings = get_settings()
     if settings.fake_llm:
         import hashlib
@@ -54,12 +59,23 @@ def embed_text(text: str) -> list[float]:
         return [b / 255.0 for b in digest[:32]]
 
     from google import genai
+    from google.genai import types
 
-    client = genai.Client(vertexai=True, project=settings.project_id, location=settings.embed_location)
-    result = client.models.embed_content(
-        model=settings.embed_model,
-        contents=text[:5000],
-    )
+    if settings.use_gemini_api:
+        client = genai.Client(vertexai=False, api_key=settings.gemini_api_key)
+        result = client.models.embed_content(
+            model=settings.gemini_embed_model,
+            contents=text[:5000],
+            config=types.EmbedContentConfig(output_dimensionality=settings.embed_dimensions),
+        )
+    else:
+        client = genai.Client(
+            vertexai=True, project=settings.project_id, location=settings.embed_location
+        )
+        result = client.models.embed_content(
+            model=settings.embed_model,
+            contents=text[:5000],
+        )
     vectors = getattr(result, "embeddings", None)
     if not vectors:
         raise RuntimeError("embedding call returned no vectors")

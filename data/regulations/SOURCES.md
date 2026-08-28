@@ -12,8 +12,12 @@ Retrieved **19 Aug 2026**. All files have a real text layer (verified with
 | `EU-reg-1333-2008-consolidated-2026-02-18.pdf` | Consolidated 1333/2008 including all annexes, version in force 18 Feb 2026 – 17 Aug 2026. **Previous version.** | CELEX `02008R1333-20260218` | 366 | `e5fa1966` |
 | `EU-reg-1333-2008-consolidated-2026-08-18.pdf` | Consolidated 1333/2008, version in force **from 18 Aug 2026** — the current text. | CELEX `02008R1333-20260818` | 366 | `f7dc3221` |
 
+| `EU-reg-1333-2008-consolidated-20260818.eurlex.md` | The **same consolidated text as HTML**, converted to markdown (fetched 28 Aug 2026). Kept because the PDF's Annex II columns come out of a text dump unaligned, and an unaligned row pairs a food category with the wrong number. The HTML tables keep each row intact, which is what `scripts/build_library.py` reads. | CELEX `02008R1333-20260818` (HTML) | — | — |
+
 URL pattern used:
 `https://eur-lex.europa.eu/legal-content/EN/TXT/PDF/?uri=CELEX:<celex-id>`
+and, for the HTML form,
+`https://eur-lex.europa.eu/legal-content/EN/TXT/HTML/?uri=CELEX:<celex-id>`
 
 The two consolidated versions are one day apart in force and differ slightly —
 useful as a genuine before/after pair for the "regulation changed" path, instead
@@ -47,3 +51,27 @@ pairing is not yet verified.
 
 Category taxonomies are close but not identical — EU 14.1.4 is one category, BPOM
 splits it into 14.1.4.1–14.1.4.3. Whatever maps them will need to handle that.
+
+## What the app ships with
+
+`scripts/build_library.py` slices this corpus into `api/app/core/library_data.json`
+— 28 verbatim excerpts (12 EU food categories, 16 BPOM additive sections), each
+carrying its citation. That file is the bundled rulebook a user can load without
+finding a regulation of their own. Rebuild it with:
+
+```
+docker compose run --rm -v "$PWD:/repo" --no-deps api python /repo/scripts/build_library.py
+```
+
+The excerpts are cut, never rewritten. Where a category runs past the size an
+extraction pass can read, the entry is marked `truncated` and the UI says the
+excerpt is the first part of a longer table.
+
+### The row-alignment caveat, resolved
+
+The caveat above — that BPOM figures read via `pdftotext` could not be trusted to
+pair with the right category — is why the builder uses `pdfplumber` instead. It
+keeps each annex row on one line (`14.1.4.1 Minuman Berbasis Air Berperisa yang
+Berkarbonat 400`), so the category number, the category name and the maximum
+level travel together. Spot-checked against the rendered pages for sodium
+benzoate, aspartame and sulphur dioxide.

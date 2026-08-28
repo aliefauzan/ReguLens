@@ -112,3 +112,22 @@ def test_percent_vs_mg_per_kg_compares_on_one_basis():
     assert guard.value_a == 500.0
     assert guard.value_b == 150.0
     assert guard.value_a > guard.value_b
+
+def test_a_powder_and_the_drink_made_from_it_are_the_same_product_kind():
+    """BPOM writes its beverage limits "dihitung terhadap produk siap konsumsi"
+    — computed on the ready-to-consume drink — so a rule for the drink is a rule
+    for the powder you make it from."""
+    guard = comparability(clause(), clause(product_type="food_beverage_liquid"))
+    assert isinstance(guard, ComparablePair)
+
+
+def test_a_rule_for_another_kind_of_food_does_not_bind():
+    """The check that keeps the bundled library honest: it carries limits for
+    dairy desserts and bakery wares too, and none of those judge a drink."""
+    from app.core.guardrail import product_types_comparable
+
+    assert not product_types_comparable("food_solid", "food_beverage_powder")
+    assert not product_types_comparable("supplement", "food_beverage_liquid")
+    # A source that does not say which products it covers still binds; that is
+    # the documented wildcard, not an accident.
+    assert product_types_comparable(None, "food_solid")

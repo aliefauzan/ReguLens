@@ -166,6 +166,12 @@ class DocumentIn(BaseModel):
     filename: str | None = Field(default=None, max_length=200)
 
 
+class LibraryLoadIn(BaseModel):
+    """Which bundled rules to read. Empty means the starter set."""
+
+    ids: list[str] | None = Field(default=None, max_length=64)
+
+
 class QueryIn(BaseModel):
     question: str = Field(min_length=3, max_length=500)
     product_id: str | None = None
@@ -179,6 +185,10 @@ class RegulatoryDocument(DocumentIn):
     storage_uri: str | None = None
     text_preview: str | None = None  # first ~500 chars; full text lives with the file or inline below
     text_inline: str | None = None  # pasted-text path: content small enough to keep inline
+    # PDF path: what the worker read out of the file, so the citation view can
+    # show the passage a clause came from. Capped; `text_truncated` says when.
+    text_extracted: str | None = None
+    text_truncated: bool = False
     page_count: int | None = None
     char_count: int = 0
     parse_quality: float | None = None
@@ -187,6 +197,11 @@ class RegulatoryDocument(DocumentIn):
     stage_log: list[dict[str, Any]] = Field(default_factory=list)
     error: str | None = None
     failed_stage: str | None = None
+    # What the document said about itself at upload, and which fields the user
+    # overrode. Kept so the UI can show its working rather than assert.
+    detection: dict[str, Any] | None = None
+    declared_fields: list[str] = Field(default_factory=list)
+    origin: str = "upload"  # upload | library | demo
     trace_id: str | None = None
     uploaded_at: datetime | None = None
     updated_at: datetime | None = None

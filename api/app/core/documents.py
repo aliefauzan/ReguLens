@@ -66,6 +66,9 @@ def create_document(
     char_count: int = 0,
     storage_uri: str | None = None,
     trace_id: str | None = None,
+    detection: dict[str, Any] | None = None,
+    declared_fields: list[str] | None = None,
+    origin: str = "upload",
 ) -> tuple[RegulatoryDocument, bool]:
     """Create the documents record (or return the cached twin).
 
@@ -109,6 +112,15 @@ def create_document(
         "stage_log": [],
         "error": None,
         "failed_stage": None,
+        # What we read off the document, kept whether or not it was used, so
+        # a later question about where "EU" came from has an answer on the
+        # record instead of in a log line that has rolled off.
+        "detection": detection,
+        "declared_fields": declared_fields or [],
+        # Where it came from: an upload, the bundled rulebook, or the demo seed.
+        # Only used to label the row honestly — a rulebook entry that reads
+        # "pasted text" invites the reader to wonder who pasted it.
+        "origin": origin,
         "trace_id": trace_id or get_trace_id(),
         "uploaded_at": firestore.SERVER_TIMESTAMP,
         "updated_at": firestore.SERVER_TIMESTAMP,

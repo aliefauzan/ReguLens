@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { seedDemo } from "@/lib/api";
+import { LoadStarterRules } from "./_ui/Rulebook";
 
 /**
  * The three steps, kept on screen until all three are done.
@@ -26,9 +27,9 @@ const STEPS: { key: keyof Progress; title: string; body: string; href: string | 
   {
     key: "rules",
     title: "Add the rules that apply",
-    body: "Upload a regulation PDF, paste text from an announcement, or start from one of the bundled samples.",
+    body: "You do not have to find one. ReguLens ships with the EU and Indonesian additive rules — load those, or drop in your own document and we work out which country it applies to.",
     href: "/documents/new",
-    cta: "Add rules",
+    cta: "See the rules we have",
   },
   {
     key: "answer",
@@ -94,13 +95,18 @@ export default function GetStarted({ progress }: { progress: Progress }) {
                 </p>
                 <p className="t-footnote t-secondary prose-measure mt-1">{step.body}</p>
                 {step.href && !done ? (
-                  <Link
-                    href={step.href}
-                    className={`btn btn-small mt-3 ${active ? "btn-primary" : "btn-secondary"}`}
-                    data-testid={`step-cta-${step.key}`}
-                  >
-                    {step.cta}
-                  </Link>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    {/* Step two is the one that used to send people hunting for a
+                        PDF, so it gets the one-press answer next to the link. */}
+                    {step.key === "rules" ? <LoadStarterRules /> : null}
+                    <Link
+                      href={step.href}
+                      className={`btn btn-small ${active && step.key !== "rules" ? "btn-primary" : "btn-secondary"}`}
+                      data-testid={`step-cta-${step.key}`}
+                    >
+                      {step.cta}
+                    </Link>
+                  </div>
                 ) : null}
               </div>
             </li>

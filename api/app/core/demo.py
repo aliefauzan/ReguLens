@@ -47,6 +47,7 @@ def seed_demo() -> tuple[Product, RegulatoryDocument, bool]:
         ),
         text=BPOM_EXCERPT,
         trace_id=get_trace_id(),
+        origin="demo",
     )
     log(
         logger,

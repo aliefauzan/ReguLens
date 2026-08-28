@@ -30,3 +30,15 @@ def test_extra_fields_land_as_queryable_json_not_string_interpolation():
 def test_absent_trace_id_mints_one():
     first = set_trace_id(None)
     assert first and get_trace_id() == first
+
+
+def test_a_placeholder_api_key_is_not_a_key():
+    """A secret left at YOUR_KEY_HERE routed every call to an endpoint that
+    answers "API key not valid" — and the damage showed up as embeddings
+    silently failing, so the app said "no regulation covers this" while holding
+    the regulation."""
+    from app.settings import Settings
+
+    for placeholder in ("", "   ", "YOUR_KEY_HERE", "changeme", "todo-put-a-real-key-here"):
+        assert not Settings(gemini_api_key=placeholder).use_gemini_api, placeholder
+    assert Settings(gemini_api_key="AIza" + "b" * 35).use_gemini_api

@@ -7,15 +7,23 @@ itself. That belongs to the worker.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.core import detection, markets, products, query
 from app.core import documents as documents_core
-from app.core import markets, products, query
 from app.db import get_db, health_check
-from app.models import DocumentIn, ProductIn, ProductPatch, QueryIn, SourceType
+from app.models import (
+    DocumentIn,
+    LibraryLoadIn,
+    ProductIn,
+    ProductPatch,
+    QueryIn,
+    SourceType,
+)
 from app.observability import configure_logging, get_trace_id, log, set_trace_id
 from app.settings import get_settings
 from app.tracing import instrument
@@ -99,6 +107,21 @@ def get_substances() -> dict:
     }
 
 
+@app.get("/substances/resolve")
+def resolve_substance(q: str = "") -> dict:
+    """What we think an ingredient name means, and what we will do about it.
+
+    The strict matcher answers yes or no. This answers the "no" cases usefully:
+    a misspelling gets the name offered back, a food gets told it is a food, and
+    a genuinely unknown name gets told plainly that nothing will be checked
+    against it — which is the sentence that stops a false pass reading like a
+    real one.
+    """
+    from app.core import substances
+
+    return substances.resolve(q).to_dict() | {"trace_id": get_trace_id()}
+
+
 @app.get("/samples")
 def get_samples() -> dict:
     """Regulation excerpts bundled with the app.
@@ -110,6 +133,51 @@ def get_samples() -> dict:
     from app.core import samples
 
     return {"samples": samples.list_samples(), "trace_id": get_trace_id()}
+
+
+@app.get("/library")
+def get_library() -> dict:
+    """The regulations we already hold, ready to read.
+
+    This is the answer to "why do I have to add a regulation?". Two real
+    regulations are in the repo; the library is a set of verbatim excerpts of
+    them, so a user with no PDF of their own still gets a real answer.
+    """
+    from app.core import library
+
+    return {
+        "entries": library.list_entries(),
+        "starter_ids": list(library.STARTER_IDS),
+        "trace_id": get_trace_id(),
+    }
+
+
+@app.post("/library/load", status_code=202)
+def post_library_load(payload: LibraryLoadIn | None = None) -> JSONResponse:
+    """Read the named library entries, or the starter set when none are named.
+
+    Each entry goes through the ordinary upload path — hash, store, publish,
+    extract, reconcile — so nothing here can put a clause into the graph that an
+    upload could not. Repeat calls short-circuit on the content hash.
+    """
+    from app.core import library
+
+    results = library.load_entries(payload.ids if payload else None)
+    unknown = [r["id"] for r in results if not r["found"]]
+    if unknown and len(unknown) == len(results):
+        raise HTTPException(status_code=404, detail=f"no such rules: {', '.join(unknown)}")
+    queued = [r for r in results if r.get("found") and not r.get("cached")]
+    return JSONResponse(
+        {
+            "results": results,
+            "queued": len(queued),
+            "already_read": sum(1 for r in results if r.get("cached")),
+            "unknown": unknown,
+            "trace_id": get_trace_id(),
+        },
+        # Nothing new to do is a completed request, not an accepted one.
+        status_code=202 if queued else 200,
+    )
 
 
 @app.post("/demo/seed", status_code=202)
@@ -275,57 +343,75 @@ def post_query(payload: QueryIn) -> dict:
     return {**result, "trace_id": get_trace_id()}
 
 
-@app.post("/documents", status_code=202)
-def create_document(
-    source_type: SourceType = Form(...),  # noqa: B008 - FastAPI DI pattern
-    source_name: str = Form(..., min_length=1, max_length=200),  # noqa: B008
-    jurisdiction: str = Form(..., min_length=2, max_length=16),  # noqa: B008
-    declared_effective_date: str | None = Form(default=None, max_length=10),  # noqa: B008
-    file: UploadFile | None = File(default=None),  # noqa: B008
-    text: str | None = Form(default=None),  # noqa: B008
-) -> JSONResponse:
-    """Upload a PDF or paste text. Returns 202 immediately; extraction is the
-    worker's job. An identical re-upload short-circuits to the cached document."""
-    import io
+@dataclass
+class _Upload:
+    """What we can learn from the bytes before anything is stored."""
 
     content_bytes: bytes | None = None
-    page_count: int | None = None
-    text_content: str | None = (text or None)
+    text: str | None = None
     filename: str | None = None
-    storage_uri: str | None = None
+    page_count: int | None = None
     preview: str | None = None
-    char_count = len(text_content) if text_content else 0
+    head_text: str = ""
+    char_count: int = 0
 
-    if file is not None and (file.filename or ""):
-        filename = file.filename[:200]
-        raw = file.file.read()
-        if len(raw) > settings.max_document_mb * 1024 * 1024:
-            raise HTTPException(
-                status_code=413,
-                detail=f"file exceeds {settings.max_document_mb} MB",
-            )
+
+def _read_upload(file: UploadFile | None, text: str | None, *, store: bool) -> tuple[_Upload, str | None]:
+    """Turn a multipart upload into text, once, for both endpoints.
+
+    `store` is what separates a detection probe from a real upload: probing must
+    not leave a file in the bucket for a document the user may never submit.
+    """
+    import io
+
+    upload = _Upload(text=(text or None))
+    upload.char_count = len(upload.text) if upload.text else 0
+    if upload.text:
+        upload.head_text = upload.text
+    storage_uri: str | None = None
+
+    if file is None or not (file.filename or ""):
+        return upload, None
+
+    upload.filename = file.filename[:200]
+    raw = file.file.read()
+    if len(raw) > settings.max_document_mb * 1024 * 1024:
+        raise HTTPException(
+            status_code=413,
+            detail=f"file exceeds {settings.max_document_mb} MB",
+        )
+    try:
+        import pdfplumber
+
+        with pdfplumber.open(io.BytesIO(raw)) as pdf:
+            upload.page_count = len(pdf.pages)
+            first_page_text = (pdf.pages[0].extract_text() or "") if pdf.pages else ""
+            # Detection reads a little further than the preview: a masthead can
+            # sit on page 1 while the entry-into-force clause sits on page 3.
+            head = [
+                (page.extract_text() or "") for page in pdf.pages[: settings.detect_pages]
+            ]
+    except Exception as exc:  # noqa: BLE001 - a bad PDF is a client error
+        raise HTTPException(status_code=422, detail=f"could not read PDF: {exc}") from exc
+    if upload.page_count > settings.max_document_pages:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"This document has {upload.page_count} pages and we read up to "
+                f"{settings.max_document_pages}. Paste the part that matters, or split it up."
+            ),
+        )
+    upload.content_bytes = raw
+    upload.preview = first_page_text
+    upload.head_text = "\n".join(head)
+    upload.char_count = len(first_page_text)
+
+    if store:
         try:
-            import pdfplumber
+            from app.storage import upload as storage_upload
 
-            with pdfplumber.open(io.BytesIO(raw)) as pdf:
-                page_count = len(pdf.pages)
-                first_page_text = (pdf.pages[0].extract_text() or "") if pdf.pages else ""
-        except Exception as exc:  # noqa: BLE001 - a bad PDF is a client error
-            raise HTTPException(status_code=422, detail=f"could not read PDF: {exc}") from exc
-        if page_count > settings.max_document_pages:
-            raise HTTPException(
-                status_code=413,
-                detail=f"document has {page_count} pages; limit is {settings.max_document_pages}",
-            )
-        content_bytes = raw
-        preview = first_page_text
-        char_count = len(first_page_text)
-
-        try:
-            from app.storage import upload
-
-            storage_uri = upload(
-                f"documents/{get_trace_id()}/{filename}",
+            storage_uri = storage_upload(
+                f"documents/{get_trace_id()}/{upload.filename}",
                 raw,
                 file.content_type or "application/pdf",
             )
@@ -333,30 +419,129 @@ def create_document(
             log(logger, logging.ERROR, "gcs upload failed", error=str(exc))
             raise HTTPException(status_code=502, detail="could not store the uploaded file") from exc
 
-    if content_bytes is None and text_content is None:
+    return upload, storage_uri
+
+
+@app.post("/documents/detect")
+def detect_document(
+    file: UploadFile | None = File(default=None),  # noqa: B008 - FastAPI DI pattern
+    text: str | None = Form(default=None),  # noqa: B008
+) -> dict:
+    """Read a document's own words for the metadata the form used to demand.
+
+    Stores nothing, publishes nothing, costs nothing: the user gets to see what
+    we think their file is *before* deciding to submit it.
+    """
+    upload, _ = _read_upload(file, text, store=False)
+    if not upload.head_text.strip():
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "We could not find any text in that file. A photo or a scan has no text "
+                "in it to read, so paste the wording instead."
+            ),
+        )
+    found = detection.detect(upload.head_text, upload.filename)
+    log(
+        logger,
+        logging.INFO,
+        "document detected",
+        jurisdiction=found.jurisdiction.value,
+        source_type=found.source_type.value,
+        needs_confirmation=found.needs_confirmation,
+    )
+    return {
+        "detection": found.to_dict(),
+        "page_count": upload.page_count,
+        "filename": upload.filename,
+        "trace_id": get_trace_id(),
+    }
+
+
+@app.post("/documents", status_code=202)
+def create_document(
+    source_type: SourceType | None = Form(default=None),  # noqa: B008 - FastAPI DI pattern
+    source_name: str | None = Form(default=None, max_length=200),  # noqa: B008
+    jurisdiction: str | None = Form(default=None, max_length=16),  # noqa: B008
+    declared_effective_date: str | None = Form(default=None, max_length=10),  # noqa: B008
+    file: UploadFile | None = File(default=None),  # noqa: B008
+    text: str | None = Form(default=None),  # noqa: B008
+) -> JSONResponse:
+    """Upload a PDF or paste text. Returns 202 immediately; extraction is the
+    worker's job. An identical re-upload short-circuits to the cached document.
+
+    Every metadata field is optional. Whatever the caller leaves out is read from
+    the document itself; only an unreadable jurisdiction or source type is
+    refused, because guessing either one would change what the clause is allowed
+    to do downstream.
+    """
+    upload, storage_uri = _read_upload(file, text, store=True)
+
+    if upload.content_bytes is None and upload.text is None:
         raise HTTPException(status_code=422, detail="provide a PDF file or pasted text")
 
+    found = detection.detect(upload.head_text, upload.filename)
+    resolved_type = source_type or (
+        SourceType(found.source_type.value) if found.source_type.certain else None
+    )
+    resolved_jurisdiction = jurisdiction or (
+        found.jurisdiction.value if found.jurisdiction.certain else None
+    )
+    if resolved_jurisdiction is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "We could not tell which country's rules this document sets out. "
+                "Say which, and we will read the rest."
+            ),
+        )
+    if resolved_type is None:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "We could not tell what kind of source this is. Say where it came from — "
+                "that decides how much it is allowed to change."
+            ),
+        )
+    resolved_name = source_name or found.source_name.value or resolved_jurisdiction
+    resolved_date = declared_effective_date or found.effective_date.value
+
     meta = DocumentIn(
-        source_type=source_type,
-        source_name=source_name,
-        jurisdiction=jurisdiction,
-        declared_effective_date=declared_effective_date,
-        filename=filename,
+        source_type=resolved_type,
+        source_name=resolved_name,
+        jurisdiction=resolved_jurisdiction,
+        declared_effective_date=resolved_date,
+        filename=upload.filename,
     )
     document, cached = documents_core.create_document(
         meta=meta,
-        content_bytes=content_bytes,
-        text=text_content,
-        page_count=page_count,
-        text_preview=preview,
-        char_count=char_count,
+        content_bytes=upload.content_bytes,
+        text=upload.text,
+        page_count=upload.page_count,
+        text_preview=upload.preview,
+        char_count=upload.char_count,
         storage_uri=storage_uri,
         trace_id=get_trace_id(),
+        detection=found.to_dict(),
+        # What the user typed wins over what we read, and the document records
+        # which of the two it was — a verdict traced back here must not have to
+        # guess whether a human confirmed the jurisdiction.
+        declared_fields=sorted(
+            field
+            for field, value in {
+                "source_type": source_type,
+                "source_name": source_name,
+                "jurisdiction": jurisdiction,
+                "declared_effective_date": declared_effective_date,
+            }.items()
+            if value
+        ),
     )
     status_code = 200 if cached else 202
     body = {
         "document": document.model_dump(mode="json"),
         "cached": cached,
+        "detection": found.to_dict(),
         "trace_id": get_trace_id(),
     }
     return JSONResponse(body, status_code=status_code)
@@ -380,6 +565,36 @@ def get_document(document_id: str) -> dict:
     return {
         "document": doc.model_dump(mode="json"),
         "clauses": [c.model_dump(mode="json") for c in clauses],
+        "trace_id": get_trace_id(),
+    }
+
+
+@app.get("/documents/{document_id}/text")
+def get_document_text(document_id: str) -> dict:
+    """The document's own words, with each clause located inside them.
+
+    This is what turns "where this came from" into something a reader can
+    check: the passage, in place, in the document. A clause we cannot locate is
+    reported as `not_found` rather than pointed at the nearest paragraph —
+    highlighting the wrong sentence would be worse than highlighting none.
+    """
+    from app.core import citations
+
+    doc = documents_core.get_document(document_id)
+    if doc is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    text = doc.text_inline or doc.text_extracted or ""
+    clauses = [c.model_dump(mode="json") for c in documents_core.clauses_for_document(document_id)]
+    located = citations.locate_all(text, clauses)
+    return {
+        "document_id": document_id,
+        "text": text,
+        "source": "pasted" if doc.text_inline else "extracted",
+        "truncated": bool(doc.text_truncated),
+        # A document read before this endpoint existed kept only a 500-character
+        # preview; say so rather than showing a stump as if it were the whole.
+        "available": bool(text),
+        "citations": [citation.to_dict() for citation in located],
         "trace_id": get_trace_id(),
     }
 

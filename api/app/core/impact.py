@@ -11,7 +11,7 @@ import logging
 
 from google.cloud import firestore
 
-from app.core.guardrail import substances_comparable, to_mg_per_kg
+from app.core.guardrail import product_types_comparable, substances_comparable, to_mg_per_kg
 from app.core.repository import write_with_event
 from app.db import get_db
 from app.models import EventType
@@ -111,6 +111,14 @@ def materialize_for_product(product_id: str) -> list[dict]:
             )
             if not matches and clause.get("clause_type") == "numeric_limit":
                 continue  # numeric limits bind only via a matching ingredient
+            # ...and only when the rule was written for this kind of product.
+            # The bundled library carries limits for every food category, so a
+            # benzoate limit for dairy desserts would otherwise be applied to a
+            # drink powder and fail it on a rule that does not cover it.
+            if clause.get("clause_type") == "numeric_limit" and not product_types_comparable(
+                clause.get("product_type"), product.get("product_type")
+            ):
+                continue
             key = f"{product_id}:{market['id']}:{clause['id']}"
             evaluation = evaluate(product, clause)
             existing = (

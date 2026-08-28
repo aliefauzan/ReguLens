@@ -42,6 +42,11 @@ class TransientExtractionError(Exception):
     """Nacks: the message redelivers and extraction runs again later."""
 
 
+# Firestore's per-document ceiling is 1 MiB and the rest of the record has to
+# fit beside this. 200k characters is about 80 pages of annex.
+MAX_STORED_TEXT = 200_000
+
+
 @dataclass
 class ExtractionResult:
     document_id: str
@@ -74,6 +79,12 @@ def _load_text(document: RegulatoryDocument) -> tuple[str, str]:
             "char_count": extraction.char_count,
             "text_method": extraction.method,
             "text_preview": extraction.text[:500],
+            # The whole text, so "where this came from" can show the passage
+            # instead of asking the reader to find it in the PDF themselves.
+            # Capped: a Firestore document is 1 MiB and a long annex would eat
+            # it. What is cut is recorded, never silently dropped.
+            "text_extracted": extraction.text[:MAX_STORED_TEXT],
+            "text_truncated": len(extraction.text) > MAX_STORED_TEXT,
         },
     )
     return extraction.text, extraction.method

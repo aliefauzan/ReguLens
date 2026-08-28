@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getDocument } from "@/lib/api";
 import { jurisdictionName } from "../../_ui/status";
+import { Suspense } from "react";
+import SourceText from "./SourceText";
 import Stepper from "./Stepper";
 
 export const dynamic = "force-dynamic";
@@ -16,10 +18,17 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   let jurisdiction: string | null = null;
   let finished = false;
   let ruleCount = 0;
+  // Where the metadata came from. A document whose country nobody typed in was
+  // read off the page, and the page should be able to say so.
+  let readItself: string | null = null;
   try {
     const { document, clauses } = await getDocument(id);
     sourceName = document.source_name;
     jurisdiction = document.jurisdiction;
+    const evidence = document.detection?.jurisdiction?.evidence ?? null;
+    if (evidence && !document.declared_fields?.includes("jurisdiction")) {
+      readItself = evidence;
+    }
     finished = document.status === "extracted" || document.status === "reconciled";
     ruleCount = clauses.length;
   } catch {
@@ -40,7 +49,19 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
             : "Everything we found in this document is listed below."}
       </p>
 
+      {readItself ? (
+        <p className="t-footnote t-secondary prose-measure mt-2" data-testid="document-detected">
+          You did not have to tell us the country: the document says “{readItself}”.
+        </p>
+      ) : null}
+
       <Stepper documentId={id} />
+
+      {/* The reader reads `?cite=` to know which passage to open at, so it
+          needs a Suspense boundary of its own. */}
+      <Suspense fallback={null}>
+        <SourceText documentId={id} />
+      </Suspense>
 
       <p className="t-caption t-secondary mt-8" data-testid="document-id">
         Reference, if you need to quote it to us: <span className="mono">{id}</span>

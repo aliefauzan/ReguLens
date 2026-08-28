@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from functools import lru_cache
 from typing import Any
@@ -57,9 +58,16 @@ class PermanentLLMError(Exception):
 
 @lru_cache
 def _client():
+    """One client for every generation call in the app. An API key routes to
+    the Gemini Developer API and its free tier; without one we fall back to
+    Vertex, which bills per token."""
     from google import genai
 
     settings = get_settings()
+    if settings.use_gemini_api:
+        # vertexai=False is explicit on purpose: GOOGLE_GENAI_USE_VERTEXAI is
+        # still set in the Cloud Run env, and the SDK reads it as the default.
+        return genai.Client(vertexai=False, api_key=settings.gemini_api_key)
     return genai.Client(
         vertexai=True,
         project=settings.project_id,
@@ -139,15 +147,120 @@ def _classify(exc: Exception) -> Exception:
     return PermanentLLMError(str(exc))
 
 
+# A limit table states its unit once, in a header. Rows that say "quantum
+# satis" or "CPPB" carry no number and are not numeric limits.
+_EU_ROW = re.compile(r"^\|?\s*(E\s?[\d\-–—\s()a-z]+?)\s*\|\s*([^|]{3,90}?)\s*\|\s*([^|]*?)\s*(?:\||$)")
+_BPOM_ROW = re.compile(r"^(\d{2}(?:\.\d+)*)\s+(.{6,120}?)\s+(\d[\d\s.]*)$")
+_BPOM_SUBSTANCE = re.compile(r"—\s*([^,]{3,80}?),\s*INS")
+# A ceiling, not a filter: a long annex section runs to hundreds of rows and
+# nobody needs all of them offline. High enough that the categories the demo
+# turns on — the flavoured-drink rows, two thirds of the way down the BPOM
+# tables — are always inside it.
+_FAKE_ROW_CAP = 60
+
+
+_EU_CATEGORY = re.compile(r"[Ff]ood category (\d{1,2}(?:\.\d+)*)")
+
+
+def _fake_product_type(category: str | None) -> str:
+    """Which kind of product a food-category number describes.
+
+    Read from the number, not from words in the rows: a bakery table mentions
+    milk and a preservative table mentions supplements, and keyword-sniffing the
+    whole block labels both wrongly.
+    """
+    if not category:
+        return "food_solid"
+    if category.startswith(("14.1", "01.1", "01.4")):
+        return "food_beverage_liquid"
+    if category.startswith(("13.6", "17")):
+        return "supplement"
+    return "food_solid"
+
+
+def _fake_number(raw: str) -> float | None:
+    """Table numbers are written with spaces as thousands separators."""
+    cleaned = raw.replace("\u00a0", " ").replace(" ", "").replace(",", "")
+    if not re.fullmatch(r"\d+(?:\.\d+)?", cleaned):
+        return None
+    return float(cleaned)
+
+
+def _fake_rows(text: str) -> list[dict[str, Any]]:
+    """Read an actual limit table, without a model.
+
+    The bundled library carries real tables, and a canned answer that ignores
+    them makes every library entry look identical on the local stack — the same
+    two clauses, twenty-eight times, disagreeing with themselves. This reads the
+    rows that are there. It is not extraction: no judgement, no inference, only
+    rows whose substance and number are both unambiguous on one line.
+    """
+    # An EU block names its category once, in the header carried above it; a
+    # BPOM section names its substance there instead, and each row carries its
+    # own category number.
+    eu_category = _EU_CATEGORY.search(text)
+    block_type = _fake_product_type(eu_category.group(1) if eu_category else None)
+    substance_header = _BPOM_SUBSTANCE.search(text)
+    rows: list[dict[str, Any]] = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if len(rows) >= _FAKE_ROW_CAP:
+            break
+        eu = _EU_ROW.match(line)
+        if eu:
+            value = _fake_number(eu.group(3))
+            if value is None:
+                continue
+            rows.append(
+                {
+                    "text": line,
+                    "clause_type": "numeric_limit",
+                    "substance": eu.group(2).strip(),
+                    "limit_value": value,
+                    "unit_raw": "mg/kg",
+                    "product_type": block_type,
+                    "effective_date": None,
+                }
+            )
+            continue
+        bpom = _BPOM_ROW.match(line)
+        if bpom and substance_header:
+            value = _fake_number(bpom.group(3))
+            if value is None:
+                continue
+            rows.append(
+                {
+                    # Verbatim: the citation view has to find this line in the
+                    # document, so it is quoted, not annotated. The substance
+                    # travels in its own field.
+                    "text": line,
+                    "clause_type": "numeric_limit",
+                    "substance": substance_header.group(1).strip(),
+                    "limit_value": value,
+                    "unit_raw": "mg/kg",
+                    "product_type": _fake_product_type(bpom.group(1)),
+                    "effective_date": None,
+                }
+            )
+    return rows
+
+
 def fake_candidates(text: str) -> list[dict[str, Any]]:
     """Deterministic canned extraction for FAKE_LLM mode.
 
-    Keyed on the document's own text, so the local stack reproduces the real
-    divergence: an Indonesian/BPOM source yields 400 mg/kg, an EU source 150
-    mg/kg. Deliberately includes one candidate that fails validation, so the
-    rejection path is exercised by every fake run instead of only by
-    adversarial tests.
+    Two paths. A document carrying a real limit table — every bundled library
+    entry does — is read row by row, so the local stack shows the same breadth
+    the deployed one does. Anything else falls back to the canned pair that
+    reproduces the divergence the demo rests on: an Indonesian source yields
+    400 mg/kg, an EU source 150.
+
+    Either way one candidate is malformed on purpose, so the rejection path is
+    exercised by every fake run instead of only by adversarial tests.
     """
+    parsed = _fake_rows(text)
+    if parsed:
+        parsed.append({"text": "Malformed emission with no clause type."})
+        return parsed
     lowered = text.lower()
     clauses: list[dict[str, Any]] = []
     indonesian = any(m in lowered for m in ("bpom", "badan pom", "natrium benzoat", "batas maksimal"))

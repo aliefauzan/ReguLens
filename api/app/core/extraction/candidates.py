@@ -59,7 +59,11 @@ def build_candidate(
 
     unit_enum = None
     unnormalized_unit = False
-    if parsed.unit_raw:
+    # A row with no number ("quantum satis", "CPPB") has no unit to normalize.
+    # Flagging it as an unusable unit sends the reader hunting for a units
+    # problem that is not there; the clause still lands in review on its own
+    # merits, with a reason that is true.
+    if parsed.unit_raw and parsed.limit_value is not None:
         try:
             unit_enum = parse_unit(parsed.unit_raw)
         except ValueError:

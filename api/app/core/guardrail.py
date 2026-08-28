@@ -66,6 +66,34 @@ def substances_comparable(a: str | None, b: str | None) -> bool:
     return any(a in family and b in family for family in _SUBSTANCE_FAMILIES.values())
 
 
+# A drink powder is regulated as the drink you make from it: the BPOM tables say
+# so in as many words ("dihitung terhadap produk siap konsumsi", computed on the
+# ready-to-consume product), and the EU beverage categories cover powders for
+# home preparation in the same rows. No other family exists — a cosmetic limit
+# never binds a food.
+_PRODUCT_TYPE_FAMILIES: tuple[frozenset[str], ...] = (
+    frozenset({"food_beverage_powder", "food_beverage_liquid"}),
+)
+
+
+def product_types_comparable(a: str | None, b: str | None) -> bool:
+    """May a rule written for product type `a` be applied to product type `b`?
+
+    `None` on either side means the source did not say, which is treated as
+    "any product type" — the documented superset, and the only one. Everything
+    else must match exactly or share a family.
+
+    This matters more than it looks. Once the bundled library is loaded the
+    graph holds limits for dairy desserts, bakery wares and supplements as well
+    as drinks; without this check a drink powder is judged against a jam.
+    """
+    if a is None or b is None:
+        return True
+    if a == b:
+        return True
+    return any(a in family and b in family for family in _PRODUCT_TYPE_FAMILIES)
+
+
 def comparability(a: dict, b: dict) -> ComparableOrNot:
     """May these two clauses be compared at all? Returns a ComparablePair with
     values on one basis, or an IncomparablePair with a reason enum.
@@ -84,10 +112,7 @@ def comparability(a: dict, b: dict) -> ComparableOrNot:
         return IncomparablePair(reason="unit_mismatch")
     if b.get("unit") not in _CONVERSIONS_TO_MG_PER_KG:
         return IncomparablePair(reason="unit_mismatch")
-    # Product type: equal, or either side is None (None = "any product type",
-    # a documented superset). No other superset table exists in the MVP.
-    if a.get("product_type") not in (None, b.get("product_type")) and \
-       b.get("product_type") not in (None, a.get("product_type")):
+    if not product_types_comparable(a.get("product_type"), b.get("product_type")):
         return IncomparablePair(reason="product_type_mismatch")
 
     value_a = to_mg_per_kg(a.get("limit_value"), a.get("unit"))

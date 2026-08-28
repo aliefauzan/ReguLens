@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { LoadStarterRules } from "../../_ui/Rulebook";
 import { notFound } from "next/navigation";
 import {
   getCompliance,
@@ -69,18 +70,29 @@ function remediation(
       (other.comparable_unit ?? other.unit) === unit &&
       (other.comparable_limit ?? other.limit_value) !== null,
   );
-  const lowest = comparable.reduce<ComplianceRequirement | null>((best, other) => {
-    const a = (other.comparable_limit ?? other.limit_value) as number;
-    const b = best === null ? Infinity : ((best.comparable_limit ?? best.limit_value) as number);
-    return a < b ? other : best;
-  }, null);
-  const lowestValue = lowest === null ? null : ((lowest.comparable_limit ?? lowest.limit_value) as number);
+  const valueOf = (other: ComplianceRequirement) =>
+    (other.comparable_limit ?? other.limit_value) as number;
+  const lowestIn = (rows: ComplianceRequirement[]) =>
+    rows.reduce<ComplianceRequirement | null>(
+      (best, other) => (best === null || valueOf(other) < valueOf(best) ? other : best),
+      null,
+    );
+
+  // Meeting the strictest rule in this market is what "you can sell it here"
+  // means — quoting the rule that happens to be on screen would leave the
+  // reader failing a second one they were never told about.
+  const here = lowestIn(comparable.filter((other) => other.market_id === req.market_id));
+  const target = here ? Math.min(valueOf(here), limit) : limit;
+
+  // Only *other* markets can be "stricter still". Saying Germany is stricter
+  // than Germany reads as a bug, because it is one.
+  const elsewhere = lowestIn(comparable.filter((other) => other.market_id !== req.market_id));
 
   return {
-    target: `${round4(limit)} ${plain(unit)}`,
+    target: `${round4(target)} ${plain(unit)}`,
     strictest:
-      lowest && lowestValue !== null && lowestValue < limit
-        ? { value: lowestValue, unit, marketId: lowest.market_id }
+      elsewhere && valueOf(elsewhere) < target
+        ? { value: valueOf(elsewhere), unit, marketId: elsewhere.market_id }
         : null,
   };
 }
@@ -123,6 +135,34 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               .sort((a, b) => severityRank(a.evaluation) - severityRank(b.evaluation));
             const failing = rows.filter((r) => r.evaluation === "fail").length;
             const unchecked = rows.filter((r) => r.evaluation === "needs_review").length;
+
+            // One ingredient, one card. A rulebook holds several limits for the
+            // same substance in the same market — the flavoured-drink row, the
+            // juice row, the concentrate row — and showing six near-identical
+            // cards buries the one that decides the answer. The strictest (or
+            // the failing one) leads; the rest are one line each underneath, so
+            // nothing is hidden.
+            const groupKey = (r: ComplianceRequirement) =>
+              r.substance_normalized ?? `${r.requirement_type ?? r.reason ?? "rule"}:${r.id}`;
+            const grouped = new Map<string, ComplianceRequirement[]>();
+            for (const row of rows) {
+              const key = groupKey(row);
+              grouped.set(key, [...(grouped.get(key) ?? []), row]);
+            }
+            const limitOf = (r: ComplianceRequirement) =>
+              (r.comparable_limit ?? r.limit_value ?? Infinity) as number;
+            const primaries: ComplianceRequirement[] = [];
+            const othersByKey = new Map<string, ComplianceRequirement[]>();
+            for (const [key, group] of grouped) {
+              const ordered = [...group].sort(
+                (a, b) =>
+                  severityRank(a.evaluation) - severityRank(b.evaluation) ||
+                  limitOf(a) - limitOf(b),
+              );
+              primaries.push(ordered[0]);
+              othersByKey.set(key, ordered.slice(1));
+            }
+            primaries.sort((a, b) => severityRank(a.evaluation) - severityRank(b.evaluation));
             return (
               <div key={marketId} className="card p-6">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -133,7 +173,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
 
                 {rows.length > 0 ? (
                   <ul className="mt-4 space-y-3" data-testid={`requirements-${marketId}`}>
-                    {rows.map((req) => (
+                    {primaries.map((req) => (
                       <li key={req.id} className="inset p-5">
                         <p className="t-headline">
                           <Mark evaluation={req.evaluation} />{" "}
@@ -212,6 +252,17 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                           );
                         })()}
 
+                        {/* Which rule this number is. With a rulebook loaded a
+                            market can hold several limits for one substance,
+                            and "150 mg per kg" means nothing until you know it
+                            is the flavoured-drinks row rather than the juice
+                            one. */}
+                        {sourceById[req.document_id ?? ""]?.source_name ? (
+                          <p className="t-caption t-secondary mt-3" data-testid={`rule-name-${req.id}`}>
+                            From {sourceById[req.document_id ?? ""]?.source_name}
+                          </p>
+                        ) : null}
+
                         <Provenance
                           clauseId={req.clause_id}
                           documentId={req.document_id}
@@ -219,6 +270,40 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                           jurisdiction={req.jurisdiction ?? sourceById[req.document_id ?? ""]?.jurisdiction}
                           testId={`provenance-${req.id}`}
                         />
+
+                        {(othersByKey.get(groupKey(req)) ?? []).length > 0 ? (
+                          <details className="mt-2" data-testid={`other-limits-${req.id}`}>
+                            <summary className="t-footnote cursor-pointer">
+                              {(othersByKey.get(groupKey(req)) ?? []).length} more limit
+                              {(othersByKey.get(groupKey(req)) ?? []).length === 1 ? "" : "s"} for this
+                              ingredient here
+                            </summary>
+                            <ul className="mt-2 space-y-2">
+                              {(othersByKey.get(groupKey(req)) ?? []).map((other) => (
+                                <li key={other.id} className="t-footnote t-secondary">
+                                  <Mark evaluation={other.evaluation} />{" "}
+                                  {other.limit_value !== null
+                                    ? `${other.limit_value} ${plain(other.unit)}`
+                                    : plain(other.reason ?? "no number")}
+                                  {sourceById[other.document_id ?? ""]?.source_name
+                                    ? ` — ${sourceById[other.document_id ?? ""]?.source_name}`
+                                    : ""}
+                                  {other.document_id ? (
+                                    <>
+                                      {" "}
+                                      <Link
+                                        href={`/documents/${other.document_id}?cite=${other.clause_id}`}
+                                        data-testid={`open-other-${other.id}`}
+                                      >
+                                        show it
+                                      </Link>
+                                    </>
+                                  ) : null}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        ) : null}
                       </li>
                     ))}
                   </ul>
@@ -235,11 +320,16 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         ) : (
           <div className="card p-8 text-center" data-testid="readiness-empty">
             <p className="t-headline">Nothing to compare against yet</p>
-            <p className="t-subhead t-secondary mt-1">
-              We have not read any regulation for this product’s markets, so there is no answer to give.
-              Adding one takes a minute.
+            <p className="t-subhead t-secondary mt-1 prose-measure mx-auto">
+              We have not read any regulation for this product’s markets yet. You do not have to go
+              and find one: ReguLens ships with the EU and Indonesian additive rules.
             </p>
-            <Link href="/documents/new" className="btn btn-primary btn-small mt-4">Add rules</Link>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <LoadStarterRules />
+              <Link href="/documents/new" className="btn btn-secondary btn-small">
+                Or read my own document
+              </Link>
+            </div>
           </div>
         )}
       </section>

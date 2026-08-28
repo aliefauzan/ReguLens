@@ -102,7 +102,7 @@ function nextStep(
       title: target
         ? `No rules added for ${marketName(target.marketId)} yet`
         : "Add the rules that apply to your products",
-      body: "Until a regulation is added for a market, there is nothing to check against and we will not pretend otherwise.",
+      body: "Drop in the document; we work out which country it applies to. Until a regulation is added for a market, there is nothing to check against and we will not pretend otherwise.",
       href: "/documents/new",
       cta: "Add rules",
       tone: "act",
@@ -252,7 +252,7 @@ export default async function Home() {
       {docs.length > 0 ? (
         <section className="mt-10">
           <div className="flex items-baseline justify-between">
-            <h2 className="t-section">Rules you have added</h2>
+            <h2 className="t-section">Rules ReguLens has read</h2>
             <div className="flex gap-2">
               <Link href="/rules" className="btn btn-quiet btn-small" data-testid="see-all-rules">
                 See every rule
@@ -270,10 +270,13 @@ export default async function Home() {
                       {jurisdictionName(doc.jurisdiction)}
                       {/* Pasted text gets a generated `doc_x.txt` name that means
                           nothing to anyone; only a real uploaded file is worth
-                          naming. */}
-                      {doc.filename && !/^doc_[a-z0-9]+\.txt$/.test(doc.filename)
-                        ? ` · ${doc.filename}`
-                        : " · pasted text"}
+                          naming. A rulebook entry was not pasted by anybody, and
+                          saying so would make the reader wonder who did. */}
+                      {doc.origin === "library"
+                        ? " · from the built-in rules"
+                        : doc.filename && !/^doc_[a-z0-9]+\.txt$/.test(doc.filename)
+                          ? ` · ${doc.filename}`
+                          : " · pasted text"}
                     </span>
                   </span>
                   <span className="t-footnote t-secondary whitespace-nowrap">{plain(doc.status)}</span>

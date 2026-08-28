@@ -70,7 +70,7 @@ Verified on the local docker-compose stack. **Not yet redeployed to Cloud Run.**
 - [x] `tests/test_samples.py` — nine tests pinning the thing the samples claim:
       EU excerpt yields 150, BPOM yields 400, the two disagree, the demo product's
       300 mg/kg sits between them, and every demo ingredient normalizes.
-- [ ] Redeploy api + web to Cloud Run so the hosted URL has the seed button.
+- [x] Redeploy api + web to Cloud Run so the hosted URL has the seed button — done 29 Aug.
 
 ### Self-service, round two (28 Aug)
 
@@ -186,6 +186,214 @@ page for ids, `snake_case`, `null`, and millisecond readouts. What it found:
 - [x] Sweep now comes back clean: the only ids left on any page are the ones
       inside a collapsed "Where this came from", labelled as the reference to
       quote to us.
+
+### The upload form stops interrogating people (28 Aug)
+
+Step two of the checklist read "Add the rules that apply" and then asked, before
+it would accept anything: what authority tier is this, whose jurisdiction is it,
+who published it, when does it take effect. Four questions a person with a PDF
+cannot answer without knowing our data model. The document itself answers all
+four. Local stack only; **Cloud Run redeploy still pending**.
+
+- [x] `app/core/detection.py` — deterministic reading of jurisdiction, source
+      type, publisher/title and effective date from the document's own words.
+      Keyword weights and date patterns, no model call: upload stays fast, and a
+      wrong guess here would change what a clause is allowed to do. Each answer
+      carries a confidence **and the phrase it was read from**.
+- [x] Uncertainty is a first-class answer. Scores are separated, not summed:
+      a document naming both regulators comes back unsure rather than
+      confidently wrong. On a tie the *lower* authority wins, so a forwarded
+      screenshot quoting BPOM reads as a chat message, not as the regulation.
+- [x] A date is only claimed when the document ties it to taking effect
+      ("shall apply from", "mulai berlaku"). Adoption and signature dates are
+      left alone — picking one would be a confident lie.
+- [x] `POST /documents/detect` — reads a file or pasted text and stores nothing.
+      A user who changes their mind after seeing what we read leaves no document
+      and no file behind.
+- [x] `POST /documents` metadata is now optional; whatever the caller omits is
+      read from the document. Only an unreadable jurisdiction or source type is
+      refused, in words that say what to do about it. The existing verify script,
+      which still sends every field, is unaffected.
+- [x] The document record keeps the detection and a `declared_fields` list, so
+      "who said this was EU" has an answer on the record. The document page says
+      "You did not have to tell us the country: the document says «…»" when
+      nobody typed it in.
+- [x] Upload form rewritten: the document comes first, we read it on file-select
+      or on a pause in typing, and we show what we read with the quote it came
+      from. The five-way authority picker and the three fields only appear when
+      we could not read them, or when the user presses "Something is wrong".
+- [x] `tests/test_detection.py` (16) and `tests/test_detect_endpoint.py` (3) —
+      both bundled samples, a forwarded chat message, a news report, a circular,
+      dates in two languages and three formats, a date with no effect wording, an
+      unattributed limit, and a document pulling both ways.
+- [x] Rechecked against the corpus on the local stack: both excerpts and the
+      1333/2008 PDF read correctly with no input; a metadata-free upload of the
+      EU excerpt went through the pipeline to `extracted`.
+- [x] Redeploy api + web to Cloud Run — done 29 Aug, revision `e2e-014324`.
+
+### The app stops asking for a regulation it already has (28 Aug)
+
+"Why do I have to add a regulation?" — because we shipped an empty rulebook and
+sent the user to find a PDF, which is the job they came here to avoid. Two real
+regulations are in the repo; now the app offers them. Local stack only; **Cloud
+Run redeploy still pending**.
+
+- [x] `scripts/build_library.py` slices the corpus into 28 verbatim excerpts —
+      12 EU Annex II food categories and 16 BPOM additive sections — each with
+      its citation, in `app/core/library_data.json`. Nothing is paraphrased,
+      summarised or re-numbered.
+- [x] The EU side is built from the **EUR-Lex HTML** of the consolidated
+      1333/2008 (fetched 28 Aug, kept in `data/regulations/eu/*.eurlex.md`),
+      not the PDF: a text dump of the PDF unaligns the table columns, and an
+      unaligned row pairs a category with the wrong number. The BPOM side uses
+      `pdfplumber`, which keeps each annex row on one line — which resolves the
+      row-alignment caveat standing in `SOURCES.md` since 19 Aug.
+- [x] `GET /library` and `POST /library/load` — load the starter set (8 rules,
+      both markets, drinks/powders/supplements) or any subset. Ingestion goes
+      through the ordinary upload path: same hash, same Pub/Sub message, same
+      extraction, same guardrail. No back door writes clauses.
+- [x] "Load the starter rules" on the home checklist, on the product page's
+      empty state, and on the add-rules page, which now leads with the rulebook
+      and offers "read your own document" underneath. The old two-sample filler
+      is gone — the library covers it and does not ask the user to paste.
+- [x] **A real defect this exposed: rules bound to products they do not cover.**
+      `materialize_for_product` matched on jurisdiction and substance only, so
+      once the library was loaded a drink powder was failed against the benzoate
+      limit for *dairy desserts*. Numeric limits now bind only when the clause's
+      product type is comparable with the product's — same type, or the
+      documented powder/liquid family, or an unstated one. Without this, more
+      data made the app confidently wrong.
+- [x] The substance dictionary grew from 21 to 45 entries (sweeteners, colours,
+      antioxidants, nitrites, sulphites), each checked against the E number in
+      the EU row and the INS number in the BPOM heading. A limit for a substance
+      the dictionary cannot match is a limit nobody is compared against — which
+      on screen looks exactly like passing.
+- [x] `FAKE_LLM` reads the excerpt's own table instead of answering every
+      document with the same canned pair. Twenty-eight rules that all said 150
+      and 400 would have disagreed with themselves on the local stack.
+- [x] Documents record their `origin` (upload / library / demo), so a rulebook
+      entry reads "from the built-in rules" instead of "pasted text".
+- [x] 45 new tests (`tests/test_library.py`, plus guardrail and sample updates):
+      every entry ingestable and cited, the starter set covering the demo
+      product, the EU/BPOM benzoate divergence still real, and a rule for one
+      kind of food refusing to bind another.
+- [x] Verified on a wiped local stack: seed + load starter set → 9 documents,
+      200 clauses, 8 conflicts, Germany `non_compliant` (150 mg/kg) and
+      Indonesia `compliant` (400 mg/kg) for the same product. `verify_local.sh`
+      still passes end to end.
+- [x] Redeploy api + web to Cloud Run — done 29 Aug, revision `e2e-014324`.
+- [ ] Watch the first live extraction of a library entry: 28 entries is 28 real
+      Gemini runs if someone loads everything one at a time.
+
+### Citations you can check, and names we understand (29 Aug)
+
+Three things the rulebook made necessary. Local stack only; **Cloud Run redeploy
+still pending**.
+
+- [x] **"Where this came from" now shows the passage.** `POST /documents/{id}/text`
+      returns the document's own words with every clause located inside them,
+      and the document page renders it with each cited passage highlighted.
+      A rule links to `?cite=<clause_id>`, which opens the reader scrolled to
+      its sentence. `core/citations.py` reports `exact`, `approximate` or
+      `not_found` — a clause we cannot locate is listed as unlocated rather
+      than pointed at the nearest paragraph, because a citation is only worth
+      something if the reader can trust where it points.
+- [x] Extracted PDF text is now persisted (capped at 200k characters, the cut
+      recorded) so the reader has something to show. Documents read before this
+      say so instead of showing a 500-character stump as if it were the whole.
+- [x] The offline reader quotes the document verbatim again — it had been
+      prefixing the substance onto the row, which made its own clauses
+      unfindable in their own document. 328 of 328 citations across the loaded
+      rulebook now resolve `exact`.
+- [x] **A market shows one card per ingredient, not six.** With the rulebook
+      loaded, a market holds several limits for the same substance — the
+      flavoured-drink row, the juice row, the concentrate row. The strictest (or
+      the failing one) leads and names its rule ("From EU Annex II — 14.1.4
+      Flavoured drinks"); the rest collapse into "N more limits for this
+      ingredient here", each linking to its own passage. Nothing is hidden.
+- [x] **A real defect in the remediation line:** it compared a market against
+      itself, so a German rule could read "Germany is stricter still at 150".
+      The target is now the strictest limit *in this market* — meeting the one
+      on screen could still leave you failing another — and only other markets
+      can be "stricter still".
+- [x] **`GET /substances/resolve` — what a user meant by an ingredient name.**
+      The strict matcher is right to refuse to guess, but the cost of that is a
+      row matching nothing, which reads exactly like a pass. The resolver
+      answers the "no" cases: a misspelling offers the name back ("sodium
+      benzoat" → sodium benzoate), an E or INS number in any spelling resolves,
+      a food says it is a food ("meat", "daging ayam" — normal, and *not* a
+      pass), a function word asks for the substance ("preservative" says which
+      one), and a genuinely unknown name says plainly that nothing will be
+      checked against it. Foods the dictionary already knew (ginger, turmeric,
+      sucrose) are labelled foods too — telling someone their ginger "will be
+      checked" invents a rule that does not exist.
+- [x] Every ingredient row runs it on a pause in typing and says what it made of
+      the name; suggestions are offered as buttons and never applied on their
+      own.
+- [x] 29 new tests (`test_citations.py`, `test_substances.py`), 252 green.
+      Verified live: 328/328 exact citations, the deep link opening the reader
+      on the right row, and paste → "meat" / "sodium benzoat" / "preservative"
+      each answered correctly with one click to fix the misspelling.
+- [x] Redeploy api + web to Cloud Run — done 29 Aug, revision `e2e-014324`.
+
+### Deployed end-to-end run (29 Aug)
+
+Everything above was local until now. Deployed on the real stack — Cloud Build →
+Cloud Run, `FAKE_LLM=false`, real Gemini — and exercised live. Revision
+`e2e-014324`.
+
+- [x] Cloud Build green end to end: lint, 257 tests, image, api + worker + job +
+      web deployed. Four builds: the first failed on lint (a stray duplicate of
+      the library builder inside `api/`, now removed), the rest on purpose.
+- [x] Detection on a real PDF through the deployed API: EU, official regulation,
+      title read off the masthead, `needs_confirmation` false.
+- [x] Upload with **no metadata at all** → 202, auto-detected EU, extracted with
+      real Gemini: 6 pages, 34 clauses, full text persisted.
+- [x] Library load through the deployed API: 28 entries listed, three loaded,
+      real Gemini returned 59 / 45 / 15 clauses with units read from the table
+      headers and product types per category.
+- [x] Citations against real model output: 149 of 151 clauses located on every
+      document ingested since the text started being stored (98.7%). The one
+      document at 0% predates that change and says so in the UI rather than
+      showing a stump.
+- [x] Grounded Ask, live: an answer that names the failing limit and cites the
+      clause it came from, `refusal: false`, confidence 0.9997, ~4 s.
+- [x] Upload cache: identical bytes → 200, same document id, no re-extraction.
+- [x] Redelivery: republished `document.uploaded` for an extracted document →
+      clause count unchanged (34 → 34).
+- [x] Web on Cloud Run: every route 200, the rulebook renders, the citation
+      reader highlights 45 passages and opens on the one the link asked for, and
+      the ingredient checker answers "meat" and "sodium benzoat" correctly.
+- [x] CORS fixed: Cloud Run answers on two hostnames and only one was allowed,
+      so the site was dead for anyone who opened the other link.
+
+Three real defects the deployed run exposed, all fixed:
+
+- [x] **The `gemini-api-key` secret held the literal placeholder `YOUR_KEY_HERE`.**
+      Any non-empty value flipped every call to the Gemini Developer API, which
+      answered "API key not valid" — and the damage was quiet: embeddings failed
+      one clause at a time, similarity search degraded to nothing, and Ask
+      answered "no regulation covers this" while holding the regulation. A
+      placeholder now counts as no key, so the stack falls back to Vertex and
+      the misconfiguration costs money instead of correctness. **Put a real key
+      in the secret to switch back to the free tier, then re-embed.**
+- [x] **151 clauses had no embedding** from that window. `scripts/reembed.py`
+      backfilled them against the deployed Firestore (151 re-embedded, 51
+      already current, 0 failed) and Ask started answering.
+- [x] **`mg/kg or mg/l` was rejected as an unusable unit** while `mg/l or mg/kg`
+      was accepted — the same header written the other way round, sending real
+      limits to review. Also stopped flagging a units problem on rows that carry
+      no number at all ("quantum satis"): the clause still needs review, but for
+      a reason that is true.
+
+Known and not defects:
+
+- 110 clauses sit in review as `substance_not_recognized`. The annexes name far
+  more additives than the 45-entry dictionary knows, and an unmatched substance
+  is deliberately parked rather than guessed at. Growing the dictionary from the
+  corpus is the obvious next step.
+- One clause has been stuck in `pending_reconciliation` since 23 Aug — a message
+  lost before this session. It predates every change here.
 
 ### Failure survival
 - [ ] Every async stage has a timeout and a visible failure state in the stepper.

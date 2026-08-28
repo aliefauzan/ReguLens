@@ -55,3 +55,35 @@ def test_unknown_unit_is_rejected_rather_than_coerced():
 def test_missing_unit_is_an_error_not_a_default():
     with pytest.raises(ValueError, match="unit is required"):
         parse_unit(None)
+
+
+def test_a_header_that_says_or_states_one_basis_not_two():
+    """Live extractions write the Annex II header in both orders; both mean the
+    same measurement basis, and refusing one sends a real limit to review."""
+    from app.core.normalization import parse_unit
+
+    assert parse_unit("mg/kg or mg/l") == parse_unit("mg/l or mg/kg")
+    assert parse_unit("mg/kg or mg/l as appropriate") == parse_unit("mg/kg")
+
+
+def test_a_row_with_no_number_is_not_a_units_problem():
+    """"quantum satis" carries no limit, so there is no unit to normalize.
+    Flagging it as an unusable unit sends the reader after a fault that is not
+    there."""
+    from app.core.extraction.candidates import build_candidate
+
+    clause, rejected = build_candidate(
+        {
+            "text": "Group II Colours at quantum satis",
+            "clause_type": "numeric_limit",
+            "substance": "Group II Colours",
+            "limit_value": None,
+            "unit_raw": "quantum satis",
+            "product_type": "food_beverage_liquid",
+        },
+        document_id="doc_1",
+        source_type="official_regulation",
+        source_jurisdiction="EU",
+    )
+    assert not rejected, rejected
+    assert "unit_not_normalizable" not in clause.review_reasons

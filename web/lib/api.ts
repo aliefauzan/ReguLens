@@ -191,6 +191,57 @@ export type Sample = {
   text: string;
 };
 
+/** One regulation excerpt that ships with the app, ready to be read. */
+export type LibraryEntry = {
+  id: string;
+  jurisdiction: string;
+  source_type: SourceType;
+  source_name: string;
+  title: string;
+  summary: string;
+  citation: string;
+  product_types: string[];
+  truncated: boolean;
+  starter: boolean;
+};
+
+/** The regulations we already hold. This is why nobody has to find a PDF first. */
+export function listLibrary(): Promise<{ entries: LibraryEntry[]; starter_ids: string[] }> {
+  return get("/library");
+}
+
+export type LibraryLoadResult = {
+  id: string;
+  found: boolean;
+  document_id?: string;
+  cached?: boolean;
+  status?: string;
+};
+
+/**
+ * Read the named rules, or the starter set when none are named.
+ *
+ * Each one goes through the ordinary upload path, so this cannot put anything
+ * into the graph that an upload could not.
+ */
+export async function loadLibrary(
+  ids?: string[],
+): Promise<{ results: LibraryLoadResult[]; queued: number; already_read: number }> {
+  const response = await fetch(`${BASE}/library/load`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(ids ? { ids } : {}),
+  });
+  if (!response.ok) {
+    throw new Error("We could not load those rules. Check that the service is running.");
+  }
+  return (await response.json()) as {
+    results: LibraryLoadResult[];
+    queued: number;
+    already_read: number;
+  };
+}
+
 /** Regulation excerpts bundled with the app, for a user who has no PDF to hand. */
 export function listSamples(): Promise<{ samples: Sample[] }> {
   return get("/samples");
@@ -275,6 +326,12 @@ export type RegulatoryDocument = {
   stage_log: StageLogEntry[];
   error: string | null;
   failed_stage: string | null;
+  // What the document said about itself at upload, and which fields the user
+  // typed in rather than letting us read.
+  detection: Detection | null;
+  declared_fields: string[];
+  /** upload | library | demo — where the document came from. */
+  origin?: string;
   trace_id: string | null;
   uploaded_at: string | null;
 };
@@ -303,6 +360,53 @@ export type Clause = {
   status: string;
 };
 
+/** One answer read off a document, with the phrase it was read from. */
+export type Guess<T = string> = {
+  value: T | null;
+  confidence: number;
+  evidence: string | null;
+};
+
+/**
+ * What the document says about itself.
+ *
+ * `needs_confirmation` is the only field the form has to branch on: it is true
+ * when the country or the kind of source could not be read, and those two
+ * decide which market a rule lands in and how much it is allowed to change.
+ */
+export type Detection = {
+  jurisdiction: Guess;
+  source_type: Guess<SourceType>;
+  source_name: Guess;
+  effective_date: Guess;
+  needs_confirmation: boolean;
+};
+
+/** Read a document without storing it. Nothing is created until the user submits. */
+export async function detectDocument(
+  form: FormData,
+): Promise<{ detection: Detection; page_count: number | null; filename: string | null }> {
+  const response = await fetch(`${BASE}/documents/detect`, { method: "POST", body: form });
+  if (!response.ok) {
+    let message =
+      response.status === 413
+        ? "That file is too big. Try a shorter excerpt, or paste just the part that matters."
+        : "We could not read that document. Check the file, then try again.";
+    try {
+      const payload = await response.json();
+      if (payload?.detail) message = humanizeValidation(payload.detail, message);
+    } catch {
+      // keep the plain message
+    }
+    throw new Error(message);
+  }
+  return (await response.json()) as {
+    detection: Detection;
+    page_count: number | null;
+    filename: string | null;
+  };
+}
+
 export async function uploadDocument(form: FormData): Promise<{ document: RegulatoryDocument; cached: boolean }> {
   const response = await fetch(`${BASE}/documents`, { method: "POST", body: form });
   const traceId = response.headers.get("x-trace-id");
@@ -321,6 +425,43 @@ export async function uploadDocument(form: FormData): Promise<{ document: Regula
   }
   void traceId;
   return (await response.json()) as { document: RegulatoryDocument; cached: boolean };
+}
+
+/** Where one clause sits inside the document it was read from. */
+export type SourceCitation = {
+  clause_id: string;
+  start: number;
+  end: number;
+  match: "exact" | "approximate" | "not_found";
+};
+
+export type DocumentText = {
+  document_id: string;
+  text: string;
+  source: "pasted" | "extracted";
+  truncated: boolean;
+  available: boolean;
+  citations: SourceCitation[];
+};
+
+/** The document's own words, with each clause located inside them. */
+export function getDocumentText(id: string): Promise<DocumentText> {
+  return get(`/documents/${id}/text`);
+}
+
+/** What we think an ingredient name means, and what we will do about it. */
+export type SubstanceResolution = {
+  query: string;
+  recognised: boolean;
+  canonical: string | null;
+  label: string | null;
+  kind: "additive" | "food" | "function" | "unknown";
+  message: string;
+  suggestions: { canonical: string; label: string; why: string }[];
+};
+
+export function resolveSubstance(query: string): Promise<SubstanceResolution> {
+  return get(`/substances/resolve?q=${encodeURIComponent(query)}`);
 }
 
 export function listDocuments(): Promise<{ documents: RegulatoryDocument[] }> {

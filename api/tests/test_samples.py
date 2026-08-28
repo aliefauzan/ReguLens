@@ -29,7 +29,11 @@ def _numeric_limits(text: str) -> list[float]:
 
 
 def test_eu_sample_yields_the_stricter_limit():
-    assert _numeric_limits(EU_EXCERPT) == [150]
+    """The offline extractor reads the excerpt's own table, so the EU sample
+    yields every row in it — including the benzoate limit the demo turns on."""
+    limits = _numeric_limits(EU_EXCERPT)
+    assert 150 in limits
+    assert all(isinstance(limit, (int, float)) for limit in limits)
 
 
 def test_bpom_sample_yields_the_looser_limit():
@@ -37,7 +41,10 @@ def test_bpom_sample_yields_the_looser_limit():
 
 
 def test_the_two_samples_actually_disagree():
-    """The whole demo rests on this divergence being real, not narrated."""
+    """The whole demo rests on this divergence being real, not narrated: the
+    same substance, a stricter number in Europe than in Indonesia."""
+    assert 150 in _numeric_limits(EU_EXCERPT)
+    assert 400 in _numeric_limits(BPOM_EXCERPT)
     assert _numeric_limits(EU_EXCERPT) != _numeric_limits(BPOM_EXCERPT)
 
 

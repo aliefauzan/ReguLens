@@ -8,8 +8,9 @@ import { jurisdictionName } from "./status";
  * `clause_2da66be9e735`. That is the one thing a reader cannot use: it names
  * nothing, it cannot be looked up, and it appears at exactly the moment
  * somebody is deciding whether to trust the number above it. The document it
- * was read from, and a way back to it, is the actual answer. The id stays for
- * anyone quoting a problem to us, one line down and labelled.
+ * was read from, and a way back to it, is the actual answer. Better still: the
+ * sentence itself, highlighted in the document, which is where the link goes.
+ * The id stays for anyone quoting a problem to us, one line down and labelled.
  */
 export default function Provenance({
   clauseId,
@@ -36,11 +37,13 @@ export default function Provenance({
         ) : null}
         {documentId ? (
           <Link
-            href={`/documents/${documentId}`}
+            // Not just the document: the passage. `?cite=` opens the reader
+            // scrolled to the sentence this number was read from.
+            href={`/documents/${documentId}?cite=${clauseId}`}
             className="btn btn-secondary btn-small mt-3"
             data-testid={`open-source-${clauseId}`}
           >
-            Open this document
+            Show me this in the document
           </Link>
         ) : null}
         <p className="t-caption t-secondary mt-3">

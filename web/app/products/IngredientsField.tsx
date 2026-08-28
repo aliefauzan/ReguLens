@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { listSubstances, UNITS, type Substance } from "@/lib/api";
+import {
+  listSubstances,
+  resolveSubstance,
+  UNITS,
+  type Substance,
+  type SubstanceResolution,
+} from "@/lib/api";
 import { parseIngredientList } from "@/lib/ingredients";
 import { plain } from "../_ui/status";
 
@@ -19,6 +25,88 @@ export const EMPTY_ROW: Row = { name: "", amount: "", unit: "" };
  * could not attach a unit to says so on the row instead of being dropped or
  * guessed at.
  */
+
+/**
+ * What we make of the name in this row, said out loud.
+ *
+ * A name we do not know matches no rule, and a product with no matching rule
+ * renders as "no problems found" — the one failure mode that looks exactly like
+ * success. So every row says which of four things happened: recognised, a food
+ * (normal, and not something we hold limits for), a word describing what an
+ * additive does rather than which one, or unknown. Suggestions are offered and
+ * never applied on their own: guessing a substance is how two different things
+ * get compared.
+ */
+function NameCheck({
+  name,
+  onPick,
+}: {
+  name: string;
+  onPick: (label: string) => void;
+}) {
+  const [state, setState] = useState<SubstanceResolution | null>(null);
+
+  useEffect(() => {
+    const query = name.trim();
+    if (query.length < 2) {
+      setState(null);
+      return;
+    }
+    let live = true;
+    // Checked on a pause, not on every keystroke.
+    const timer = setTimeout(() => {
+      resolveSubstance(query)
+        .then((result) => {
+          if (live) setState(result);
+        })
+        .catch(() => {
+          // The row still works without this; a failed check says nothing
+          // rather than inventing a verdict about the name.
+          if (live) setState(null);
+        });
+    }, 450);
+    return () => {
+      live = false;
+      clearTimeout(timer);
+    };
+  }, [name]);
+
+  if (!state || state.query.trim().toLowerCase() !== name.trim().toLowerCase()) return null;
+
+  if (state.recognised) {
+    return (
+      <p className="t-footnote t-secondary mt-2" data-testid="name-known">
+        ✓ Recognised as {state.label}. Rules for it will be checked.
+      </p>
+    );
+  }
+
+  // A food is not a mistake, so it is not coloured like one.
+  const tone = state.kind === "food" ? "var(--secondary)" : "var(--warn)";
+  return (
+    <div className="mt-2" data-testid={`name-${state.kind}`}>
+      <p className="t-footnote prose-measure" style={{ color: tone }}>
+        {state.message}
+      </p>
+      {state.suggestions.length > 0 ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {state.suggestions.map((suggestion) => (
+            <button
+              key={suggestion.canonical}
+              type="button"
+              className="btn btn-secondary btn-small"
+              onClick={() => onPick(suggestion.label)}
+              data-testid={`use-suggestion-${suggestion.canonical}`}
+            >
+              Use “{suggestion.label}”
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function IngredientsField({
   rows,
   setRows,
@@ -199,6 +287,11 @@ export default function IngredientsField({
                     Remove
                   </button>
                 </div>
+
+                <NameCheck
+                  name={row.name}
+                  onPick={(label) => updateRow(index, { name: label })}
+                />
 
                 {row.note ? (
                   <p className="t-footnote mt-2" style={{ color: "var(--warn)" }}>
