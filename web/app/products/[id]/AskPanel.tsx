@@ -2,15 +2,38 @@
 
 import { useState } from "react";
 import { ask, type QueryResult } from "@/lib/api";
-import { jurisdictionName } from "../../_ui/status";
+import { jurisdictionName, marketName } from "../../_ui/status";
 
-const SUGGESTIONS = [
-  "Why is my product at risk?",
-  "What changed in the EU rules?",
-  "Can I sell this in Germany?",
-];
+/**
+ * Suggested questions built from this product's own state.
+ *
+ * The fixed list asked "Can I sell this in Germany?" on products that do not
+ * go to Germany, which teaches a first-time user the wrong model of what the
+ * app knows. Every suggestion here is about a market this product actually
+ * targets, and the failing one leads.
+ */
+function suggestionsFor(name: string, failingMarket: string | null, markets: string[]): string[] {
+  const out: string[] = [];
+  if (failingMarket) out.push(`Why does ${name} break the rules in ${marketName(failingMarket)}?`);
+  for (const marketId of markets) {
+    if (marketId !== failingMarket) out.push(`Can I sell ${name} in ${marketName(marketId)}?`);
+  }
+  out.push(`What rules apply to ${name}?`);
+  return out.slice(0, 3);
+}
 
-export default function AskPanel({ productId }: { productId: string }) {
+export default function AskPanel({
+  productId,
+  productName,
+  failingMarket,
+  markets,
+}: {
+  productId: string;
+  productName: string;
+  failingMarket: string | null;
+  markets: string[];
+}) {
+  const SUGGESTIONS = suggestionsFor(productName, failingMarket, markets);
   const [question, setQuestion] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -46,7 +69,7 @@ export default function AskPanel({ productId }: { productId: string }) {
       >
         <input
           className="field flex-1"
-          placeholder="Why is my product at risk?"
+          placeholder={SUGGESTIONS[0]}
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           data-testid="ask-input"

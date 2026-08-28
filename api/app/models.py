@@ -37,12 +37,14 @@ class EventType(StrEnum):
     CLAUSE_CREATED = "clause_created"
     CLAUSE_SUPERSEDED = "clause_superseded"
     CLAUSE_FLAGGED_REVIEW = "clause_flagged_review"
+    CLAUSE_DISMISSED = "clause_dismissed"
     CONFLICT_OPENED = "conflict_opened"
     REQUIREMENT_CREATED = "requirement_created"
     REQUIREMENT_CHANGED = "requirement_changed"
     PRODUCT_CREATED = "product_created"
     PRODUCT_UPDATED = "product_updated"
     PRODUCT_STATUS_CHANGED = "product_status_changed"
+    PRODUCT_DELETED = "product_deleted"
 
 
 class SourceType(StrEnum):
@@ -95,6 +97,9 @@ class ClauseStatus(StrEnum):
     SUPERSEDED = "superseded"
     CONFLICTED = "conflicted"
     NEEDS_REVIEW = "needs_review"
+    # A human read this in the review queue and said no. It never becomes
+    # active, and it is not deleted — the audit trail keeps what was rejected.
+    DISMISSED = "dismissed"
 
 
 class Ingredient(BaseModel):

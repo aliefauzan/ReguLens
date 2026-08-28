@@ -1,7 +1,15 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getCompliance, getProduct, getProductEvents, type ComplianceView, type GraphEvent } from "@/lib/api";
+import {
+  getCompliance,
+  getProduct,
+  getProductEvents,
+  type ComplianceRequirement,
+  type ComplianceView,
+  type GraphEvent,
+} from "@/lib/api";
 import AskPanel from "./AskPanel";
+import ProductActions from "./ProductActions";
 import { StatusBadge, countryName, marketName, plain, statusCopy } from "../../_ui/status";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +31,47 @@ async function load(
   }
 }
 
+/**
+ * What to change so this row passes, as a number.
+ *
+ * "Over the limit — you cannot sell it here as it is" tells a reader they have
+ * a problem and not what to do about it. The limit is already on screen; what
+ * is missing is the instruction, and the strictest number across the markets
+ * they actually sell into — meeting that one meets all of them.
+ */
+function remediation(
+  req: ComplianceRequirement,
+  all: ComplianceRequirement[],
+): { target: string; strictest: { value: number; unit: string; marketId: string } | null } | null {
+  if (req.evaluation !== "fail") return null;
+  const limit = req.comparable_limit ?? req.limit_value;
+  const unit = req.comparable_unit ?? req.unit;
+  if (limit === null || limit === undefined || !unit) return null;
+
+  // Only limits expressed in the same unit can be ranked against each other;
+  // an unconvertible one is left out rather than guessed at.
+  const comparable = all.filter(
+    (other) =>
+      other.substance_normalized === req.substance_normalized &&
+      (other.comparable_unit ?? other.unit) === unit &&
+      (other.comparable_limit ?? other.limit_value) !== null,
+  );
+  const lowest = comparable.reduce<ComplianceRequirement | null>((best, other) => {
+    const a = (other.comparable_limit ?? other.limit_value) as number;
+    const b = best === null ? Infinity : ((best.comparable_limit ?? best.limit_value) as number);
+    return a < b ? other : best;
+  }, null);
+  const lowestValue = lowest === null ? null : ((lowest.comparable_limit ?? lowest.limit_value) as number);
+
+  return {
+    target: `${round4(limit)} ${plain(unit)}`,
+    strictest:
+      lowest && lowestValue !== null && lowestValue < limit
+        ? { value: lowestValue, unit, marketId: lowest.market_id }
+        : null,
+  };
+}
+
 export default async function ProductPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const data = await load(id);
@@ -33,12 +82,17 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="product-detail">
       <Link href="/" className="btn btn-quiet btn-small -ml-2">← All products</Link>
 
-      <h1 className="t-large-title mt-3" data-testid="product-name">
-        {product.name}
-      </h1>
-      <p className="t-body t-secondary mt-2">
-        {plain(product.product_type)} · made in {countryName(product.origin)}
-      </p>
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="t-large-title" data-testid="product-name">
+            {product.name}
+          </h1>
+          <p className="t-body t-secondary mt-2">
+            {plain(product.product_type)} · made in {countryName(product.origin)}
+          </p>
+        </div>
+        <ProductActions productId={id} productName={product.name} />
+      </div>
 
       {/* --- The answer, first. Everything else explains it. ---------------- */}
       <section className="mt-8 space-y-4" data-testid="readiness-panel">
@@ -109,7 +163,34 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                               : req.reason === "non_numeric_clause"
                                 ? "This rule has no number in it, so a person has to read it."
                                 : "We do not know how much your product contains, so this was not checked."}
+                          {req.evaluation === "needs_review" && req.reason !== "non_numeric_clause" ? (
+                            <>
+                              {" "}
+                              <Link href={`/products/${id}/edit`} data-testid={`fill-amount-${req.id}`}>
+                                Fill in the amount
+                              </Link>{" "}
+                              and it will be.
+                            </>
+                          ) : null}
                         </p>
+
+                        {(() => {
+                          const fix = remediation(req, compliance.requirements);
+                          if (fix === null) return null;
+                          return (
+                            <p className="inset mt-3 p-4 t-footnote" data-testid={`fix-${req.id}`}>
+                              <strong>To pass here:</strong> bring it down to {fix.target} or less.
+                              {fix.strictest ? (
+                                <>
+                                  {" "}
+                                  {marketName(fix.strictest.marketId)} is stricter still at{" "}
+                                  {round4(fix.strictest.value)} {plain(fix.strictest.unit)} — meet that
+                                  one and you meet both.
+                                </>
+                              ) : null}
+                            </p>
+                          );
+                        })()}
 
                         <Provenance clauseId={req.clause_id} />
                       </li>
@@ -138,7 +219,16 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       </section>
 
       {/* --- Ask ------------------------------------------------------------ */}
-      <AskPanel productId={id} />
+      <AskPanel
+        productId={id}
+        productName={product.name}
+        failingMarket={
+          Object.entries(compliance?.statuses ?? {}).find(
+            ([, status]) => status === "non_compliant",
+          )?.[0] ?? null
+        }
+        markets={product.target_markets}
+      />
 
       {/* --- What we know about the product --------------------------------- */}
       <section className="card mt-10 p-6" data-testid="compliance-twin">
@@ -171,9 +261,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                 ) : null}
               </span>
               <span className="t-footnote t-secondary">
-                {ingredient.amount !== null
-                  ? `${ingredient.amount} ${plain(ingredient.unit)}`
-                  : "amount not given"}
+                {ingredient.amount !== null ? (
+                  `${ingredient.amount} ${plain(ingredient.unit)}`
+                ) : (
+                  <Link href={`/products/${id}/edit`}>add an amount</Link>
+                )}
               </span>
             </li>
           ))}

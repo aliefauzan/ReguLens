@@ -133,6 +133,29 @@ export async function seedDemo(): Promise<{
   return (await response.json()) as { product: Product; document: RegulatoryDocument; cached: boolean };
 }
 
+export async function updateProduct(id: string, body: unknown): Promise<Product> {
+  const response = await fetch(`${BASE}/products/${id}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(
+      Array.isArray(payload?.detail)
+        ? payload.detail.map((d: { msg: string }) => d.msg).join("; ")
+        : (payload?.detail ?? "Could not save the changes."),
+    );
+  }
+  return payload.product as Product;
+}
+
+/** Removes the product and every requirement derived from it. Not undoable. */
+export async function deleteProduct(id: string): Promise<void> {
+  const response = await fetch(`${BASE}/products/${id}`, { method: "DELETE" });
+  if (!response.ok) throw new Error(`Could not delete the product (${response.status}).`);
+}
+
 export type Substance = { canonical: string; label: string; synonyms: string[] };
 
 export function listSubstances(): Promise<{ substances: Substance[] }> {
@@ -296,9 +319,30 @@ export function ask(question: string, productId?: string): Promise<QueryResult> 
   return post("/query", { question, product_id: productId ?? null });
 }
 
+/**
+ * Fired after anything that changes the numbers on the navigation bar.
+ *
+ * The badges re-read on navigation, but accepting or ignoring a clause happens
+ * without leaving the page, and a count that still says 2 after you cleared one
+ * is worse than no count.
+ */
+export const COUNTS_CHANGED = "regulens:counts-changed";
+
+function announceCountsChanged(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(COUNTS_CHANGED));
+}
+
+/** Reject a clause in the review queue. It is parked, not deleted. */
+export async function dismissClause(id: string): Promise<void> {
+  const response = await fetch(`${BASE}/clauses/${id}/dismiss`, { method: "POST" });
+  if (!response.ok) throw new Error(`Dismiss failed (${response.status}).`);
+  announceCountsChanged();
+}
+
 export async function confirmClause(id: string): Promise<void> {
   const response = await fetch(`${BASE}/clauses/${id}/confirm`, { method: "POST" });
   if (!response.ok) throw new Error(`Confirm failed (${response.status}).`);
+  announceCountsChanged();
 }
 
 async function post(path: string, body: unknown): Promise<any> {

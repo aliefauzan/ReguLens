@@ -245,7 +245,9 @@ export default function UploadForm() {
         <button type="submit" disabled={saving} className="btn btn-primary" data-testid="submit-upload">
           {saving ? "Sending…" : "Read this document"}
         </button>
-        <span className="t-footnote t-secondary">Takes about a minute.</span>
+        <span className="t-footnote t-secondary">
+          Reading takes about three minutes. You do not have to wait on the page.
+        </span>
       </div>
     </form>
   );

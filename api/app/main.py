@@ -165,6 +165,19 @@ def patch_product(product_id: str, payload: ProductPatch) -> dict:
     return {"product": product.model_dump(mode="json"), "trace_id": get_trace_id()}
 
 
+@app.delete("/products/{product_id}", status_code=200)
+def delete_product(product_id: str) -> dict:
+    """Remove a product and the requirements derived from it.
+
+    Deliberately destructive and deliberately available: without it, a typo in
+    an ingredient list is permanent for anyone who cannot reach Firestore. The
+    `product_deleted` event survives the delete.
+    """
+    if not products.delete_product(product_id):
+        raise HTTPException(status_code=404, detail="product not found")
+    return {"deleted": product_id, "trace_id": get_trace_id()}
+
+
 @app.get("/products/{product_id}/events")
 def get_product_events(product_id: str) -> dict:
     if products.get_product(product_id) is None:
@@ -239,6 +252,12 @@ def list_alerts() -> dict:
         if severity_order.get(after, 0) > severity_order.get(before, 0) and not e.get("acknowledged"):
             alerts.append(e)
     alerts.sort(key=lambda e: e.get("occurred_at") or 0, reverse=True)
+
+    # An alert about a product that no longer exists is a link to a 404 and a
+    # verdict nobody can act on. The event stays in the audit trail; it just
+    # stops being presented as something needing attention.
+    live = {p.id for p in products.list_products()}
+    alerts = [a for a in alerts if a.get("entity_id") in live]
     return {"alerts": alerts[:20], "trace_id": get_trace_id()}
 
 
@@ -371,6 +390,21 @@ def retry_document(document_id: str) -> dict:
     if doc is None:
         raise HTTPException(status_code=404, detail="document not found")
     return {"document": doc.model_dump(mode="json"), "trace_id": get_trace_id()}
+
+
+@app.post("/clauses/{clause_id}/dismiss", status_code=200)
+def dismiss_review_clause(clause_id: str) -> dict:
+    """The review queue's second action: reject without deleting.
+
+    With only a confirm button, a clause the reader judged wrong sat in the
+    queue forever and the count stopped meaning anything.
+    """
+    from app.core.reconciliation import dismiss_clause
+
+    result = dismiss_clause(clause_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="clause not found")
+    return {"result": result, "trace_id": get_trace_id()}
 
 
 @app.get("/debug/documents/{document_id}")

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listClauses, listConflicts, type Clause, type Conflict } from "@/lib/api";
+import Term from "../_ui/Term";
 import { jurisdictionName, plain } from "../_ui/status";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +24,8 @@ export default async function ConflictsPage() {
       <h1 className="t-large-title">Rules that disagree</h1>
       <p className="t-body t-secondary prose-measure mt-2">
         Two countries can allow different amounts of the same ingredient. Neither rule is wrong —
-        they simply apply in different places. To sell in both, follow the stricter one.
+        they simply apply in different <Term word="jurisdiction">jurisdictions</Term>. To sell in
+        both, follow the stricter one.
       </p>
 
       {error ? (

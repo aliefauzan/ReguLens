@@ -2,20 +2,67 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { COUNTS_CHANGED, listClauses, listConflicts } from "@/lib/api";
 
 // HIG: a tab bar on small screens, a translucent navigation bar on large ones.
 // Labels are tasks, not nouns from the data model — "Add rules", not "Ingest".
-const TABS = [
-  { href: "/", label: "Products", glyph: "▤", testId: "nav-products" },
-  { href: "/documents/new", label: "Add rules", glyph: "＋", testId: "nav-add-rules" },
-  { href: "/conflicts", label: "Disagreements", glyph: "⚖", testId: "nav-conflicts" },
-  { href: "/review", label: "To check", glyph: "☑", testId: "nav-review" },
+type Counted = "conflicts" | "review";
+
+const TABS: {
+  href: string;
+  label: string;
+  glyph: string;
+  testId: string;
+  count?: Counted;
+  // Five labels do not fit across a phone. The reference page is the one that
+  // can be reached from the pages that mention it instead of costing a tab.
+  onPhone: boolean;
+}[] = [
+  { href: "/", label: "Products", glyph: "▤", testId: "nav-products", onPhone: true },
+  { href: "/rules", label: "Rules", glyph: "▦", testId: "nav-rules", onPhone: false },
+  { href: "/documents/new", label: "Add rules", glyph: "＋", testId: "nav-add-rules", onPhone: true },
+  {
+    href: "/conflicts",
+    label: "Disagreements",
+    glyph: "⚖",
+    testId: "nav-conflicts",
+    count: "conflicts",
+    onPhone: true,
+  },
+  { href: "/review", label: "To check", glyph: "☑", testId: "nav-review", count: "review", onPhone: true },
 ];
 
 export default function NavBar() {
   const pathname = usePathname();
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
+
+  // Work waiting behind a tab is invisible until someone clicks it, which
+  // means nobody clicks it. Re-read on navigation, because accepting a clause
+  // or resolving a conflict changes these numbers.
+  const [counts, setCounts] = useState<Record<Counted, number>>({ conflicts: 0, review: 0 });
+  useEffect(() => {
+    let cancelled = false;
+    function read() {
+      Promise.all([
+        listClauses({ status: "needs_review" }).then((r) => r.clauses.length).catch(() => 0),
+        listConflicts().then((r) => r.conflicts.length).catch(() => 0),
+      ]).then(([review, conflicts]) => {
+        if (!cancelled) setCounts({ review, conflicts });
+      });
+    }
+    read();
+    // Accepting or ignoring a clause happens without leaving the page.
+    window.addEventListener(COUNTS_CHANGED, read);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(COUNTS_CHANGED, read);
+    };
+  }, [pathname]);
+
+  const badge = (tab: (typeof TABS)[number]) =>
+    tab.count && counts[tab.count] > 0 ? counts[tab.count] : null;
 
   return (
     <>
@@ -40,6 +87,21 @@ export default function NavBar() {
                 }
               >
                 {tab.label}
+                {badge(tab) !== null ? (
+                  <span
+                    className="ml-1.5 t-caption"
+                    style={{
+                      background: "var(--accent)",
+                      color: "var(--accent-ink)",
+                      borderRadius: 999,
+                      padding: "1px 7px",
+                      fontWeight: 600,
+                    }}
+                    data-testid={`${tab.testId}-count`}
+                  >
+                    {badge(tab)}
+                  </span>
+                ) : null}
               </Link>
             ))}
           </div>
@@ -49,7 +111,7 @@ export default function NavBar() {
       {/* Mobile tab bar */}
       <nav className="material fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t sm:hidden"
            style={{ borderColor: "var(--separator)" }}>
-        {TABS.map((tab) => (
+        {TABS.filter((tab) => tab.onPhone).map((tab) => (
           <Link
             key={tab.href}
             href={tab.href}
@@ -58,8 +120,27 @@ export default function NavBar() {
             className="flex flex-col items-center justify-center gap-1 py-2 t-caption"
             style={{ color: isActive(tab.href) ? "var(--accent)" : "var(--secondary)", minHeight: "var(--tap)" }}
           >
-            <span aria-hidden="true" className="text-lg leading-none">{tab.glyph}</span>
-            {tab.label}
+            <span aria-hidden="true" className="relative text-lg leading-none">
+              {tab.glyph}
+              {badge(tab) !== null ? (
+                <span
+                  className="absolute -right-3 -top-1 t-caption"
+                  style={{
+                    background: "var(--accent)",
+                    color: "var(--accent-ink)",
+                    borderRadius: 999,
+                    padding: "0 5px",
+                    fontWeight: 600,
+                  }}
+                  data-testid={`${tab.testId}-count-mobile`}
+                >
+                  {badge(tab)}
+                </span>
+              ) : null}
+            </span>
+            <span className="w-full truncate px-0.5 text-center" style={{ fontSize: 11 }}>
+              {tab.label}
+            </span>
           </Link>
         ))}
       </nav>

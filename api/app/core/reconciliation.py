@@ -345,7 +345,14 @@ def _publish_graph_changed(clause_id: str) -> None:
 
 def confirm_clause(clause_id: str) -> dict | None:
     """Human confirm on a needs_review clause: promote to active. One button,
-    no workflow."""
+    no workflow.
+
+    Returns None when the clause does not exist. Every other path returns a
+    status dict — the transaction says which of the three outcomes happened
+    rather than leaving the caller to infer it from `None`, which previously
+    made "no such clause" and "promoted" indistinguishable *and* inverted the
+    republish, so a confirmed clause never re-ran impact.
+    """
     db = get_db()
 
     @firestore.transactional
@@ -353,22 +360,66 @@ def confirm_clause(clause_id: str) -> dict | None:
         ref = db.collection("clauses").document(clause_id)
         fresh = ref.get(transaction=transaction)
         if not fresh.exists:
-            return None
-        if fresh.to_dict().get("status") != "needs_review":
+            return {"status": "missing"}
+        data = fresh.to_dict()
+        if data.get("status") != "needs_review":
             return {"status": "unchanged"}
         event_id = new_id("evt")
         transaction.set(
             db.collection("graph_events").document(event_id),
-            _event_payload(EventType.CLAUSE_CREATED, clause_id, None,
-                           {"status": "active"}, {"confirmed_by": "human"},
-                           "human", (fresh := fresh) and fresh.to_dict().get("confidence")),
+            _event_payload(EventType.CLAUSE_CREATED, clause_id,
+                           {"status": "needs_review"}, {"status": "active"},
+                           {"confirmed_by": "human"}, "human", data.get("confidence")),
         )
         transaction.set(ref, {"status": "active", "review_reason": None}, merge=True)
+        return {"status": "active"}
 
     result = txn(db.transaction())
-    if result is not None:
+    if result["status"] == "missing":
+        return None
+    if result["status"] == "active":
+        # A clause only counts once it is active, so this is the moment every
+        # affected product has to be re-evaluated.
         _publish_graph_changed(clause_id)
-    return result or {"status": "active"}
+    return result
+
+
+def dismiss_clause(clause_id: str) -> dict | None:
+    """Human reject on a needs_review clause: park it, never delete it.
+
+    The queue previously had one button. A clause the reader judged wrong could
+    only be left sitting there, so the count never fell and the queue stopped
+    meaning anything. `dismissed` is terminal and inert — nothing promotes it,
+    nothing evaluates against it — but the record and its event survive, which
+    is the point of an audit trail.
+    """
+    db = get_db()
+
+    @firestore.transactional
+    def txn(transaction):
+        ref = db.collection("clauses").document(clause_id)
+        fresh = ref.get(transaction=transaction)
+        if not fresh.exists:
+            return {"status": "missing"}
+        data = fresh.to_dict()
+        if data.get("status") != "needs_review":
+            return {"status": "unchanged"}
+        event_id = new_id("evt")
+        transaction.set(
+            db.collection("graph_events").document(event_id),
+            _event_payload(EventType.CLAUSE_DISMISSED, clause_id,
+                           {"status": "needs_review"}, {"status": "dismissed"},
+                           {"dismissed_by": "human"}, "human", data.get("confidence")),
+        )
+        transaction.set(ref, {"status": "dismissed", "review_reason": None}, merge=True)
+        return {"status": "dismissed"}
+
+    result = txn(db.transaction())
+    if result["status"] == "missing":
+        return None
+    if result["status"] == "dismissed":
+        log(logger, logging.INFO, "clause dismissed", clause_id=clause_id)
+    return result
 
 
 # ---------------------------------------------------------------------------

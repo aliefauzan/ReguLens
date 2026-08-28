@@ -216,7 +216,8 @@ export default async function Home() {
                       {product.name}
                     </Link>
                     <p className="t-footnote t-secondary mt-1">
-                      {plain(product.product_type)} · {product.ingredients.length} ingredients
+                      {plain(product.product_type)} · {product.ingredients.length}{" "}
+                      {product.ingredients.length === 1 ? "ingredient" : "ingredients"}
                     </p>
                   </div>
                   <Link
@@ -252,7 +253,12 @@ export default async function Home() {
         <section className="mt-10">
           <div className="flex items-baseline justify-between">
             <h2 className="t-section">Rules you have added</h2>
-            <Link href="/documents/new" className="btn btn-quiet btn-small">Add another</Link>
+            <div className="flex gap-2">
+              <Link href="/rules" className="btn btn-quiet btn-small" data-testid="see-all-rules">
+                See every rule
+              </Link>
+              <Link href="/documents/new" className="btn btn-quiet btn-small">Add another</Link>
+            </div>
           </div>
           <ul className="card mt-4 overflow-hidden">
             {docs.slice(0, 5).map((doc) => (

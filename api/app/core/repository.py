@@ -86,6 +86,48 @@ def write_with_event(
     return event_id
 
 
+def delete_with_event(
+    collection: str,
+    doc_id: str,
+    *,
+    event_type: EventType,
+    entity_type: str,
+    before: dict[str, Any] | None,
+    also_delete: list[Any] | None = None,
+    triggered_by: str = "api",
+    cause: dict[str, Any] | None = None,
+) -> str:
+    """Delete a document, its derived documents, and record the event — all in
+    one batch. Returns the event id.
+
+    A delete is still a mutation, so it goes through here for the same reason
+    every write does: the event cannot be skipped by anyone using this module.
+    `also_delete` takes the references of documents that only exist because the
+    deleted one did; leaving those behind would keep a removed entity visible
+    to every query that scans a derived collection.
+    """
+    db = get_db()
+    batch = db.batch()
+    for reference in also_delete or []:
+        batch.delete(reference)
+    batch.delete(db.collection(collection).document(doc_id))
+
+    event_id = new_id("evt")
+    batch.set(
+        db.collection(EVENTS).document(event_id),
+        _event_payload(
+            event_type, entity_type, doc_id, before, None, triggered_by, cause, None
+        ),
+    )
+    batch.commit()
+    log(
+        logger, logging.INFO, "deletion recorded",
+        collection=collection, entity_id=doc_id, event_type=str(event_type),
+        event_id=event_id, derived_deleted=len(also_delete or []),
+    )
+    return event_id
+
+
 def events_for(entity_id: str, limit: int = 50) -> list[dict[str, Any]]:
     """Read the audit trail for one entity, newest first."""
     query = (

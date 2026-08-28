@@ -1,9 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { createProduct, PRODUCT_TYPES } from "@/lib/api";
-import { plain } from "../../_ui/status";
+import { createProduct, updateProduct, PRODUCT_TYPES, type Product } from "@/lib/api";
+import { plain } from "../_ui/status";
 import IngredientsField, { type Row } from "./IngredientsField";
 
 const COUNTRIES = [
@@ -15,17 +16,38 @@ const COUNTRIES = [
   { code: "VN", label: "Vietnam" },
 ];
 
-export default function ProductForm() {
+/** An existing product's ingredients, back in the shape the row editor uses. */
+function rowsFrom(product: Product): Row[] {
+  return product.ingredients.map((ingredient) => ({
+    name: ingredient.name,
+    amount: ingredient.amount === null ? "" : String(ingredient.amount),
+    unit: ingredient.unit ?? "",
+  }));
+}
+
+/**
+ * One form, two jobs: create a product, or correct one.
+ *
+ * The create form always promised "you can edit any of this later" and there
+ * was no way to. A misspelt ingredient matches no clause and the product then
+ * reads as having no problems, so being unable to fix a typo was not cosmetic.
+ */
+export default function ProductForm({ product }: { product?: Product }) {
+  const editing = product !== undefined;
   const router = useRouter();
-  const [name, setName] = useState("Herbal Drink Powder");
-  const [productType, setProductType] = useState<string>(PRODUCT_TYPES[0]);
-  const [origin, setOrigin] = useState("ID");
-  const [packaging, setPackaging] = useState("250g plastic pouch");
-  const [markets, setMarkets] = useState<string[]>(["market_de"]);
-  const [rows, setRows] = useState<Row[]>([
-    { name: "ginger", amount: "", unit: "" },
-    { name: "sodium benzoate", amount: "0.08", unit: "percent_w_w" },
-  ]);
+  const [name, setName] = useState(product?.name ?? "Herbal Drink Powder");
+  const [productType, setProductType] = useState<string>(product?.product_type ?? PRODUCT_TYPES[0]);
+  const [origin, setOrigin] = useState(product?.origin ?? "ID");
+  const [packaging, setPackaging] = useState(product?.packaging ?? "250g plastic pouch");
+  const [markets, setMarkets] = useState<string[]>(product?.target_markets ?? ["market_de"]);
+  const [rows, setRows] = useState<Row[]>(
+    product
+      ? rowsFrom(product)
+      : [
+          { name: "ginger", amount: "", unit: "" },
+          { name: "sodium benzoate", amount: "0.08", unit: "percent_w_w" },
+        ],
+  );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -59,15 +81,19 @@ export default function ProductForm() {
             ? { amount: Number(row.amount), unit: row.unit || null }
             : {}),
         }));
-      const product = await createProduct({
+      const body = {
         name,
         product_type: productType,
         origin,
         packaging: packaging || null,
         target_markets: markets,
         ingredients,
-      });
-      router.push(`/products/${product.id}`);
+      };
+      const saved = editing ? await updateProduct(product.id, body) : await createProduct(body);
+      router.push(`/products/${saved.id}`);
+      // The product page is server-rendered, so without this the reader lands
+      // on the version they just changed.
+      router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Nothing was saved.");
       setSaving(false);
@@ -169,7 +195,7 @@ export default function ProductForm() {
         </div>
       </fieldset>
 
-      <IngredientsField rows={rows} setRows={setRows} />
+      <IngredientsField rows={rows} setRows={setRows} initialMode={editing ? "list" : "paste"} />
 
       {error ? (
         <div className="card p-5" data-testid="form-error">
@@ -180,9 +206,15 @@ export default function ProductForm() {
 
       <div className="flex items-center gap-3">
         <button type="submit" disabled={saving} className="btn btn-primary" data-testid="submit-product">
-          {saving ? "Saving…" : "Save product"}
+          {saving ? "Saving…" : editing ? "Save changes" : "Save product"}
         </button>
-        <span className="t-footnote t-secondary">You can edit any of this later.</span>
+        {editing ? (
+          <Link href={`/products/${product.id}`} className="btn btn-quiet btn-small">
+            Cancel
+          </Link>
+        ) : (
+          <span className="t-footnote t-secondary">You can edit any of this later.</span>
+        )}
       </div>
     </form>
   );

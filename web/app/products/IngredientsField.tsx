@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listSubstances, UNITS, type Substance } from "@/lib/api";
 import { parseIngredientList } from "@/lib/ingredients";
-import { plain } from "../../_ui/status";
+import { plain } from "../_ui/status";
 
 export type Row = { name: string; amount: string; unit: string; note?: string };
 
@@ -22,11 +22,16 @@ export const EMPTY_ROW: Row = { name: "", amount: "", unit: "" };
 export default function IngredientsField({
   rows,
   setRows,
+  initialMode = "paste",
 }: {
   rows: Row[];
   setRows: (next: Row[] | ((current: Row[]) => Row[])) => void;
+  // Pasting is right for a new product and wrong for correcting one: a reader
+  // who came to fix a typo must see the list they already have, not an empty
+  // box that would replace it.
+  initialMode?: "paste" | "list";
 }) {
-  const [mode, setMode] = useState<"paste" | "list">("paste");
+  const [mode, setMode] = useState<"paste" | "list">(initialMode);
   const [pasted, setPasted] = useState("");
   const [readCount, setReadCount] = useState<number | null>(null);
   const [substances, setSubstances] = useState<Substance[]>([]);

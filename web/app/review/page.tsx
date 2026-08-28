@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { confirmClause, listClauses, type Clause } from "@/lib/api";
+import { confirmClause, dismissClause, listClauses, type Clause } from "@/lib/api";
+import Term from "../_ui/Term";
 import { plain } from "../_ui/status";
 
 // Why a clause waits here, said without the vocabulary of the pipeline.
@@ -45,12 +46,27 @@ export default function ReviewQueuePage() {
     }
   }
 
+  // Without this the queue only grew. A clause the reader judges wrong is
+  // parked, not deleted — it keeps its record and its event, and nothing
+  // evaluates against it again.
+  async function dismiss(id: string) {
+    setBusy(id);
+    try {
+      await dismissClause(id);
+      await load();
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="review-page">
       <h1 className="t-large-title">Waiting for you to check</h1>
       <p className="t-body t-secondary prose-measure mt-2">
-        ReguLens refused to act on these by itself — it was not confident enough, or the source was not
-        official enough. Read each one. If it is right, accept it and it starts counting.
+        ReguLens refused to act on these by itself — its{" "}
+        <Term word="confidence">confidence</Term> was too low, or the source lacked the{" "}
+        <Term word="authority">authority</Term>. Read each one. Accept it and it starts counting; ignore it and it is parked
+        for good, though the record of it stays.
       </p>
 
       {loading ? <p className="t-body t-secondary mt-8">Loading…</p> : null}
@@ -88,14 +104,24 @@ export default function ReviewQueuePage() {
                 <summary className="t-caption cursor-pointer">Where this came from</summary>
                 <p className="t-caption mono mt-1">{clause.id}</p>
               </details>
-              <button
-                className="btn btn-primary btn-small"
-                onClick={() => confirm(clause.id)}
-                disabled={busy === clause.id}
-                data-testid={`confirm-${clause.id}`}
-              >
-                {busy === clause.id ? "Accepting…" : "This is correct — use it"}
-              </button>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  className="btn btn-primary btn-small"
+                  onClick={() => confirm(clause.id)}
+                  disabled={busy === clause.id}
+                  data-testid={`confirm-${clause.id}`}
+                >
+                  {busy === clause.id ? "Working…" : "This is correct — use it"}
+                </button>
+                <button
+                  className="btn btn-secondary btn-small"
+                  onClick={() => dismiss(clause.id)}
+                  disabled={busy === clause.id}
+                  data-testid={`dismiss-${clause.id}`}
+                >
+                  Not right — ignore it
+                </button>
+              </div>
             </div>
           </li>
         ))}

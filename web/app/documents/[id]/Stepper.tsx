@@ -8,6 +8,12 @@ import { plain } from "../../_ui/status";
 
 const POLL_MS = 2000;
 
+// Measured on the deployed stack, upload to re-checked product: 183s. Saying
+// "about a minute" and then taking three is how a working system gets read as
+// a broken one, so both this and the upload button quote the same number.
+const TYPICAL_SECONDS = 180;
+const SLOW_SECONDS = 300;
+
 // Stage names a first-time user can follow without knowing the pipeline.
 const STAGES: { key: string; label: string; detail: string }[] = [
   { key: "uploaded", label: "Received", detail: "We have your document." },
@@ -42,10 +48,24 @@ function pct(value?: number): string {
   return Math.round(value * 100) + "%";
 }
 
+function mmss(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
 export default function Stepper({ documentId }: { documentId: string }) {
   const [doc, setDoc] = useState<RegulatoryDocument | null>(null);
   const [clauses, setClauses] = useState<Clause[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Counted from when this page opened, not from upload: it is the only clock
+  // the browser can honestly claim to have started.
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setElapsed((value) => value + 1), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   const load = useCallback(
     async function load() {
@@ -83,9 +103,35 @@ export default function Stepper({ documentId }: { documentId: string }) {
   const failed = doc.status === "failed";
   const complete = completedStages(doc.status, clauses);
   const done = !failed && complete >= STAGES.length;
+  const working = !failed && !done;
+  const slow = working && elapsed > SLOW_SECONDS;
 
   return (
     <div className="mt-8">
+      {working ? (
+        <div className="card mb-4 flex flex-wrap items-center justify-between gap-3 p-5" data-testid="wait-panel">
+          <div>
+            <p className="t-headline">
+              {slow ? "This is taking longer than usual" : "Reading takes about three minutes"}
+            </p>
+            <p className="t-footnote t-secondary prose-measure mt-1">
+              {slow
+                ? "It has not failed — nothing times out silently. If it is still here in a few minutes, the document may be too long, and a shorter excerpt will read faster."
+                : "Most of that is the model reading the document twice and the two reads being compared. Close this page if you like; it carries on without you."}
+            </p>
+          </div>
+          <p
+            className="t-number figure"
+            style={{ color: slow ? "var(--warn)" : "var(--secondary)" }}
+            data-testid="elapsed"
+            aria-label={`${elapsed} seconds on this page`}
+          >
+            {mmss(elapsed)}
+            <span className="figure-unit">of ~{mmss(TYPICAL_SECONDS)}</span>
+          </p>
+        </div>
+      ) : null}
+
       <ol className="card overflow-hidden" data-testid="pipeline-stepper">
         {STAGES.map((stage, index) => {
           const finished = index < complete;

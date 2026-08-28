@@ -11,7 +11,7 @@ from typing import Any
 from google.cloud import firestore
 
 from app.core.normalization import normalize_substance
-from app.core.repository import events_for, new_id, write_with_event
+from app.core.repository import delete_with_event, events_for, new_id, write_with_event
 from app.db import get_db
 from app.models import WORKSPACE_ID, EventType, Ingredient, Product, ProductIn, ProductPatch
 from app.observability import log
@@ -116,6 +116,47 @@ def update_product(product_id: str, patch: ProductPatch) -> Product | None:
 
     run_impact_for_product(product_id)  # re-evaluate after ingredient/market changes
     return get_product(product_id)
+
+
+def delete_product(product_id: str) -> bool:
+    """Remove a product and everything derived from it.
+
+    A typo in an ingredient list used to be permanent, which meant the only way
+    out of a mistake was to ask whoever runs the database. The requirements go
+    with it: they are derived state keyed on `product_id`, and leaving them
+    behind would keep a deleted product's verdicts in every rollup that scans
+    the collection.
+
+    The `product_deleted` event stays. The audit trail is the one thing a
+    delete must not erase.
+    """
+    existing = get_product(product_id)
+    if existing is None:
+        return False
+
+    db = get_db()
+    requirement_refs = [
+        snapshot.reference
+        for snapshot in (
+            db.collection("requirements")
+            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
+            .limit(500)
+            .stream()
+        )
+    ]
+    delete_with_event(
+        COLLECTION,
+        product_id,
+        event_type=EventType.PRODUCT_DELETED,
+        entity_type="product",
+        before=existing.model_dump(mode="json"),
+        also_delete=requirement_refs,
+    )
+    log(
+        logger, logging.INFO, "product deleted",
+        product_id=product_id, requirements_removed=len(requirement_refs),
+    )
+    return True
 
 
 def product_events(product_id: str) -> list[dict[str, Any]]:

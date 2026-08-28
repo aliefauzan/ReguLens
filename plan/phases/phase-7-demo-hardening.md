@@ -72,6 +72,55 @@ Verified on the local docker-compose stack. **Not yet redeployed to Cloud Run.**
       300 mg/kg sits between them, and every demo ingredient normalizes.
 - [ ] Redeploy api + web to Cloud Run so the hosted URL has the seed button.
 
+### Self-service, round two (28 Aug)
+
+Same question as the first round — what still needs a person standing next to
+the user — answered for the seven things left. Local stack only; **Cloud Run
+redeploy still pending**.
+
+- [x] **Honest waiting.** The upload button said "about a minute" against a
+      measured 183s. Both places now say three minutes, and the document page
+      carries a live clock against that estimate plus a distinct
+      "taking longer than usual" state past five minutes.
+- [x] **Correct a product.** `ProductForm` serves both create and edit;
+      `/products/{id}/edit` uses the existing `PATCH /products/{id}`, which had
+      no caller. Editing opens on the ingredient rows, not the paste box.
+- [x] **Delete a product.** `DELETE /products/{id}` plus `delete_with_event` in
+      the repository, so the cascade over derived requirements and the
+      `product_deleted` event are written in one batch. Confirmation names what
+      goes.
+- [x] **Reject a clause.** `POST /clauses/{id}/dismiss` and a second button in
+      the review queue. `dismissed` is terminal and inert; the record and its
+      event survive.
+- [x] **A number to act on.** A failing requirement now says what to bring the
+      amount down to, and names the stricter market when meeting one meets both.
+- [x] **Counts on the navigation bar**, refreshed on navigation and on any queue
+      action. Phone keeps four tabs — five labels do not fit.
+- [x] **`/rules`** — every clause in one list with why each does or does not
+      count. Previously a clause was only visible inside its own document.
+- [x] **Glossary** (`_ui/Term.tsx`) for jurisdiction, clause, authority,
+      confidence, supersede, conflict, requirement.
+- [x] Ask suggestions built from the product's own markets and failing market.
+- [x] Missing ingredient amounts link to the edit form; "1 ingredients" fixed.
+
+Three real defects surfaced by building these, all fixed here:
+
+- [x] **A corrected amount never reached the requirement row.** The idempotency
+      check compared only `{limit_value, evaluation, severity, clause_id}`, so
+      an edit that did not flip the verdict wrote nothing and the page kept
+      quoting the old amount under the new limit. Now compares every field the
+      UI shows (`REPORTED_FIELDS`), with `tests/test_requirement_change.py`
+      pinning it — including a test that every reported field is watched, which
+      is what would have caught both this and the earlier `product_value` bug.
+- [x] **`confirm_clause` never republished.** `_publish_graph_changed` ran on
+      the `None` branch, which was the *failure* path, so accepting a clause in
+      the review queue promoted it and then did not re-evaluate anything. Both
+      confirm and dismiss now return explicit outcomes, and a missing clause is
+      a 404 instead of a cheerful 200.
+- [x] **Alerts outlived their product.** `GET /alerts` filtered nothing, so a
+      deleted product left an alert linking to a 404. Events stay in the audit
+      trail; they are no longer presented as needing attention.
+
 ### Failure survival
 - [ ] Every async stage has a timeout and a visible failure state in the stepper.
 - [ ] Confirm the five alerts from `../04-observability.md` are firing correctly by

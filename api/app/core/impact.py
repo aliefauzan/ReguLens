@@ -49,6 +49,39 @@ def products_all() -> list[dict]:
 # Materialization: this clause binds this product in this market
 
 
+# Every field a reader is shown. The comparison decides the verdict, but these
+# are what the screen quotes back, so a change in any of them is a real change.
+#
+# This set used to be only {limit_value, evaluation, severity, clause_id}, which
+# made an edit invisible whenever it did not flip the verdict: correcting an
+# ingredient from 300 to 100 mg/kg left "Your product has 300 mg per kg" on the
+# page under a limit of 400, because the requirement still passed and so was
+# never rewritten. A stale number presented as current is worse than no number.
+REPORTED_FIELDS = frozenset(
+    {
+        "clause_id",
+        "limit_value",
+        "unit",
+        "evaluation",
+        "severity",
+        "reason",
+        "product_value",
+        "product_unit",
+        "comparable_value",
+        "comparable_limit",
+        "comparable_unit",
+    }
+)
+
+
+def requirement_changed(before: dict, payload: dict) -> bool:
+    """True when a stored requirement differs from a freshly evaluated one in
+    any field the UI shows. Timestamps are excluded deliberately: they always
+    differ, and writing on them would put a meaningless event in the audit
+    trail on every re-run."""
+    return any(before.get(field) != payload.get(field) for field in REPORTED_FIELDS)
+
+
 def materialize_for_product(product_id: str) -> list[dict]:
     """Create/update `requirements` for one product across its target markets.
 
@@ -119,15 +152,10 @@ def materialize_for_product(product_id: str) -> list[dict]:
             if before is None:
                 event_type = EventType.REQUIREMENT_CREATED
                 after_payload = payload
+            elif not requirement_changed(before, payload):
+                requirements.append({**before, "id": snap.id})
+                continue  # idempotent: unchanged requirement writes nothing
             else:
-                changed = any(
-                    before.get(f) != v
-                    for f, v in payload.items()
-                    if f in {"limit_value", "evaluation", "severity", "clause_id"}
-                )
-                if not changed:
-                    requirements.append({**before, "id": snap.id})
-                    continue  # idempotent: unchanged requirement writes nothing
                 event_type = EventType.REQUIREMENT_CHANGED
                 after_payload = {**before, **payload}
             write_with_event(
