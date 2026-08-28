@@ -4,7 +4,7 @@
 # the APIs refuse with BILLING_DISABLED otherwise. Safe to re-run.
 set -euo pipefail
 
-PROJECT="${PROJECT:-regulens-506014}"
+PROJECT="${PROJECT:-${PROJECT_ID:?set PROJECT_ID, or put it in regulens.env}}"
 REGION="${REGION:-asia-southeast1}"
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 

@@ -179,11 +179,18 @@ def _synthesis_prompt(question: str, bundle: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _validate_citations(answer: str, bundle: dict[str, Any]) -> list[str]:
+def _validate_citations(
+    answer: str, bundle: dict[str, Any], extra_ids: set[str] | None = None
+) -> list[str]:
     """Citations are valid only if they name a clause in the retrieved set —
     which includes the clauses behind the product's own requirements. Any
-    mention of a clause id counts, bracketed or inline."""
-    retrieved = {c["id"] for c in bundle["clauses"]}
+    mention of a clause id counts, bracketed or inline.
+
+    `extra_ids` are ids the query agent's own tools read out of Firestore during
+    the run. They are as real as the retrieved set — this process fetched them —
+    and admitting them is what lets the agent choose its own retrieval without
+    losing the grounding guarantee."""
+    retrieved = {c["id"] for c in bundle["clauses"]} | (extra_ids or set())
     found = set(re.findall(r"clause_[a-z0-9]+", answer))
     missing = found - retrieved
     if missing:
@@ -237,9 +244,50 @@ def _fake_pick(question: str, bundle: dict[str, Any]) -> dict[str, Any]:
     return next((c for c in clauses if c["id"] in failing), clauses[0])
 
 
-def _synthesize(question: str, bundle: dict[str, Any]) -> tuple[str, list[str]]:
-    """One Gemini call; citations validated against the retrieved set. A
-    retry follows one failure; after that an honest refusal."""
+def _synthesize_via_agent(
+    question: str, bundle: dict[str, Any], product_id: str | None
+) -> tuple[str, list[str]]:
+    """Let the ADK Query Agent choose its own retrieval and answer.
+
+    This is the one place in ReguLens where an agent picking its own tools earns
+    its keep: an open question does not map onto a fixed pipeline the way
+    extraction does. It stays inside the same rule as everything else — the
+    agent proposes an answer, and the citation check below decides whether a
+    user ever sees it.
+
+    Returns empty citations on any failure, which sends the caller to the
+    single-call path. A degraded answer is worth having; a wrong one is not.
+    """
+    import asyncio
+
+    from app.adk.query_agent import INSUFFICIENT, run_query_agent
+
+    try:
+        answer, served = asyncio.run(run_query_agent(question, product_id))
+    except Exception as exc:  # noqa: BLE001 - the deterministic path is the net
+        log(logger, logging.WARNING, "query_agent_failed", error=str(exc)[:200])
+        return ("", [])
+
+    if INSUFFICIENT in answer:
+        # The agent said it has nothing. Hand over to the single-call path,
+        # which refuses in the words a user should read.
+        log(logger, logging.INFO, "query_agent_insufficient")
+        return ("", [])
+
+    cited = _validate_citations(answer, bundle, extra_ids=set(served))
+    log(
+        logger, logging.INFO, "query_agent_answer",
+        served=len(served), cited=len(cited), chars=len(answer),
+    )
+    return (answer, cited)
+
+
+def _synthesize(
+    question: str, bundle: dict[str, Any], product_id: str | None = None
+) -> tuple[str, list[str]]:
+    """The ADK agent first; a single grounded Gemini call as the net. Either
+    way citations are validated against clauses this process actually read, a
+    retry follows one failure, and after that an honest refusal."""
     settings = get_settings()
 
     def refuse() -> tuple[str, list[str]]:
@@ -259,6 +307,10 @@ def _synthesize(question: str, bundle: dict[str, Any]) -> tuple[str, list[str]]:
             f"The rule that covers this [{chosen['id']}]: {str(chosen.get('text'))[:200]}"
         )
         return (fake_answer, [chosen["id"]])
+
+    agent_answer, agent_cited = _synthesize_via_agent(question, bundle, product_id)
+    if agent_cited:
+        return agent_answer, agent_cited
 
     from google.genai import types
 
@@ -299,7 +351,7 @@ def ask(question: str, product_id: str | None = None) -> dict[str, Any]:
     started = time.monotonic()
     intent = classify_intent(question)
     bundle = _retrieve(question, product_id, intent=intent)
-    answer, cited = _synthesize(question, bundle)
+    answer, cited = _synthesize(question, bundle, product_id)
     latency_ms = int((time.monotonic() - started) * 1000)
 
     confidences = [c.get("confidence") for c in bundle["clauses"] if c["id"] in cited]
@@ -321,6 +373,14 @@ def ask(question: str, product_id: str | None = None) -> dict[str, Any]:
     evidence = []
     for cid in cited:
         match = next((c for c in bundle["clauses"] if c["id"] == cid), None)
+        if match is None:
+            # The agent found this one through its own retrieval. It is a real
+            # stored clause — a tool read it out of Firestore — so the citation
+            # card has to be able to show it, or a grounded answer would render
+            # with no visible source.
+            snapshot = get_db().collection("clauses").document(cid).get()
+            if snapshot.exists:
+                match = snapshot.to_dict() | {"id": snapshot.id}
         if match:
             evidence.append({
                 "id": cid,

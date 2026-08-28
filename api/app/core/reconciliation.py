@@ -230,6 +230,34 @@ supersedes, conflicts, distinct_scope, ambiguous."""
         return {"verdict": "ambiguous", "rationale": "judge output unparsable"}
 
 
+def judge_ambiguous_pair(a: dict, b: dict) -> dict:
+    """The verdict for one genuinely ambiguous pair, via the ADK agent.
+
+    The agent has to walk its own tools — comparability, then classification,
+    then the judge — so it cannot reach a verdict on a pair the guardrail would
+    reject. On any failure this falls back to the direct `judge_pair` call, and
+    an unusable verdict is `ambiguous`, never `conflict`: the cost of getting
+    this wrong is a false conflict on a user's product.
+    """
+    settings = get_settings()
+    if settings.fake_llm:
+        return judge_pair(a, b)
+
+    import asyncio
+
+    from app.adk.reconciliation_agent import run_judge_agent
+
+    try:
+        verdict = asyncio.run(run_judge_agent(a, b))
+    except Exception as exc:  # noqa: BLE001 - the direct judge is the net
+        log(logger, logging.WARNING, "judge_agent_failed", error=str(exc)[:200])
+        return judge_pair(a, b)
+    if verdict is None:
+        log(logger, logging.WARNING, "judge_agent_no_verdict")
+        return judge_pair(a, b)
+    return verdict
+
+
 # ---------------------------------------------------------------------------
 # Verdict application — every mutation inside a Firestore transaction
 
@@ -312,8 +340,15 @@ def reconcile_clause(clause_id: str) -> dict:
             outcome = "supersedes" if _is_newer(clause, other) else "superseded_by_existing"
         else:
             # Same jurisdiction, undecidable dates: the one genuinely ambiguous
-            # case. This is the ONLY call the judge gets.
-            verdict = judge_pair(clause, other)
+            # case. This is the ONLY call the judge gets, and the only place the
+            # ADK Reconciliation Agent runs — it re-checks comparability and
+            # classification with its own tools before it is allowed to judge,
+            # so the guardrail is enforced by the tool graph and not by a
+            # prompt. Wiring it here rather than around the whole loop is
+            # deliberate: a 55-clause annex would otherwise be 55 agent runs on
+            # the critical path, and the common case is decided by typed code
+            # in microseconds.
+            verdict = judge_ambiguous_pair(clause, other)
             log(
                 logger, logging.INFO, "judge_invoked",
                 clause_id=clause_id, other=other["id"],

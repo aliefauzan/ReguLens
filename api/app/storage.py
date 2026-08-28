@@ -27,7 +27,7 @@ def get_bucket():
 
     settings = get_settings()
     client = storage.Client(project=settings.project_id)
-    return client.bucket(settings.uploads_bucket)
+    return client.bucket(settings.uploads_bucket_name)
 
 
 def _local_root() -> Path | None:
@@ -42,7 +42,7 @@ def _local_root() -> Path | None:
 
 def _blob_path(uri: str) -> str:
     """Strip the bucket prefix off a gs:// URI, leaving the object name."""
-    prefix = f"gs://{get_settings().uploads_bucket}/"
+    prefix = f"gs://{get_settings().uploads_bucket_name}/"
     _, _, path = uri.partition(prefix)
     return path or uri
 
@@ -59,7 +59,7 @@ def upload(name: str, data: bytes, content_type: str = "application/pdf") -> str
         blob = get_bucket().blob(name)
         blob.upload_from_string(data, content_type=content_type)
         logger.info("stored %s (%d bytes)", name, len(data))
-    return f"gs://{get_settings().uploads_bucket}/{name}"
+    return f"gs://{get_settings().uploads_bucket_name}/{name}"
 
 
 def download(uri: str) -> bytes:

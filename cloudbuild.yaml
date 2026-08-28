@@ -1,7 +1,21 @@
 # One file. Lint, test, build one image, deploy both services and the job, all
 # pinned to the commit SHA so a rollback is a redeploy of a known tag.
+#
+# Nothing in here names a particular project or a particular *.run.app host.
+# `scripts/quickstart.sh` computes both URLs from the project number — Cloud Run
+# publishes a service at https://SERVICE-PROJECTNUMBER.REGION.run.app, which is
+# known before the first deploy — and passes them in. Run this file by hand and
+# the defaults below still produce a working stack for local browsing.
 substitutions:
   _REGION: asia-southeast1
+  # Baked into the web image at build time: Next.js inlines NEXT_PUBLIC_* into
+  # the browser bundle, so it cannot be an env var on the running service.
+  _API_URL: http://localhost:8080
+  # Every origin allowed to call the API. Cloud Run answers on two hostnames for
+  # the same service — the legacy project-hash form and the newer project-number
+  # form — and a browser sends whichever one the user typed, so both belong here
+  # or the site is dead for whoever opened the other link.
+  _WEB_ORIGINS: http://localhost:3000,http://localhost:3111
 
 steps:
   - id: lint
@@ -23,11 +37,11 @@ steps:
   - id: build
     name: gcr.io/cloud-builders/docker
     dir: api
-    args: ["build", "-t", "asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}", "-t", "asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest", "."]
+    args: ["build", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}", "-t", "${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:latest", "."]
 
   - id: push
     name: gcr.io/cloud-builders/docker
-    args: ["push", "--all-tags", "asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api"]
+    args: ["push", "--all-tags", "${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api"]
 
   # Cloud Run answers on two hostnames for the same service — the legacy
   # project-hash form and the newer project-number form. A browser sends the one
@@ -40,12 +54,12 @@ steps:
       - run
       - deploy
       - regulens-api
-      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
       - --region=${_REGION}
       - --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com
       - --allow-unauthenticated
       - --max-instances=3
-      - --set-env-vars=^@^CORS_ORIGINS=http://localhost:3000,http://localhost:3111,https://regulens-web-babuvy7w3a-as.a.run.app,https://regulens-web-223786239099.asia-southeast1.run.app@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global@DEBUG_VIEW=true@FAKE_LLM=false
+      - --set-env-vars=^@^CORS_ORIGINS=${_WEB_ORIGINS}@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global@DEBUG_VIEW=true@FAKE_LLM=false
       - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
       - --command=uvicorn
       - --args=app.main:app,--host,0.0.0.0,--port,8080
@@ -58,7 +72,7 @@ steps:
       - run
       - deploy
       - regulens-worker
-      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
       - --region=${_REGION}
       - --service-account=regulens-worker@${PROJECT_ID}.iam.gserviceaccount.com
       - --no-allow-unauthenticated
@@ -83,7 +97,7 @@ steps:
         gcloud run jobs describe regulens-job --region=${_REGION} >/dev/null 2>&1 \
           && verb=update || verb=create
         gcloud run jobs $verb regulens-job \
-          --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA} \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA} \
           --region=${_REGION} \
           --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com \
           --set-env-vars=VERSION=${SHORT_SHA},SERVICE_NAME=regulens-job,PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global \
@@ -95,11 +109,11 @@ steps:
     dir: web
     args:
       - build
-      - --build-arg=NEXT_PUBLIC_API_URL=https://regulens-api-babuvy7w3a-as.a.run.app
+      - --build-arg=NEXT_PUBLIC_API_URL=${_API_URL}
       - -t
-      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
       - -t
-      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web:latest
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:latest
       - .
 
   - id: push-web
@@ -107,7 +121,7 @@ steps:
     args:
       - push
       - --all-tags
-      - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web
+      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web
 
   - id: deploy-web
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -116,7 +130,7 @@ steps:
       - run
       - deploy
       - regulens-web
-      - --image=asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
+      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
       - --region=${_REGION}
       - --allow-unauthenticated
       - --max-instances=3
@@ -124,10 +138,10 @@ steps:
       - --port=8080
 
 images:
-  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
-  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
-  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
-  - asia-southeast1-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
+  - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:latest
 
 options:
   logging: CLOUD_LOGGING_ONLY

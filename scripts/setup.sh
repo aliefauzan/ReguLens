@@ -4,7 +4,21 @@
 # hackathon and it is what the README points at.
 set -euo pipefail
 
-PROJECT_ID="${PROJECT_ID:-regulens-506014}"
+# Read regulens.env when it exists so a clone configures one file, not five.
+CONFIG="${CONFIG:-$(dirname "$0")/../regulens.env}"
+if [[ -f "$CONFIG" ]]; then
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" != *=* ]] && continue
+    key="$(printf %s "${line%%=*}" | tr -d '[:space:]')"
+    [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    [[ -n "${!key:-}" ]] && continue     # a real env var still wins
+    printf -v "$key" %s "${line#*=}"
+    export "${key?}"
+  done < "$CONFIG"
+fi
+
+PROJECT_ID="${PROJECT_ID:?set PROJECT_ID, or put it in regulens.env}"
 REGION="${REGION:-asia-southeast1}"
 BUCKET="${BUCKET:-${PROJECT_ID}-uploads}"
 REPO="${REPO:-regulens}"

@@ -81,15 +81,28 @@ Exporter (browser)
   -> alerts, readiness, timeline, grounded query
 ```
 
-| ADK agent | What it actually does | Honest label |
-|---|---|---|
-| Extraction | fixed pipeline; Gemini structured output x2 samples | pipeline, one LLM step |
-| Reconciliation | guardrail gates pairs; judge only on ambiguous same-jurisdiction pairs | code decides, judge advises |
-| Impact | requirements, evaluation, status rollup | **no model call at all** |
-| Query | retrieval + grounded synthesis with citation validation | genuinely agentic |
+| ADK agent | Runs | What it actually does | Honest label |
+|---|---|---|---|
+| Extraction | every document, twice per part | loads its part through its own tool, emits candidates through another | pipeline, one LLM step |
+| Reconciliation | only on a genuinely ambiguous pair | must walk comparability → classification → judge; the tool graph, not the prompt, stops it judging a pair the guardrail rejected | code decides, agent advises |
+| Query | every question | picks its own retrieval tools; every id its tools serve is recorded and the answer's citations are checked against that record | genuinely agentic |
+| Impact | every graph change | requirements, evaluation, status rollup | **no agent and no model call at all** |
 
 Google ADK is used throughout; every tool body is a plain Python function in
 `api/app/core/` that runs and tests without ADK.
+
+Two things worth being precise about, because both are easy to overclaim.
+**Reconciliation deliberately does not run per clause**: a 55-clause annex would
+be 55 agent runs on the critical path, and the common case is settled by typed
+code in microseconds — so the agent is wired exactly where the LLM judge was
+already the only option. **Impact has no agent at all**, on purpose: turning a
+limit and a measured amount into pass or fail is arithmetic, and arithmetic
+should not be delegated to a model. A fourth agent (`app/adk/agent.py`) exists
+only as the phase-0 smoke test that proves ADK executes on Cloud Run, and is
+labelled as such rather than counted as a fifth pipeline stage.
+
+When any agent fails, the deterministic path underneath it runs instead and the
+failure is logged. A degraded answer is worth having; a wrong one is not.
 
 ## Tech stack
 
@@ -126,47 +139,42 @@ scripts/verify_local.sh  same drill against the local emulator stack
 plan/                  full build plan and per-phase evidence trail
 ```
 
-## Run it in the cloud (from a bare GCP project)
+## Run it in the cloud — one file, one command
 
-The deployed stack was built exactly this way; every step is idempotent.
+You edit one file and run one script. No hostname to paste anywhere: Cloud Run
+publishes a service at `https://SERVICE-PROJECTNUMBER.REGION.run.app`, which is
+known before the first deploy, so the URLs are computed rather than configured.
 
 ```bash
-# 1. Prerequisites: gcloud CLI, a GCP project with billing linked, Owner role.
 gcloud auth login && gcloud auth application-default login
 
-# 2. Provision everything: APIs, Firestore, GCS, Pub/Sub topics + push
-#    subscriptions with OIDC and dead-lettering, service accounts with narrow
-#    IAM, budget alert. Re-running is a no-op.
-export PROJECT_ID=your-project-id
-bash scripts/setup.sh
+cp regulens.env.example regulens.env    # set PROJECT_ID; GEMINI_API_KEY optional
+bash scripts/quickstart.sh
+```
 
-# 3. Put your Gemini Developer API key in Secret Manager. cloudbuild.yaml mounts
-#    gemini-api-key:latest into api and worker, so the secret must exist and both
-#    service accounts must be able to read it. The key must come from a project
-#    with no billing linked, or the free tier disappears.
-printf %s "$GEMINI_KEY" | gcloud secrets create gemini-api-key \
-  --project "$PROJECT_ID" --data-file=- \
-  || printf %s "$GEMINI_KEY" | gcloud secrets versions add gemini-api-key \
-       --project "$PROJECT_ID" --data-file=-
-for sa in regulens-api regulens-worker; do
-  gcloud secrets add-iam-policy-binding gemini-api-key --project "$PROJECT_ID" \
-    --member "serviceAccount:$sa@$PROJECT_ID.iam.gserviceaccount.com" \
-    --role roles/secretmanager.secretAccessor
-done
+That provisions the infrastructure (APIs, Firestore, GCS, Pub/Sub topics and
+push subscriptions with OIDC and dead-lettering, service accounts with narrow
+IAM), stores your key in Secret Manager and grants both services access,
+deploys api + worker + job + web, wires the push subscriptions once the worker
+has a URL, seeds the demo baseline, and prints the URL to open. Every step is
+idempotent — run it again after a code change and it redeploys, touching
+nothing that already exists.
 
-# 4. Deploy API + worker + job + web in one pipeline.
-gcloud builds submit --project "$PROJECT_ID" --config cloudbuild.yaml \
-  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)-$(date +%H%M%S)
+`GEMINI_API_KEY` is optional. Leave it empty and every model call goes to Vertex
+AI, which works identically and bills per token. Set it and the same calls go to
+the Gemini Developer API, whose free tier covers these models — but the key must
+come from a project with **no billing linked**, or the free tier disappears.
 
-# 5. Push subscriptions need the worker URL, so re-run provisioning once.
-bash scripts/setup.sh
+The steps individually, if you would rather run them yourself:
 
-# 6. Edit cloudbuild.yaml once: point NEXT_PUBLIC_API_URL and the CORS origin
-#    at your real *.run.app URLs (they are derived from project id).
-
-# 7. Seed the demo baseline (idempotent).
-gcloud run jobs execute regulens-job --region asia-southeast1 \
-  --project "$PROJECT_ID" --wait
+```bash
+PROJECT_ID=your-project-id bash scripts/setup.sh     # infrastructure
+gcloud builds submit --config cloudbuild.yaml \      # build + deploy
+  --substitutions=SHORT_SHA=$(git rev-parse --short HEAD)-$(date +%H%M%S),\
+_API_URL=https://regulens-api-NUMBER.REGION.run.app,\
+_WEB_ORIGINS=https://regulens-web-NUMBER.REGION.run.app
+PROJECT_ID=your-project-id bash scripts/setup.sh     # push subscriptions
+gcloud run jobs execute regulens-job --region "$REGION" --wait
 ```
 
 ## Run it locally — no GCP, no cost
@@ -258,14 +266,24 @@ bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
 
 ## Configuration
 
+One file: [`regulens.env`](regulens.env.example), read by `quickstart.sh`,
+`setup.sh`, `verify_e2e.sh` and `measure_latency.py`. A real environment
+variable always wins over it, so CI needs no file at all. It is gitignored;
+`regulens.env.example` is the copy in the repo.
+
+Only `PROJECT_ID` is required. Everything below is the full set of knobs,
+including the ones the services read directly in production.
+
 | Env var | Default | Purpose |
 |---|---|---|
-| `PROJECT_ID` | `regulens-506014` | GCP project |
+| `PROJECT_ID` | none — must be set | GCP project. The fallback is a name that does not exist, so a clone that forgets fails loudly instead of reading someone else's data |
+| `REGION` | `asia-southeast1` | Cloud Run, Firestore, GCS, Pub/Sub, embeddings |
+| `UPLOADS_BUCKET` | `<project-id>-uploads` | derived, because bucket names are globally unique |
 | `GEMINI_API_KEY` | unset | when set, every model call goes to the Gemini Developer API; unset keeps the Vertex path |
 | `GEMINI_MODEL` | `gemini-3.5-flash` | pinned 3.5+ model |
 | `FAKE_LLM` | off | deterministic offline mode |
 | `DEBUG_VIEW` | off | enables `/debug/documents/{id}` |
-| `NEXT_PUBLIC_API_URL` | localhost:8080 | API URL used by the browser |
+| `NEXT_PUBLIC_API_URL` | localhost:8080 | API URL used by the browser; baked into the web image at build time by `cloudbuild.yaml` |
 | `API_INTERNAL_URL` | unset | API URL used by server components (compose: `http://api:8080`) |
 | `FIRESTORE_DATABASE` | `(default)` | set to `local` against the emulator |
 | `LOCAL_STORAGE_DIR` | unset | filesystem uploads instead of GCS (local only) |

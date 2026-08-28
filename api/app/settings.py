@@ -10,8 +10,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    # Identity
-    project_id: str = "regulens-506014"
+    # Identity. The default is deliberately not a real project: a clone that
+    # forgets to set PROJECT_ID must fail against a name that does not exist,
+    # not quietly read and write somebody else's Firestore.
+    project_id: str = "regulens-unset-project"
     region: str = "asia-southeast1"
     service_name: str = "regulens-api"
     version: str = "dev"
@@ -41,8 +43,10 @@ class Settings(BaseSettings):
     gemini_embed_model: str = "gemini-embedding-001"
     embed_dimensions: int = 768
 
-    # Storage
-    uploads_bucket: str = "regulens-506014-uploads"
+    # Storage. Bucket names are globally unique, so the project id is the only
+    # thing that reliably makes one unique — derived rather than configured, and
+    # `scripts/setup.sh` creates exactly this name.
+    uploads_bucket: str = ""
     firestore_database: str = "(default)"
 
     # Pub/Sub
@@ -86,6 +90,11 @@ class Settings(BaseSettings):
         if len(key) < 20:
             return False
         return not key.lower().startswith(("your", "todo", "changeme", "placeholder", "xxx"))
+
+    @property
+    def uploads_bucket_name(self) -> str:
+        """`UPLOADS_BUCKET` when set, otherwise `<project-id>-uploads`."""
+        return self.uploads_bucket or f"{self.project_id}-uploads"
 
     @property
     def cors_origin_list(self) -> list[str]:

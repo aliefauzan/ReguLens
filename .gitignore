@@ -2,6 +2,9 @@
 # these are local-only overrides.
 .env
 .env.*
+# The one file a clone edits. It holds a project id and possibly an API key.
+regulens.env
+!regulens.env.example
 !.env.example
 !.env.*.example
 .env.local

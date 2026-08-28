@@ -32,13 +32,44 @@ from __future__ import annotations
 
 import json
 import os
+import pathlib
+import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
 import uuid
 
-API = os.environ.get("API", "https://regulens-api-babuvy7w3a-as.a.run.app").rstrip("/")
+def _default_api() -> str:
+    """Where to measure when `API` is not set.
+
+    `regulens.env` is the one file a clone edits, so the project id lives there.
+    Cloud Run publishes a service at https://SERVICE-PROJECTNUMBER.REGION.run.app,
+    which is derivable from the project — no hostname belonging to any one
+    deployment is written down here.
+    """
+    config = pathlib.Path(__file__).resolve().parent.parent / "regulens.env"
+    values: dict[str, str] = {}
+    if config.exists():
+        for line in config.read_text().splitlines():
+            if line.strip().startswith("#") or "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            values[key.strip()] = value.strip()
+    project = os.environ.get("PROJECT_ID") or values.get("PROJECT_ID", "")
+    region = os.environ.get("REGION") or values.get("REGION") or "asia-southeast1"
+    if not project or project == "your-project-id":
+        raise SystemExit(
+            "Set API, or PROJECT_ID in regulens.env, so this knows what to measure."
+        )
+    number = subprocess.run(
+        ["gcloud", "projects", "describe", project, "--format=value(projectNumber)"],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    return f"https://regulens-api-{number}.{region}.run.app"
+
+
+API = (os.environ.get("API") or _default_api()).rstrip("/")
 TIMEOUT = float(os.environ.get("TIMEOUT", "600"))
 
 # A verbatim row from EU 1129/2011 Annex II, food category 14.1.4 — the same

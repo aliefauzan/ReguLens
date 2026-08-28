@@ -3,7 +3,23 @@
 # of the plan's exit criteria, one curl at a time.
 set -uo pipefail
 
-API="${API:-https://regulens-api-babuvy7w3a-as.a.run.app}"
+# Read regulens.env so this needs no arguments after a quickstart run.
+CONFIG="${CONFIG:-$(dirname "$0")/../regulens.env}"
+if [[ -f "$CONFIG" ]]; then
+  while IFS= read -r line; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" != *=* ]] && continue
+    key="$(printf %s "${line%%=*}" | tr -d '[:space:]')"
+    [[ "$key" =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    [[ -n "${!key:-}" ]] && continue
+    printf -v "$key" %s "${line#*=}"; export "${key?}"
+  done < "$CONFIG"
+fi
+PROJECT_ID="${PROJECT_ID:?set PROJECT_ID, or put it in regulens.env}"
+REGION="${REGION:-asia-southeast1}"
+# Cloud Run's project-number hostname, which is knowable without a lookup.
+PROJECT_NUMBER="$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')"
+API="${API:-https://regulens-api-${PROJECT_NUMBER}.${REGION}.run.app}"
 # Real 4-page excerpt of Annex II (pages 1, 149-151) containing the
 # category-14.1.4 benzoates limit row; the full regulation is 177 pages and
 # exceeds the upload page cap by design.
@@ -19,7 +35,7 @@ say "markets seed"
 curl -s -X POST "$API/markets/seed" | head -c 120; echo
 
 say "seed job (baseline: BPOM ingested, Indonesia compliant)"
-gcloud run jobs execute regulens-job --region asia-southeast1 --project regulens-506014 --wait 2>&1 | tail -3
+gcloud run jobs execute regulens-job --region "$REGION" --project "$PROJECT_ID" --wait 2>&1 | tail -3
 PRODUCT=$(curl -sf "$API/products" | python3 -c "import sys,json; ps=json.load(sys.stdin)['products']; print(next(p['id'] for p in ps if p['name']=='Herbal Drink Powder'))")
 echo "product: $PRODUCT"
 
@@ -122,7 +138,7 @@ print('cached:', d['cached'], '-> same doc id', d['document']['id'])"
 
 say "redelivery produces no duplicate clauses"
 COUNT_BEFORE=$(curl -sf "$API/documents/$DOC_ID" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['clauses']))")
-gcloud pubsub topics publish document.uploaded --project regulens-506014 \
+gcloud pubsub topics publish document.uploaded --project "$PROJECT_ID" \
   --message="{\"document_id\":\"$DOC_ID\",\"workspace_id\":\"ws_demo\"}" >/dev/null
 sleep 25
 COUNT_AFTER=$(curl -sf "$API/documents/$DOC_ID" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['clauses']))")

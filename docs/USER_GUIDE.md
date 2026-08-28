@@ -194,7 +194,7 @@ Then re-run the four commands from [Running it on your machine](#running-it-on-y
 Against the deployed environment, the same reset is:
 
 ```bash
-gcloud run jobs execute regulens-job --region asia-southeast1 --project regulens-506014 --wait
+gcloud run jobs execute regulens-job --region "$REGION" --project "$PROJECT_ID" --wait
 ```
 
 Both are idempotent — running them twice leaves the same state, and re-uploading

@@ -3,13 +3,35 @@
 Tools are the retrieval functions from `core/`; the agent decides which to call
 for an open-ended question. Grounding validation stays in `core/query.py` — the
 agent proposes answers; typed code decides what may be returned to a user.
+
+Every id a tool hands the agent is recorded on the way past. That record is what
+the answer's citations are checked against, so a cited clause is one this process
+actually read out of Firestore — grounding by construction rather than by
+instruction, which is the only kind an instruction-following model cannot talk
+its way around.
 """
 
 from __future__ import annotations
 
+import contextvars
 import logging
 
+from app.observability import log
+
 logger = logging.getLogger(__name__)
+
+# Ids served to the agent during one run. A ContextVar rather than a global:
+# the worker and the API both run several requests at once, and one question's
+# evidence must never validate another question's answer.
+_served: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
+    "regulens_query_served", default=None
+)
+
+
+def _serve(ids: list[str]) -> None:
+    bucket = _served.get()
+    if bucket is not None:
+        bucket.extend(ids)
 
 QUERY_AGENT_NAME = "regulens_query"
 
@@ -22,9 +44,25 @@ to ground every claim:
 - get_events(entity_id) — what changed and when
 - get_conflicts() — open cross-jurisdiction conflicts
 
-Cite stored clause IDs inline as [clause_id]. If the tools return nothing
-relevant, say you do not have enough information — never answer a compliance
-question from general knowledge."""
+Cite stored clause IDs inline as [clause_id]. Never answer a compliance
+question from general knowledge.
+
+If the tools return nothing that actually covers what was asked — a country we
+hold no regulation for, a substance nobody has ingested a rule about — reply
+with exactly:
+
+INSUFFICIENT_EVIDENCE
+
+and nothing else. No explanation, no citations, no near-misses. A clause about
+a different country is not evidence about this one, and citing it while saying
+you have nothing is worse than saying nothing: it is an answer the system will
+present as grounded."""
+
+# The agent's own word for "I have nothing". It exists because a model that
+# explains its own emptiness in prose will still cite the clauses it looked at,
+# and an answer carrying citations is one the UI presents as grounded. A single
+# token the agent either emits or does not is checkable; a sentence is not.
+INSUFFICIENT = "INSUFFICIENT_EVIDENCE"
 
 
 def get_product_compliance_tool(product_id: str) -> dict:
@@ -43,6 +81,7 @@ def get_product_compliance_tool(product_id: str) -> dict:
             .stream()
         )
     ]
+    _serve([str(r.get("clause_id")) for r in reqs if r.get("clause_id")])
     return {"requirements": reqs[:20], "statuses": rollup_status(product_id)}
 
 
@@ -50,6 +89,7 @@ def find_clauses_tool(query: str, k: int = 5) -> dict:
     from app.core.query import _retrieve
 
     bundle = _retrieve(query, None)
+    _serve([c["id"] for c in bundle["clauses"]])
     return {"clauses": [{"id": c["id"], "text": str(c.get("text"))[:300]} for c in bundle["clauses"]]}
 
 
@@ -71,7 +111,10 @@ def get_conflicts_tool() -> dict:
         .limit(20)
         .stream()
     )
-    return {"conflicts": [d.to_dict() | {"id": d.id} for d in docs]}
+    conflicts = [d.to_dict() | {"id": d.id} for d in docs]
+    for conflict in conflicts:
+        _serve([str(conflict[k]) for k in ("clause_a", "clause_b") if conflict.get(k)])
+    return {"conflicts": conflicts}
 
 
 def build_query_agent():
@@ -90,3 +133,44 @@ def build_query_agent():
             get_conflicts_tool,
         ],
     )
+
+
+async def run_query_agent(question: str, product_id: str | None) -> tuple[str, list[str]]:
+    """Answer one question with the agent choosing its own retrieval.
+
+    Returns `(answer, served_clause_ids)`. The caller validates the answer's
+    citations against those ids and refuses when nothing survives — this
+    function deliberately does not decide whether its own answer is usable.
+    """
+    from google.adk.runners import InMemoryRunner
+    from google.genai import types
+
+    bucket: list[str] = []
+    token = _served.set(bucket)
+    try:
+        runner = InMemoryRunner(agent=build_query_agent(), app_name="regulens")
+        session = await runner.session_service.create_session(
+            app_name="regulens", user_id="query"
+        )
+        prompt = question if not product_id else f"{question}\n\n(product_id={product_id})"
+        parts: list[str] = []
+        tool_calls: list[str] = []
+        async for event in runner.run_async(
+            user_id="query",
+            session_id=session.id,
+            new_message=types.Content(role="user", parts=[types.Part(text=prompt)]),
+        ):
+            content = getattr(event, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                if getattr(part, "function_call", None):
+                    tool_calls.append(part.function_call.name)
+                if getattr(part, "text", None):
+                    parts.append(part.text)
+    finally:
+        _served.reset(token)
+
+    log(
+        logger, logging.INFO, "query agent complete",
+        tool_calls=tool_calls, served=len(bucket),
+    )
+    return "".join(parts).strip(), bucket
