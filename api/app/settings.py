@@ -66,6 +66,35 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
     log_level: str = "INFO"
 
+    # Watched sources — re-reading a regulator's own page on a schedule.
+    fetch_timeout_seconds: float = 30.0
+    max_fetch_mb: int = 20
+    # Refuse, do not truncate. A silently half-read regulation produces a
+    # confident answer from the half we happened to read, which is worse than
+    # saying the document is too big to read in one piece.
+    max_fetch_chars: int = 200_000
+    # Below this, whatever came back is not a regulation — a login wall, an
+    # error page, or a PDF with no text layer.
+    min_fetch_chars: int = 200
+    source_check_interval_hours: int = 24
+    # How far back a catalogue query looks. Deliberately a fixed window rather
+    # than "since the last check": a missed run, a clock skew or a restored
+    # backup would otherwise open a gap nobody notices. Re-asking for the same
+    # window is free — everything already seen is already remembered.
+    source_sparql_lookback_days: int = 120
+    # A feed that publishes ten things overnight must not become ten extraction
+    # runs before anyone is awake to see the bill.
+    source_max_new_per_check: int = 3
+    # How many entry ids a feed remembers. Enough that a slow-moving feed never
+    # re-ingests, small enough that the record stays well inside Firestore's
+    # per-document limit.
+    source_seen_entry_cap: int = 500
+    # A lock older than this is assumed to belong to a crashed check.
+    source_check_lock_seconds: int = 900
+    source_user_agent: str = (
+        "ReguLens/1.0 (regulatory change monitor; +https://github.com/aliefauzan/ReguLens)"
+    )
+
     # Emulators — set only in docker compose, never in production.
     firestore_emulator_host: str | None = None
     pubsub_emulator_host: str | None = None

@@ -17,12 +17,12 @@ from diagrams import Cluster, Diagram, Edge
 from diagrams.gcp.analytics import PubSub
 from diagrams.gcp.compute import Run
 from diagrams.gcp.database import Firestore
-from diagrams.gcp.devtools import Build, ContainerRegistry
 from diagrams.gcp.ml import VertexAI
+from diagrams.gcp.devtools import Build, ContainerRegistry, Scheduler
 from diagrams.gcp.operations import Logging
 from diagrams.gcp.security import SecretManager
 from diagrams.gcp.storage import GCS
-from diagrams.onprem.client import Users
+from diagrams.onprem.client import Client, Users
 from diagrams.programming.language import Python
 
 GRAPH_ATTR = {
@@ -47,6 +47,15 @@ with Diagram(
     edge_attr=EDGE_ATTR,
 ):
     user = Users("Exporter\n(browser)")
+
+    # Outside the project entirely. Drawn because the whole difference between a
+    # compliance checker and a regulatory monitor is that these are read without
+    # anyone asking.
+    with Cluster("Watched sources  (the open web)"):
+        scheduler = Scheduler("Cloud Scheduler\nregulens-source-check\n06:00 Asia/Jakarta")
+        regulators = Client(
+            "EU catalogue · SPARQL\nCELLAR act · EC feed\nBPOM JDIH index"
+        )
 
     with Cluster("CI/CD  (Cloud Build)"):
         build = Build("lint · test\nbuild one image")
@@ -88,6 +97,20 @@ with Diagram(
     api >> Edge(label="read / write") >> fs
     api >> Edge(label="put PDF") >> gcs
     api >> Edge(label="publish  document.uploaded") >> topics
+
+    # Scheduled discovery. Three of the four watched kinds can surface a rule
+    # nobody has ever seen — a new entry in a feed, a new link on an index, a
+    # new act in a catalogue — and the fourth notices when a rule already held
+    # is rewritten. Whatever comes back enters through the SAME
+    # `create_document` an upload calls, which is why this arrow lands on the
+    # existing topics rather than opening a second way into the graph.
+    scheduler >> Edge(color="darkblue", label="POST /internal/check-sources · OIDC") >> worker
+    worker >> Edge(color="darkblue", label="conditional GET", constraint="false") >> regulators
+    worker >> Edge(
+        color="darkblue",
+        label="create_document\nsame path as an upload",
+        constraint="false",
+    ) >> topics
 
     # event pipeline — extract, reconcile, impact: all land on the worker
     topics >> Edge(label="push /internal/*") >> worker

@@ -23,6 +23,8 @@ from app.models import (
     ProductPatch,
     QueryIn,
     SourceType,
+    WatchedSourceIn,
+    WatchedSourcePatch,
 )
 from app.observability import configure_logging, get_trace_id, log, set_trace_id
 from app.settings import get_settings
@@ -201,6 +203,82 @@ def post_demo_seed() -> JSONResponse:
         },
         status_code=200 if cached else 202,
     )
+
+
+@app.get("/sources")
+def get_sources() -> dict:
+    """The addresses ReguLens re-reads on a schedule, and what happened last time.
+
+    Rendered rather than hidden because the honest claim depends on it: a source
+    that has been erroring for a week means "we are not watching that", and the
+    only place a user can find that out is here.
+    """
+    from app.core import sources
+
+    return {
+        "sources": [s.model_dump(mode="json") for s in sources.list_sources()],
+        "default_interval_hours": settings.source_check_interval_hours,
+        "trace_id": get_trace_id(),
+    }
+
+
+@app.post("/sources", status_code=201)
+def post_source(payload: WatchedSourceIn) -> JSONResponse:
+    """Start watching an address. Adding one already watched returns it as it
+    stands, with 200 rather than 201."""
+    from app.core import sources
+
+    source, created = sources.add_source(payload)
+    return JSONResponse(
+        {"source": source.model_dump(mode="json"), "created": created, "trace_id": get_trace_id()},
+        status_code=201 if created else 200,
+    )
+
+
+@app.patch("/sources/{source_id}")
+def patch_source(source_id: str, payload: WatchedSourcePatch) -> dict:
+    from app.core import sources
+
+    source = sources.patch_source(source_id, payload)
+    if source is None:
+        raise HTTPException(status_code=404, detail="no such source")
+    return {"source": source.model_dump(mode="json"), "trace_id": get_trace_id()}
+
+
+@app.delete("/sources/{source_id}", status_code=200)
+def delete_source(source_id: str) -> dict:
+    """Stop watching. Documents already read from it stay — they are rules that
+    verdicts cite, and removing one is a separate decision made on its own page."""
+    from app.core import sources
+
+    if not sources.delete_source(source_id):
+        raise HTTPException(status_code=404, detail="no such source")
+    return {"deleted": source_id, "trace_id": get_trace_id()}
+
+
+@app.post("/sources/seed", status_code=201)
+def post_sources_seed() -> dict:
+    """Register the built-in watch list. Idempotent."""
+    from app.core import sources
+
+    return {"sources": sources.seed_sources(), "trace_id": get_trace_id()}
+
+
+@app.post("/sources/{source_id}/check")
+def post_source_check(source_id: str) -> dict:
+    """Read one source now, ignoring the interval.
+
+    Synchronous on purpose: a person who pressed "Check now" is waiting for the
+    answer, and the answer takes one HTTP fetch and a hash comparison. Anything
+    slow that follows — extraction, reconciliation, impact — is already behind
+    Pub/Sub, exactly as it is for an upload.
+    """
+    from app.core import sources
+
+    result = sources.check_source(source_id, force=True)
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail="no such source")
+    return result | {"trace_id": get_trace_id()}
 
 
 @app.post("/products", status_code=201)

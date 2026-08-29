@@ -17,7 +17,8 @@ A 5-minute click-by-click walkthrough lives in
 ## The core loop
 
 ```
-regulation enters — bundled library entry, uploaded PDF, or pasted announcement
+regulation enters — a watched regulator address re-read on a schedule, a
+                    bundled library entry, an uploaded PDF, or pasted text
   -> a deterministic pass reads the document's own words for jurisdiction,
      publisher, source type and effective date (no model call); a low-confidence
      guess is handed back to the user, never silently defaulted
@@ -34,8 +35,87 @@ regulation enters — bundled library entry, uploaded PDF, or pasted announcemen
 
 A first-time user with no regulation of their own starts from the built-in
 library — verbatim excerpts of the two real corpus regulations — and still gets
-a grounded answer. Every uploaded clause and every library clause travels the
-identical hash → store → publish → extract → reconcile path.
+a grounded answer. Every uploaded clause, every library clause and every clause
+read off a watched address travels the identical hash → store → publish →
+extract → reconcile path.
+
+## Watching for changes, without being asked
+
+A compliance tool that only knows what somebody remembered to upload is a
+checker, not a monitor. `/sources` is the watch list: a regulator's own address,
+re-read on a schedule, so a rule that moves overnight is in the graph before
+anyone goes looking for it.
+
+- **Cloud Scheduler → worker, daily 06:00 Asia/Jakarta.** One HTTP call to
+  `/internal/check-sources`, OIDC-gated like every other internal route. The
+  same sweep runs on demand from the "Check now" button on any row.
+- **A change means the *wording* changed, not the bytes.** EUR-Lex stamps a
+  fresh session id into every response, so a byte hash reports a change — and
+  bills a model run — every single night. The change signal is a hash of the
+  extracted text. Conditional GET (`ETag` / `If-Modified-Since`) short-circuits
+  ahead of that where a server supports it. A check that finds nothing never
+  reaches Gemini.
+- **What works from a laptop may not work from Cloud Run.** EUR-Lex answers a
+  datacentre address with `202 Accepted` and a two-kilobyte challenge page. The
+  seeded EU source therefore points at CELLAR, the Publications Office's own
+  machine-readable endpoint, which serves the same 48,417 characters of the same
+  regulation *and* sends an `ETag`. Found by deploying it, watching it fail in
+  production, and reading the log — which is why an empty 2xx body now has its
+  own error message instead of being reported as "a login page".
+- **Four kinds of address, because "changed" means four different things.**
+  `document` is one regulation whose wording can change under you — it can only
+  ever tell you that a rule you already hold was edited. The other three find
+  rules you have never seen: `feed` (RSS or Atom, a new entry appeared),
+  `listing` (a regulator's index page, a new *link* is a new act), and `sparql`
+  (a publisher's catalogue, asked directly). Adopting any of the three records
+  what it already carries and reads none of it, then reads at most three new
+  items per run.
+- **Asked, not scraped, where the publisher offers it.** A listing depends on a
+  regex still matching a page a designer may rewrite. A catalogue query depends
+  on the publisher's own classification of its own acts, which is what that
+  classification is for. The EU offers one — and needs it, because EUR-Lex's web
+  pages refuse datacentre addresses outright. The seeded query asks the
+  Publications Office for regulations carrying the EuroVoc *food additive*
+  concept, filtered by CELEX shape to acts rather than merger notices and
+  proposals: 133 works a year carry that concept, of which roughly a dozen are
+  regulations.
+- **A failure that can never succeed is remembered; one that might is not.**
+  BPOM's Kategori Pangan annex is 308 pages and will be 308 pages tomorrow, so
+  refusing it is final. A timeout or an empty page is not — EUR-Lex serves an
+  empty challenge page to datacentre addresses, and giving up on a regulation
+  because it was briefly behind one is the worse mistake. Without the
+  distinction the same oversized PDF is downloaded and refused every night,
+  holding a slot in the per-run cap a readable new regulation needed.
+- **No back door.** A change is ingested by calling the same
+  `documents.create_document` an upload calls. Same hash, same Pub/Sub message,
+  same extraction, same guardrail, same review queue. Nothing read from a
+  watched address can become a clause by a route an upload could not use — a
+  news item comes in at authority tier 0.35 and waits for a human.
+- **A broken source says so.** A 403, a login wall, a PDF with no text layer:
+  each is recorded on the source and rendered on the page. A source that has
+  been erroring for a week means nobody is watching it, and that has to be
+  visible or the monitoring claim is a lie.
+- **Refused, not truncated.** A document past `MAX_FETCH_CHARS` is rejected
+  with a reason. A confident answer drawn from the half of a regulation that
+  happened to fit is worse than no answer.
+
+Four addresses ship registered, all verified against the live endpoints before
+being written down:
+
+| Address | Kind | Answers |
+|---|---|---|
+| Publications Office SPARQL endpoint | `sparql` | "Which food-additive regulations has the EU published lately?" — including ones at addresses nobody has seen |
+| `publications.europa.eu/resource/celex/32023R2108` | `document` | "Has this specific additives amendment been rewritten?" |
+| `food.ec.europa.eu/node/2/rss_en` | `feed` | "What has the Commission announced?" — news, tier 0.35, so it waits for a human |
+| `jdih.pom.go.id/` | `listing` | "What has BPOM published?" — new links on the portal index |
+
+Both markets can therefore discover a regulation nobody knew about; watching a
+document you already hold could only ever report that it was edited.
+
+A fifth route exists and is deliberately unseeded: EUR-Lex serves a saved search
+as RSS, which plugs into `feed` with no code at all. It is the right tool for a
+scope narrower or wider than the seeded query, but the feed id is tied to a
+EUR-Lex account, so there is nothing generic to ship.
 
 ## Why you can trust the answers
 
@@ -59,9 +139,9 @@ identical hash → store → publish → extract → reconcile path.
 ## Architecture
 
 Three Cloud Run runtimes from one container image, plus a fourth for the web,
-one Cloud Run Job, Pub/Sub push with dead-lettering, Firestore, Cloud Storage,
-Secret Manager, and Gemini 3.5 through either Vertex AI or the Gemini Developer
-API.
+one Cloud Run Job, Cloud Scheduler driving the daily source sweep, Pub/Sub push
+with dead-lettering, Firestore, Cloud Storage, Secret Manager, and Gemini 3.5
+through either Vertex AI or the Gemini Developer API.
 
 ![ReguLens on Google Cloud](docs/architecture.png)
 
@@ -78,11 +158,22 @@ python docs/architecture.py                # rewrites docs/architecture.png
 The request path and the event pipeline in words:
 
 ```
-Exporter (browser)
-  -> regulens-web (Cloud Run, public)
-  -> regulens-api (Cloud Run, public)  -- writes Firestore + GCS, publishes --> Pub/Sub: document.uploaded
-                                                                                     |  push, OIDC
-                                                                              regulens-worker (Cloud Run, private)
+Two ways in. Both end up on the same Pub/Sub message.
+
+A. Exporter (browser)
+     -> regulens-web (Cloud Run, public)
+     -> regulens-api (Cloud Run, public)   -- uploads a PDF or pastes text
+
+B. Cloud Scheduler, 06:00 Asia/Jakarta
+     -> regulens-worker /internal/check-sources (OIDC)
+     -> re-reads every watched address: a known act (has the wording changed?),
+        a feed, a regulator's index, a catalogue query (what is new?)
+     -> nothing changed  -> a conditional GET and a hash comparison. No model call.
+     -> something changed -> create_document, the SAME call an upload makes
+
+                          both paths publish --> Pub/Sub: document.uploaded
+                                                       |  push, OIDC
+                                                regulens-worker (Cloud Run, private)
    /internal/document-uploaded -> extract (Extraction Agent x2)  -> clause.extracted
    /internal/clause-extracted  -> reconcile (guardrail; Reconciliation
                                   Agent only when ambiguous)     -> graph.changed
@@ -90,6 +181,11 @@ Exporter (browser)
    /internal/dead-letter       <- any topic after max retries
   -> alerts, readiness, timeline, grounded query
 ```
+
+There is no third way in. A regulation discovered by the scheduler is hashed,
+stored, published, extracted, guardrailed and reviewed exactly as an upload is —
+which is why a news item found in a feed lands in the review queue at authority
+tier 0.35 instead of quietly moving a limit.
 
 | ADK agent | Runs | What it actually does | Honest label |
 |---|---|---|---|
@@ -129,20 +225,22 @@ Cloud Run Jobs · Artifact Registry · Cloud Build · Cloud Logging.
 api/app/main.py        API service (upload, detect, delete documents, products,
                        clauses, conflicts, compliance, alerts, query, library,
                        substances, debug view)
-api/app/worker.py      Pub/Sub push consumers: extract / reconcile / impact / DLQ
+api/app/worker.py      Pub/Sub push consumers: extract / reconcile / impact / DLQ,
+                       plus the scheduled watched-source sweep
 api/app/job.py         Cloud Run Job: idempotent demo seed
 api/app/core/          the plain-Python engine: extraction/, detection.py (what is
                        this document), guardrail.py, reconciliation.py, impact.py,
                        query.py, citations.py (grounded source spans),
                        normalization.py, substances.py, library.py + library_data.json,
+                       sources.py + fetching.py (watched regulator addresses),
                        integrity.py (state vs event-log walker)
 api/app/adk/           the four ADK agents: extraction, reconciliation, query,
                        plus the phase-0 smoke test. Registrations only — every
                        tool body is a plain function in core/
-api/tests/             279 unit tests + fixture corpus + live-Vertex eval
+api/tests/             369 unit tests + fixture corpus + live-Vertex eval
 web/                   Next.js app (twin, self-describing upload + stepper,
                        readiness, timeline, ask panel, conflicts, review queue,
-                       rulebook, cited source-text view)
+                       rulebook, watch list, cited source-text view)
 data/regulations/      real source PDFs (EU + BPOM) with provenance in SOURCES.md
 regulens.env.example   the one file a clone edits (copy to regulens.env)
 scripts/quickstart.sh  clone to running stack, one command
@@ -359,6 +457,12 @@ including the ones the services read directly in production.
 | `API_INTERNAL_URL` | unset | API URL used by server components (compose: `http://api:8080`) |
 | `FIRESTORE_DATABASE` | `(default)` | set to `local` against the emulator |
 | `LOCAL_STORAGE_DIR` | unset | filesystem uploads instead of GCS (local only) |
+| `SOURCE_CHECK_INTERVAL_HOURS` | `24` | default re-read interval for a new watched source |
+| `SOURCE_MAX_NEW_PER_CHECK` | `3` | most feed entries read in one run, so an overnight burst is not an unbounded bill |
+| `MAX_FETCH_CHARS` | `200000` | a watched document past this is refused, not truncated |
+| `MAX_FETCH_MB` | `20` | download ceiling per fetch |
+| `FETCH_TIMEOUT_SECONDS` | `30` | per-request timeout when reading a watched address |
+| `SOURCE_USER_AGENT` | ReguLens/1.0 … | what regulator sites see in their logs |
 
 Secrets: exactly one. `GEMINI_API_KEY` is stored in Secret Manager as
 `gemini-api-key` and mounted into the api and worker services as an ordinary env
@@ -387,6 +491,38 @@ discover them in a demo.
   documentation clauses are extracted and surfaced as `needs_review`, never
   silently counted as checks we did not run.
 - Uploads are PDFs with a text layer plus pasted text. No OCR, no screenshots.
+  A watched address is read the same way, so a scanned PDF behind a URL fails
+  there for the same reason it fails on upload.
+- Watching is a scheduled re-read, not a subscription. The floor on noticing a
+  change is the source's check interval — 24 hours by default — because no
+  regulator in the corpus publishes a webhook. A user who needs it sooner
+  presses "Check now" or shortens the interval.
+- A watched source is registered by hand, and a `listing` needs a pattern saying
+  which of its links are regulations while a `sparql` source needs a query. There is no crawler that works out
+  by itself which page a regulator publishes on, and a listing registered as a
+  `document` will be read as one document rather than followed. A pattern that
+  stops matching — a site redesign — is reported as an error rather than as "no
+  new regulations", because those two would otherwise look identical.
+- The seeded EU query is scoped to one EuroVoc concept, *food additive*. A
+  regulation about, say, contaminants or packaging materials is outside it and
+  will not be found. That is a deliberate scope, not a bug — an unscoped query
+  returns everything the EU publishes — but it means the watch list is only as
+  wide as the concepts somebody chose.
+- A listing only sees what its index page shows. JDIH's front page carries the
+  twelve most recent items; a regulation published and pushed off that list
+  between two checks would be missed. At a daily interval against a portal that
+  publishes a few items a month this has slack to spare, but it is a window, not
+  a guarantee.
+- There is no per-source relevance filter. Watching one broad annex put 68
+  clauses into the review queue in a single scheduled run, most of them nitrite
+  limits for cured meats that no product in the workspace resembles. That is the
+  guardrail behaving correctly — none of them silently changed a verdict — and
+  it is also a queue nobody will read. Filtering at ingestion by product family
+  is the fix and it is not built.
+- BPOM's JDIH portal is reachable and serves stable PDF URLs, but the annexes
+  that matter run to 308 pages — past `MAX_DOCUMENT_PAGES`. Nothing from BPOM
+  ships in the watch list for that reason; a user can register a specific
+  annex and will get an explicit size refusal if it is too large.
 - One hardcoded workspace; no auth. `/internal/*` endpoints are private and
   OIDC-gated — that is the security boundary that matters here.
 - Propagation latency scales with how many rules a document contains, not with

@@ -21,6 +21,11 @@ const TABS: {
 }[] = [
   { href: "/", label: "Products", glyph: "▤", testId: "nav-products", onPhone: true },
   { href: "/rules", label: "Rules", glyph: "▦", testId: "nav-rules", onPhone: false },
+  // The watch list is the difference between "a checker" and "a monitor", so it
+  // gets a tab rather than living behind a link on another page. Off the phone
+  // bar for the same reason the reference page is: five labels do not fit, and
+  // this one is set up once and then read occasionally.
+  { href: "/sources", label: "Watching", glyph: "◎", testId: "nav-sources", onPhone: false },
   { href: "/documents/new", label: "Add rules", glyph: "＋", testId: "nav-add-rules", onPhone: true },
   {
     href: "/conflicts",

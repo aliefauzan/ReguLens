@@ -197,6 +197,41 @@ async def clause_extracted(request: Request) -> JSONResponse:
     return JSONResponse({"status": result.get("status"), "clause_id": clause_id})
 
 
+@app.post("/internal/check-sources")
+async def check_sources(request: Request) -> JSONResponse:
+    """The scheduled sweep. Cloud Scheduler calls this once a day with an OIDC
+    token; the worker is `--no-allow-unauthenticated`, so nothing else can.
+
+    This lives on the worker rather than the API for the same reason extraction
+    does: it is slow, it is nobody's request, and a fetch that hangs must not
+    hold a user-facing instance. It returns 200 even when individual sources
+    fail — a broken regulator site is recorded on the source and shown in the
+    UI, and asking Cloud Scheduler to retry it in five minutes would not fix it.
+
+    A body is optional. `{"source_id": "..."}` checks one; `{"force": true}`
+    ignores each source's interval.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - Cloud Scheduler may send no body at all
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    set_trace_id(str(body.get("trace_id") or "") or None)
+    force = bool(body.get("force"))
+    source_id = str(body.get("source_id") or "")
+
+    from app.core import sources
+
+    if source_id:
+        result = await run_in_threadpool(sources.check_source, source_id, force=True)
+        return JSONResponse({"results": [result], "trace_id": get_trace_id()}, status_code=200)
+
+    summary = await run_in_threadpool(sources.check_all, force=force)
+    return JSONResponse(summary | {"trace_id": get_trace_id()}, status_code=200)
+
+
 @app.post("/internal/dead-letter")
 async def dead_letter(request: Request) -> JSONResponse:
     """The DLQ push target. When a `document.uploaded` message exhausts its
