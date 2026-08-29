@@ -64,6 +64,18 @@ export default function AlertsBanner() {
                 </span>
               </span>
               <span className="flex gap-2">
+                {/* "Breaks a rule" is the only status with a number to hit, so
+                    it is the only one that gets the button. Offering a fix plan
+                    for a product that passes leads to an empty page. */}
+                {worse && alert.entity_id ? (
+                  <Link
+                    href={`/products/${alert.entity_id}/remediation`}
+                    className="btn btn-secondary btn-small"
+                    data-testid="alert-prepare-fix"
+                  >
+                    Prepare a fix plan
+                  </Link>
+                ) : null}
                 <Link href="/conflicts" className="btn btn-secondary btn-small">
                   See why
                 </Link>

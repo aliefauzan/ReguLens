@@ -250,3 +250,43 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* --- Print ----------------------------------------------------------------
+   The fix plan is meant to be taken to somebody: a supplier, a QA lead, a
+   regulator. `window.print()` plus these rules is the whole feature — a PDF
+   generator would be a dependency to keep alive in exchange for a nicer
+   margin. What must survive the print is the wording of the rules, so nothing
+   here collapses a quote.                                                   */
+@media print {
+  :root {
+    --background: #ffffff;
+    --surface: #ffffff;
+    --surface-2: #ffffff;
+    --foreground: #000000;
+    --secondary: #333333;
+    --tertiary: #555555;
+    --shadow: none;
+  }
+
+  body { background: #ffffff; padding-bottom: 0; }
+
+  /* Chrome and controls: on screen they are how you get around, on paper they
+     are ink spent on things nobody can click. */
+  nav,
+  .no-print,
+  .btn { display: none !important; }
+
+  .card,
+  .inset {
+    box-shadow: none;
+    border: 1px solid #cccccc;
+    break-inside: avoid;
+  }
+
+  /* A citation folded away prints as a heading with nothing under it. */
+  details > summary { display: none; }
+  details > *:not(summary) { display: block !important; }
+
+  blockquote, table { break-inside: avoid; }
+  a { text-decoration: none; color: #000000; }
+}

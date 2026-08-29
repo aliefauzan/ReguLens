@@ -242,3 +242,83 @@ class ClauseCandidate(ClauseCandidateRaw):
     confidence_breakdown: dict[str, float]
     status: ClauseStatus = ClauseStatus.PENDING_RECONCILIATION
     created_at: datetime | None = None
+
+
+# ---------------------------------------------------------------------------
+# Remediation — a draft fix, not an action taken
+
+
+class RemediationLimit(BaseModel):
+    """One market's binding limit, with the words it was read from.
+
+    The quote and the passage link are not decoration: this page exists to be
+    approved by a person, and a number they cannot trace is a number they
+    cannot sign off.
+    """
+
+    market_id: str
+    limit: float
+    unit: str
+    clause_id: str
+    document_id: str | None = None
+    effective_date: str | None = None
+    quote: str | None = None
+    citation_href: str | None = None
+    # Other limits for this substance in this market that are looser than the
+    # one shown. Counted rather than dropped: a hidden row reads like it does
+    # not exist.
+    other_limits_in_market: int = 0
+    is_strictest: bool = False
+
+
+class RemediationTarget(BaseModel):
+    """The number to hit for one substance, across every market in scope."""
+
+    substance: str
+    substance_label: str
+    target_value: float | None = None
+    target_unit: str | None = None
+    # Filled exactly when `target_value` is None. Enforced below, because an
+    # empty target with an empty reason is the failure mode this whole feature
+    # is written against.
+    no_target_reason: str | None = None
+    no_target_reason_text: str = ""
+    coverage: str  # full | partial
+    markets_without_rules: list[str] = Field(default_factory=list)
+    strictest_market_id: str | None = None
+    current_value: float | None = None
+    current_unit: str | None = None
+    raw_value: float | None = None
+    raw_unit: str | None = None
+    verdict_today: str
+    limits: list[RemediationLimit] = Field(default_factory=list)
+
+    def model_post_init(self, _: Any) -> None:
+        if self.target_value is None and not self.no_target_reason:
+            raise ValueError("a missing target needs a reason")
+        if self.target_value is not None and self.no_target_reason:
+            raise ValueError("a target that exists cannot also carry a reason for not existing")
+        if self.no_target_reason and not self.no_target_reason_text:
+            raise ValueError("a reason code needs the sentence a reader sees")
+        expected = "partial" if self.markets_without_rules else "full"
+        if self.coverage != expected:
+            raise ValueError(f"coverage says {self.coverage} but the market list says {expected}")
+
+
+class RemediationNotChecked(BaseModel):
+    """An ingredient no target speaks for, and why. Never silently omitted."""
+
+    ingredient: str
+    reason_code: str
+    reason_text: str = Field(min_length=1)
+
+
+class RemediationPlan(BaseModel):
+    """A draft for a person to check. Nothing here was acted on."""
+
+    product_id: str
+    product_name: str
+    generated_for_markets: list[str] = Field(default_factory=list)
+    targets: list[RemediationTarget] = Field(default_factory=list)
+    not_checked: list[RemediationNotChecked] = Field(default_factory=list)
+    trace_id: str | None = None

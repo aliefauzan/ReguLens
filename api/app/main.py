@@ -294,6 +294,32 @@ def get_product_compliance(
     }
 
 
+@app.get("/products/{product_id}/remediation")
+def get_product_remediation(product_id: str) -> dict:
+    """A draft fix plan: the number to hit per substance, and the rules behind it.
+
+    Read-only, and deliberately so. It touches no collection it does not read,
+    publishes nothing, and writes no `graph_event` — the whole value of this
+    endpoint is that a person reads it and decides, so the system taking the
+    action itself would be the wrong feature and a larger blast radius.
+
+    An empty `targets` list is a 200, not a 404: "there is nothing to fix" is a
+    real answer to this question.
+    """
+    from app.core.remediation import build_remediation
+    from app.models import RemediationPlan
+
+    plan = build_remediation(product_id)
+    if plan is None:
+        raise HTTPException(status_code=404, detail="product not found")
+    # Validated on the way out, like every other typed shape here: a target
+    # with no number and no reason for having no number must fail loudly rather
+    # than render as a blank line on a page somebody signs off.
+    return RemediationPlan.model_validate(plan).model_dump(mode="json") | {
+        "trace_id": get_trace_id()
+    }
+
+
 @app.get("/alerts")
 def list_alerts() -> dict:
     """Unacknowledged `product_status_changed` events where the status worsened."""

@@ -514,6 +514,60 @@ export function getCompliance(id: string): Promise<ComplianceView> {
   return get(`/products/${id}/compliance`);
 }
 
+/** One market's binding limit for a substance, with the words behind it. */
+export type RemediationLimit = {
+  market_id: string;
+  limit: number;
+  unit: string;
+  clause_id: string;
+  document_id: string | null;
+  effective_date: string | null;
+  quote: string | null;
+  citation_href: string | null;
+  /** Looser rows for the same substance in the same market. Counted, not hidden. */
+  other_limits_in_market: number;
+  is_strictest: boolean;
+};
+
+export type RemediationTarget = {
+  substance: string;
+  substance_label: string;
+  target_value: number | null;
+  target_unit: string | null;
+  /** Filled exactly when there is no target. The API refuses to send one without the other. */
+  no_target_reason: string | null;
+  no_target_reason_text: string;
+  coverage: "full" | "partial";
+  markets_without_rules: string[];
+  strictest_market_id: string | null;
+  current_value: number | null;
+  current_unit: string | null;
+  raw_value: number | null;
+  raw_unit: string | null;
+  verdict_today: string;
+  limits: RemediationLimit[];
+};
+
+export type RemediationNotChecked = {
+  ingredient: string;
+  reason_code: string;
+  reason_text: string;
+};
+
+/** A draft fix plan. Read-only: asking for it changes nothing. */
+export type RemediationPlan = {
+  product_id: string;
+  product_name: string;
+  generated_for_markets: string[];
+  targets: RemediationTarget[];
+  not_checked: RemediationNotChecked[];
+  trace_id: string | null;
+};
+
+export function getRemediation(id: string): Promise<RemediationPlan> {
+  return get(`/products/${id}/remediation`);
+}
+
 export function getAlerts(): Promise<{ alerts: GraphEvent[] }> {
   return get("/alerts");
 }

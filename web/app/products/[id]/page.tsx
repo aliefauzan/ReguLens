@@ -309,11 +309,25 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                   </ul>
                 ) : null}
 
-                <p className="t-footnote t-secondary mt-5" data-testid={`issues-${marketId}`}>
-                  {failing > 0 || unchecked > 0
-                    ? `${failing} rule${failing === 1 ? "" : "s"} broken · ${unchecked} to check by hand`
-                    : "No problems found"}
-                </p>
+                <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+                  <p className="t-footnote t-secondary" data-testid={`issues-${marketId}`}>
+                    {failing > 0 || unchecked > 0
+                      ? `${failing} rule${failing === 1 ? "" : "s"} broken · ${unchecked} to check by hand`
+                      : "No problems found"}
+                  </p>
+                  {/* Only when something actually fails. A fix plan for a
+                      product that breaks nothing is a button leading to an
+                      empty page, which reads as a broken button. */}
+                  {failing > 0 ? (
+                    <Link
+                      href={`/products/${id}/remediation`}
+                      className="btn btn-secondary btn-small"
+                      data-testid={`prepare-fix-${marketId}`}
+                    >
+                      Prepare a fix plan
+                    </Link>
+                  ) : null}
+                </div>
               </div>
             );
           })

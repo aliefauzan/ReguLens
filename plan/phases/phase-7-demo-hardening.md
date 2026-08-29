@@ -395,6 +395,53 @@ Known and not defects:
 - One clause has been stuck in `pending_reconciliation` since 23 Aug — a message
   lost before this session. It predates every change here.
 
+### A fix somebody can approve (29 Aug)
+
+The judging note the whole of `plan/upgrade/S1-remediation-plan.md` answers: the
+agent stopped at the notification. It said "your product breaks a rule in
+Germany" and finished. This turns that into a number to hit, in the shape the
+Collaborative Partner track asks for — a draft prepared for a person to approve,
+not an action taken for them.
+
+- [x] `api/app/core/remediation.py` — `build_remediation(product_id)`, a plain
+      function with no FastAPI and no ADK in it. Groups `requirements` by
+      substance, takes the strictest `comparable_limit` across the markets the
+      product **actually** sells into, and names the market that sets it. No
+      model call: picking the smallest of two numbers is a comparison, and the
+      number ends up on a page somebody signs.
+- [x] `GET /products/{product_id}/remediation` — read-only. No Firestore write,
+      no Pub/Sub publish, no `graph_event`. 404 for a product that does not
+      exist; 200 with `targets: []` when nothing is over a limit, because "there
+      is nothing to fix" is an answer.
+- [x] Pydantic models validate the response on the way out, and refuse a target
+      that has no number **and** no reason for having no number — the exact
+      shape of silence this feature exists to prevent.
+- [x] A market we hold no rule for is named in `markets_without_rules` with
+      `coverage: "partial"`, and every ingredient no target speaks for is listed
+      in `not_checked` with the reason, reusing `core/substances.py` so a food is
+      called a food rather than quietly dropped.
+- [x] `web/app/products/[id]/remediation/page.tsx` — one sentence with the
+      answer, a table of every market's limit with the strictest flagged, the
+      verbatim clause behind each one linked to its passage, the "what we did
+      not check" block in the open, and Print / Save as PDF via `window.print()`
+      plus `@media print` rules. No PDF library added.
+- [x] "Prepare a fix plan" on the failing market card and on the alert row, and
+      **only** when something actually fails — a button to an empty page reads
+      as a broken button.
+- [x] `api/tests/test_remediation.py` — 14 tests. The stand-in Firestore has no
+      write methods at all, so a future write fails the suite rather than
+      slipping through.
+- [x] One defect the live workspace exposed and the local stack could not:
+      targets were keyed on the raw `substance_normalized`, so the EU's
+      "Benzoic acid — benzoates" and BPOM's "natrium benzoat, computed as
+      benzoic acid" became two targets — each quoting one market's number and
+      each announcing that the *other* market had no rule for it. Grouping is
+      family-aware now (`substances_comparable`, the same documented basis the
+      guardrail compares on), with a test for the merge and a test that it does
+      not merge anything wider.
+- [x] Redeploy api + web to Cloud Run so the hosted URL carries the page —
+      build `20dc908-203508`, page opened on the hosted URL.
+
 ### Failure survival
 - [ ] Every async stage has a timeout and a visible failure state in the stepper.
 - [ ] Confirm the five alerts from `../04-observability.md` are firing correctly by
