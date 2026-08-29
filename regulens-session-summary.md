@@ -4,7 +4,8 @@
 
 **Project:** ReguLens  
 **Hackathon:** All Things Agentic Hackathon  
-**Category:** Collaborative Partner (Evolving Knowledge Engine)  
+**Track:** Collaborative Partner  
+**Concept name:** Evolving Knowledge Engine  
 **Tagline:** *Bukan sekadar membaca regulasi. Agent ini mendeteksi kontradiksi, memperbarui knowledge graph, dan menyelamatkan bisnis dari kesalahan compliance.*
 
 ReguLens is an autonomous regulatory intelligence system for micro/small exporters. The core idea is not simply to build a regulatory Q&A chatbot, but a system that:

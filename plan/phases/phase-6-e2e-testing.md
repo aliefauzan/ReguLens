@@ -3,7 +3,7 @@
 **Estimate:** 1 day (Aug 30)
 **Demo sentence:** "One command runs every use case against the deployed system and tells you it works."
 
-**Status:** `NOT STARTED` · **Started:** — · **Completed:** —
+**Status:** `IN PROGRESS` · **Started:** 23 Aug 2026 · **Completed:** —
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion
@@ -50,7 +50,7 @@ is written **and green against the deployed environment**.
 - [x] UC-D — Messy / low-authority source (LIVE: needs_review @0.47 confidence, zero mutations)
 - [x] UC-E — Pre-export compliance check (LIVE: "Can I export to Germany?" cites real clauses)
 - [x] UC-F assertion (live): second product created after EU ingestion immediately read `non_compliant` for Germany AND Indonesia — propagation is per-product
-- [ ] Same-jurisdiction supersede
+- [x] Same-jurisdiction supersede (live drill 23 Aug: BPOM amendment 350 mg/kg eff. 2026-12-01 superseded the active 400 mg/kg clause, `superseded` + `superseded_by` written — see PROGRESS.md Session log)
 - [ ] Non-comparable pair — zero false conflicts
 - [x] Pub/Sub redelivery — no duplicates (live, verify_e2e.sh)
 - [x] Concurrent reconcile — consistent final state (live probe; exposed and fixed a real double-race hole where both deliveries no-op'd and left a clause stuck pending — worker now self-checks and nacks)
@@ -115,7 +115,7 @@ claim to make in the submission.
 
 ## Tasks
 
-- [ ] `e2e/` with Playwright, running against a configurable base URL.
+- [~] `e2e/` with Playwright, running against a configurable base URL — SKIPPED: `scripts/verify_e2e.sh` and `scripts/verify_local.sh` are already an equivalent end-to-end execution proof; adding a Playwright shell two days before the deadline adds no new evidence.
 - [ ] Fixtures: the demo documents and the hand-labelled clause set from phase 2,
       committed.
 - [~] `FAKE_LLM=1` response fixtures covering every extraction used by the suite —

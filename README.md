@@ -1,3 +1,7 @@
+> **Demo video (4 min):** _TODO — diisi di fase S3_
+> **Live app:** https://regulens-web-babuvy7w3a-as.a.run.app
+> **Track:** Collaborative Partner · All Things Agentic Hackathon
+
 # ReguLens
 
 **A living compliance twin for small exporters.**

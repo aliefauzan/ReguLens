@@ -3,7 +3,7 @@
 **Estimate:** 2 days (Aug 24–25)
 **Demo sentence:** "The system noticed this new clause contradicts what it already knew, and wrote down why."
 
-**Status:** `IN PROGRESS` · **Started:** 23 Aug 2026 · **Completed:** —
+**Status:** `COMPLETE` · **Started:** 23 Aug 2026 · **Completed:** 23 Aug 2026
 
 > COMPLETE as of 23 Aug — every exit criterion ticked, each with live or
 > unit-test evidence. Headline proofs: UC-C conflict live; supersede live;
