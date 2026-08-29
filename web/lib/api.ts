@@ -514,7 +514,37 @@ export function getCompliance(id: string): Promise<ComplianceView> {
   return get(`/products/${id}/compliance`);
 }
 
-export function getAlerts(): Promise<{ alerts: GraphEvent[] }> {
+/**
+ * Why an alert happened, resolved from stored records by the API.
+ *
+ * `unprompted` is the field the whole feature exists for: true means the
+ * regulation reached the graph without anybody uploading it. `cause_available`
+ * is false when the causing document has since been deleted — the alert then
+ * says the cause is no longer on file rather than showing a plausible guess.
+ */
+export type AlertContext = {
+  product_id?: string;
+  product_name?: string | null;
+  market_id?: string | null;
+  market_label?: string | null;
+  market_country?: string | null;
+  from_status?: string | null;
+  to_status?: string | null;
+  document_id?: string | null;
+  clause_id?: string | null;
+  unprompted: boolean;
+  origin?: string | null;
+  cause_available: boolean;
+  source_name?: string | null;
+  jurisdiction?: string | null;
+  source_type?: string | null;
+  substance?: string | null;
+  limit_value?: number | null;
+  limit_unit?: string | null;
+  clause_text?: string | null;
+};
+
+export function getAlerts(): Promise<{ alerts: (GraphEvent & { context: AlertContext })[] }> {
   return get("/alerts");
 }
 
@@ -589,6 +619,27 @@ export type SourceCheckResult = {
   ingested?: { document_id: string; cached: boolean; source_name: string; chars: number }[];
   failed?: { title: string; link: string; error: string }[];
 };
+
+/**
+ * What ReguLens did without being asked. Every figure is a query over stored
+ * records, so a number here can be clicked through to the thing it counts —
+ * and a quiet week reports zeros rather than something flattering.
+ */
+export type Autonomy = {
+  watched_sources: number;
+  enabled_sources: number;
+  failing_sources: number;
+  checks_run: number;
+  last_checked_at: string | null;
+  regulations_found: number;
+  clauses_read: number;
+  verdicts_changed: number;
+  documents: string[];
+};
+
+export function getAutonomy(): Promise<Autonomy> {
+  return get("/stats/autonomy");
+}
 
 export function listSources(): Promise<{
   sources: WatchedSource[];
@@ -700,9 +751,20 @@ export function listConflicts(): Promise<{ conflicts: Conflict[] }> {
   return get("/conflicts");
 }
 
-export function listClauses(params: { status?: string }): Promise<{ clauses: Clause[] }> {
+/**
+ * `relevantOnly` narrows the list to rules that could bear on something this
+ * workspace actually makes. It never deletes and never downgrades — relevance
+ * is recomputed on every read, so a rule held back today applies to a product
+ * added tomorrow. `hidden` and `hidden_reasons` always come back, because a
+ * list that quietly drops a hundred and forty rules is worse than a long one.
+ */
+export function listClauses(params: {
+  status?: string;
+  relevantOnly?: boolean;
+}): Promise<{ clauses: Clause[]; hidden: number; hidden_reasons: Record<string, number> }> {
   const search = new URLSearchParams();
   if (params.status) search.set("status", params.status);
+  if (params.relevantOnly) search.set("relevant_only", "true");
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return get(`/clauses${suffix}`);
 }

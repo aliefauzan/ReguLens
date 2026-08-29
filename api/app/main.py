@@ -205,6 +205,20 @@ def post_demo_seed() -> JSONResponse:
     )
 
 
+@app.get("/stats/autonomy")
+def get_autonomy() -> dict:
+    """What ReguLens did without being asked, counted from stored records.
+
+    Every figure is a query over the same collections that serve the rest of the
+    app, so a number here can be clicked through to the thing it counts. A quiet
+    week reports zeros — which is the ordinary case for a monitor, and the
+    easiest number in this codebase to have inflated.
+    """
+    from app.core import autonomy
+
+    return autonomy.summary() | {"trace_id": get_trace_id()}
+
+
 @app.get("/sources")
 def get_sources() -> dict:
     """The addresses ReguLens re-reads on a schedule, and what happened last time.
@@ -374,37 +388,16 @@ def get_product_compliance(
 
 @app.get("/alerts")
 def list_alerts() -> dict:
-    """Unacknowledged `product_status_changed` events where the status worsened."""
-    from google.cloud import firestore
+    """Unacknowledged worsening status changes, each carrying why it happened.
 
-    severity_order = {
-        "unknown": 0,
-        "attention_required": 1,
-        "compliant": 1,
-        "non_compliant": 2,
-    }
-    events = (
-        get_db()
-        .collection("graph_events")
-        .where(filter=firestore.FieldFilter("event_type", "==", "product_status_changed"))
-        .limit(50)
-        .stream()
-    )
-    alerts = []
-    for d in events:
-        e = d.to_dict() | {"id": d.id}
-        after = (e.get("after") or {}).get("status")
-        before = (e.get("before") or {}).get("status")
-        if severity_order.get(after, 0) > severity_order.get(before, 0) and not e.get("acknowledged"):
-            alerts.append(e)
-    alerts.sort(key=lambda e: e.get("occurred_at") or 0, reverse=True)
+    The `context` on every alert is resolved from stored records — the causing
+    document, the causing clause, the product and the market. It exists so the
+    banner can say which regulation moved the verdict and whether anybody
+    uploaded it, instead of only that something changed.
+    """
+    from app.core import alerts as alerts_core
 
-    # An alert about a product that no longer exists is a link to a 404 and a
-    # verdict nobody can act on. The event stays in the audit trail; it just
-    # stops being presented as something needing attention.
-    live = {p.id for p in products.list_products()}
-    alerts = [a for a in alerts if a.get("entity_id") in live]
-    return {"alerts": alerts[:20], "trace_id": get_trace_id()}
+    return {"alerts": alerts_core.list_alerts(), "trace_id": get_trace_id()}
 
 
 @app.post("/alerts/{alert_id}/ack")
@@ -750,7 +743,16 @@ def list_clauses(
     jurisdiction: str | None = None,
     substance: str | None = None,
     status: str | None = None,
+    relevant_only: bool = False,
 ) -> dict:
+    """Clauses, optionally narrowed to the ones that could bear on this workspace.
+
+    `relevant_only` never deletes and never downgrades. It is computed at read
+    time from the products that exist right now, so a rule held back today
+    applies to a product added tomorrow with no migration and no recompute. The
+    response always carries `hidden` and `hidden_reasons`, because a list that
+    quietly drops a hundred and forty rules is worse than a long one.
+    """
     from app.core.clauses import query_clauses
 
     # Single-field filters only (no composite indexes in the MVP); the
@@ -758,7 +760,18 @@ def list_clauses(
     clauses = query_clauses(substance=substance, status=status)
     if jurisdiction:
         clauses = [c for c in clauses if str(c.get("jurisdiction") or "").upper() == jurisdiction.upper()]
-    return {"clauses": clauses, "trace_id": get_trace_id()}
+
+    hidden_reasons: dict[str, int] = {}
+    if relevant_only:
+        from app.core import relevance
+
+        clauses, hidden_reasons = relevance.partition(clauses, relevance.current_workspace())
+    return {
+        "clauses": clauses,
+        "hidden": sum(hidden_reasons.values()),
+        "hidden_reasons": hidden_reasons,
+        "trace_id": get_trace_id(),
+    }
 
 
 @app.get("/conflicts")

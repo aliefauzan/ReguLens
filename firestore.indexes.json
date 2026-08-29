@@ -1,0 +1,42 @@
+{
+  "//": [
+    "Composite indexes for the queries that filter on more than one field.",
+    "Firestore serves single-field filters from automatic indexes, which is why",
+    "most of this app needs none — the API deliberately does one filter in the",
+    "query and refines the rest in process over a bounded result set. These are",
+    "the three places where that would have meant reading a whole collection.",
+    "",
+    "Deploy with:  gcloud firestore indexes create --file=firestore.indexes.json",
+    "or let scripts/setup.sh do it, which is idempotent."
+  ],
+  "indexes": [
+    {
+      "//": "documents.find_by_hash: the upload cache. Runs on every upload and every scheduled re-read, so it is the hottest compound query in the system.",
+      "collectionGroup": "documents",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "content_sha256", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "sources.find_by_url: dedupes a watched address so one URL cannot be registered twice and checked twice.",
+      "collectionGroup": "watched_sources",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "workspace_id", "order": "ASCENDING" },
+        { "fieldPath": "url", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "alerts and the timeline: status-change events, newest first.",
+      "collectionGroup": "graph_events",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "event_type", "order": "ASCENDING" },
+        { "fieldPath": "occurred_at", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

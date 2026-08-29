@@ -135,6 +135,21 @@ EUR-Lex account, so there is nothing generic to ship.
   E2E caught it.
 - **Audit trail**: every state change writes an immutable `graph_events`
   record; `scripts/` walker asserts state and events agree.
+- **The engine does not know it is a web app.** `api/app/core/` imports neither
+  FastAPI nor ADK — checkable with one grep. Agents are confined to four files
+  in `api/app/adk/` that register tools whose bodies are plain functions in
+  `core/`, so every decision in this system runs and tests without an agent
+  framework or a web server.
+- **An alert says why.** A verdict that moved names the regulation that moved
+  it, and whether anybody uploaded that regulation. `GET /stats/autonomy` counts
+  the same thing from stored records — regulations found unprompted, rules read
+  out of them, verdicts changed — so "it watches for changes" is a number you
+  can click through, not a sentence in a README.
+- **A rule that cannot apply to you is not put in front of you.** The review
+  queue is filtered to what could bear on products in the workspace, computed on
+  every read so adding a product changes it with no migration. Nothing is
+  deleted or downgraded, and the queue always says how many rules it is holding
+  back and why.
 
 ## Architecture
 
@@ -233,15 +248,19 @@ api/app/core/          the plain-Python engine: extraction/, detection.py (what 
                        query.py, citations.py (grounded source spans),
                        normalization.py, substances.py, library.py + library_data.json,
                        sources.py + fetching.py (watched regulator addresses),
-                       integrity.py (state vs event-log walker)
+                       relevance.py (which rules bear on this workspace),
+                       alerts.py + autonomy.py (why a verdict moved, and what
+                       was done unprompted), integrity.py (state vs event walker)
 api/app/adk/           the four ADK agents: extraction, reconciliation, query,
                        plus the phase-0 smoke test. Registrations only — every
                        tool body is a plain function in core/
-api/tests/             369 unit tests + fixture corpus + live-Vertex eval
+api/tests/             392 unit tests + fixture corpus + live-Vertex eval
 web/                   Next.js app (twin, self-describing upload + stepper,
                        readiness, timeline, ask panel, conflicts, review queue,
                        rulebook, watch list, cited source-text view)
 data/regulations/      real source PDFs (EU + BPOM) with provenance in SOURCES.md
+Makefile               `make test-all` — lint, tests, build, local drill, one table
+firestore.indexes.json the three composite indexes; `setup.sh` submits them
 regulens.env.example   the one file a clone edits (copy to regulens.env)
 scripts/quickstart.sh  clone to running stack, one command
 scripts/setup.sh       GCP provisioning on its own (idempotent)
@@ -353,6 +372,32 @@ The browser reads `NEXT_PUBLIC_API_URL` (default http://localhost:8080); server
 components read `API_INTERNAL_URL` when set. `FAKE_LLM=1` gives deterministic
 offline behaviour without Vertex calls.
 
+## One command
+
+```bash
+make test-all
+```
+
+Lint, unit tests, a type check, a production web build, and — if Docker is up —
+the whole pipeline drill against emulators: upload, extract, reconcile, open a
+conflict, flip a market unprompted, redeliver a message and prove nothing
+duplicated. It prints a pass/fail table and nothing else, costs nothing, and
+touches no Google Cloud project.
+
+```
+STEP                         RESULT
+----                         ------
+ruff (api)                   PASS
+pytest (api)                 PASS
+tsc (web)                    PASS
+next build (web)             PASS
+local e2e drill              PASS
+```
+
+`make help` lists the rest. `make verify-deployed` runs the same drill against
+the deployed stack — kept as a separate target on purpose, because it spends
+money and mutates a real workspace.
+
 ## Tests and verification
 
 ```bash
@@ -457,6 +502,7 @@ including the ones the services read directly in production.
 | `API_INTERNAL_URL` | unset | API URL used by server components (compose: `http://api:8080`) |
 | `FIRESTORE_DATABASE` | `(default)` | set to `local` against the emulator |
 | `LOCAL_STORAGE_DIR` | unset | filesystem uploads instead of GCS (local only) |
+| `SOURCE_SPARQL_LOOKBACK_DAYS` | `120` | how far back a catalogue query asks; a fixed window, so a missed run cannot open a silent gap |
 | `SOURCE_CHECK_INTERVAL_HOURS` | `24` | default re-read interval for a new watched source |
 | `SOURCE_MAX_NEW_PER_CHECK` | `3` | most feed entries read in one run, so an overnight burst is not an unbounded bill |
 | `MAX_FETCH_CHARS` | `200000` | a watched document past this is refused, not truncated |

@@ -67,6 +67,20 @@ say "Firestore (Native mode)"
 g firestore databases describe --database="(default)" >/dev/null 2>&1 || \
   g firestore databases create --location="$REGION" --type=firestore-native
 
+say "Firestore composite indexes"
+# Single-field filters are served by Firestore's automatic indexes, which is why
+# there are only three of these: the API deliberately filters on one field and
+# refines in process. Creating an index that already exists returns an error
+# rather than a no-op, so the failure is tolerated instead of aborting the run.
+INDEX_FILE="$(dirname "$0")/../firestore.indexes.json"
+if [[ -f "$INDEX_FILE" ]]; then
+  g firestore indexes create --file="$INDEX_FILE" >/dev/null 2>&1 \
+    && echo "indexes submitted (they build in the background)" \
+    || echo "indexes already present, or already building"
+else
+  echo "no firestore.indexes.json — skipping"
+fi
+
 say "GCS bucket"
 gcloud storage buckets describe "gs://$BUCKET" --project "$PROJECT_ID" >/dev/null 2>&1 || \
   gcloud storage buckets create "gs://$BUCKET" --project "$PROJECT_ID" \

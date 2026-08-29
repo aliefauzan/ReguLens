@@ -51,7 +51,13 @@ export default function NavBar() {
     let cancelled = false;
     function read() {
       Promise.all([
-        listClauses({ status: "needs_review" }).then((r) => r.clauses.length).catch(() => 0),
+        // Relevance-filtered on purpose. The badge is a call to action, and
+        // "200" reads as broken rather than urgent when 190 of them are rules
+        // about products nobody here makes. The full list is still one click
+        // away, and the queue itself says how many it is holding back.
+        listClauses({ status: "needs_review", relevantOnly: true })
+          .then((r) => r.clauses.length)
+          .catch(() => 0),
         listConflicts().then((r) => r.conflicts.length).catch(() => 0),
       ]).then(([review, conflicts]) => {
         if (!cancelled) setCounts({ review, conflicts });

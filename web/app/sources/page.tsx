@@ -14,6 +14,7 @@ import {
   type WatchedSource,
 } from "@/lib/api";
 import { jurisdictionName, plain } from "../_ui/status";
+import AutonomyPanel from "./AutonomyPanel";
 
 /**
  * The addresses ReguLens re-reads on its own.
@@ -245,6 +246,8 @@ export default function SourcesPage() {
         straight into your verdicts. When nothing has changed, the check costs nothing and this page
         says so.
       </p>
+
+      <AutonomyPanel />
 
       {loading ? <p className="t-body t-secondary mt-8">Loading…</p> : null}
 
