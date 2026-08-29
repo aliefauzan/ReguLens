@@ -1,21 +1,19 @@
 # One file. Lint, test, build one image, deploy both services and the job, all
 # pinned to the commit SHA so a rollback is a redeploy of a known tag.
 #
-# Nothing in here names a particular project or a particular *.run.app host.
-# `scripts/quickstart.sh` computes both URLs from the project number — Cloud Run
-# publishes a service at https://SERVICE-PROJECTNUMBER.REGION.run.app, which is
-# known before the first deploy — and passes them in. Run this file by hand and
-# the defaults below still produce a working stack for local browsing.
+# Nothing in here names a particular project or a particular *.run.app host, and
+# nothing has to be passed in. Cloud Run publishes a service at
+# https://SERVICE-PROJECTNUMBER.REGION.run.app, so the build derives both URLs
+# from $PROJECT_NUMBER itself. That matters because the GitHub push trigger runs
+# this file with no substitutions at all: any default here is what production
+# gets, and a localhost default reached production once already.
 substitutions:
   _REGION: asia-southeast1
-  # Baked into the web image at build time: Next.js inlines NEXT_PUBLIC_* into
-  # the browser bundle, so it cannot be an env var on the running service.
-  _API_URL: http://localhost:8080
-  # Every origin allowed to call the API. Cloud Run answers on two hostnames for
-  # the same service — the legacy project-hash form and the newer project-number
-  # form — and a browser sends whichever one the user typed, so both belong here
-  # or the site is dead for whoever opened the other link.
-  _WEB_ORIGINS: http://localhost:3000,http://localhost:3111
+  # Both default to empty, meaning "derive from $PROJECT_NUMBER and _REGION".
+  # They are overrides for a custom domain, not the normal path — and crucially
+  # not a localhost default that a trigger build could ship to production.
+  _API_URL: ''
+  _WEB_ORIGINS: ''
 
 steps:
   - id: lint
@@ -46,24 +44,32 @@ steps:
   # Cloud Run answers on two hostnames for the same service — the legacy
   # project-hash form and the newer project-number form. A browser sends the one
   # the user typed, so both web origins have to be allowed or the site is dead
-  # for whoever opened the other link.
+  # for whoever opened the other link. The project-number form is derived here;
+  # the legacy one is read back from the deployed service in the final step,
+  # because it cannot be computed.
   - id: deploy-api
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
+    entrypoint: bash
     args:
-      - run
-      - deploy
-      - regulens-api
-      - --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}
-      - --region=${_REGION}
-      - --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com
-      - --allow-unauthenticated
-      - --max-instances=3
-      - --set-env-vars=^@^CORS_ORIGINS=${_WEB_ORIGINS}@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global@DEBUG_VIEW=true@FAKE_LLM=false
-      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
-      - --command=uvicorn
-      - --args=app.main:app,--host,0.0.0.0,--port,8080
-      - --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12
+      - -c
+      - |
+        set -e
+        ORIGINS="${_WEB_ORIGINS}"
+        if [ -z "$$ORIGINS" ]; then
+          ORIGINS="http://localhost:3000,http://localhost:3111,https://regulens-web-$PROJECT_NUMBER.${_REGION}.run.app"
+        fi
+        echo "CORS origins: $$ORIGINS"
+        gcloud run deploy regulens-api \
+          --image=${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA} \
+          --region=${_REGION} \
+          --service-account=regulens-api@${PROJECT_ID}.iam.gserviceaccount.com \
+          --allow-unauthenticated \
+          --max-instances=3 \
+          --set-env-vars="^@^CORS_ORIGINS=$$ORIGINS@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global@DEBUG_VIEW=true@FAKE_LLM=false" \
+          --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
+          --command=uvicorn \
+          --args=app.main:app,--host,0.0.0.0,--port,8080 \
+          --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12
 
   - id: deploy-worker
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
@@ -104,17 +110,35 @@ steps:
           --command=python \
           --args=-m,app.job,seed
 
+  # Next.js inlines NEXT_PUBLIC_* into the browser bundle at build time, so the
+  # API URL cannot be an env var on the running service — it is baked in here,
+  # and getting it wrong ships a site that calls localhost from the public web.
+  # That happened: this used to read a substitution whose default was localhost,
+  # and the GitHub push trigger passes no substitutions.
   - id: build-web
     name: gcr.io/cloud-builders/docker
     dir: web
+    entrypoint: bash
     args:
-      - build
-      - --build-arg=NEXT_PUBLIC_API_URL=${_API_URL}
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA}
-      - -t
-      - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:latest
-      - .
+      - -c
+      - |
+        set -e
+        API_URL="${_API_URL}"
+        if [ -z "$$API_URL" ]; then
+          API_URL="https://regulens-api-$PROJECT_NUMBER.${_REGION}.run.app"
+        fi
+        echo "web will call: $$API_URL"
+        case "$$API_URL" in
+          http://localhost*|http://127.0.0.1*)
+            echo "REFUSING: a deployed web app cannot call $$API_URL" >&2
+            exit 1
+            ;;
+        esac
+        docker build \
+          --build-arg=NEXT_PUBLIC_API_URL="$$API_URL" \
+          -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:${SHORT_SHA} \
+          -t ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/web:latest \
+          .
 
   - id: push-web
     name: gcr.io/cloud-builders/docker
@@ -136,6 +160,39 @@ steps:
       - --max-instances=3
       - --set-env-vars=VERSION=${SHORT_SHA}
       - --port=8080
+
+  # The legacy project-hash hostname cannot be computed, only read back. Whoever
+  # opened that link gets a working site instead of a CORS error.
+  - id: allow-real-web-origin
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -e
+        DERIVED="https://regulens-web-$PROJECT_NUMBER.${_REGION}.run.app"
+        ACTUAL="$$(gcloud run services describe regulens-web --region=${_REGION} \
+          --format='value(status.url)')"
+        echo "derived: $$DERIVED"
+        echo "actual:  $$ACTUAL"
+        if [ -n "$$ACTUAL" ] && [ "$$ACTUAL" != "$$DERIVED" ]; then
+          # gcloud renders a repeated field as a Python-style list, so this
+          # arrives as ['a,b,c']. The brackets AND the quotes have to go: a
+          # trailing quote makes the last origin `...run.app'`, which no browser
+          # Origin header will ever equal, and CORS fails for exactly the host
+          # this step exists to allow. That shipped once.
+          CURRENT="$$(gcloud run services describe regulens-api --region=${_REGION} \
+            --format='value(spec.template.spec.containers[0].env.filter("name:CORS_ORIGINS").extract("value"))' \
+            | tr -d "[]'\"")"
+          case "$$CURRENT" in
+            *"$$ACTUAL"*) echo "already allowed" ;;
+            *)
+              gcloud run services update regulens-api --region=${_REGION} \
+                --update-env-vars="^@^CORS_ORIGINS=$$CURRENT,$$ACTUAL"
+              echo "added $$ACTUAL"
+              ;;
+          esac
+        fi
 
 images:
   - ${_REGION}-docker.pkg.dev/$PROJECT_ID/regulens/api:${SHORT_SHA}

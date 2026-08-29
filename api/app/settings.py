@@ -98,7 +98,21 @@ class Settings(BaseSettings):
 
     @property
     def cors_origin_list(self) -> list[str]:
-        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+        """Allowed origins, stripped of anything a shell pipeline left behind.
+
+        A browser sends `Origin: https://host` exactly. An entry carrying a
+        stray quote — `https://host'` — matches nothing and the site is simply
+        dead for whoever opened that hostname, with the only symptom a CORS
+        error in a console the operator is not looking at. That shipped once,
+        out of a deploy step that read the current value back through gcloud and
+        got a Python-style list. Cheap to defend against here, so it is.
+        """
+        cleaned = []
+        for origin in self.cors_origins.split(","):
+            origin = origin.strip().strip("\"'[]").strip()
+            if origin:
+                cleaned.append(origin)
+        return cleaned
 
 
 @lru_cache
