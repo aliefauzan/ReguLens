@@ -263,7 +263,9 @@ def _synthesize_via_agent(
     from app.adk.query_agent import INSUFFICIENT, run_query_agent
 
     try:
-        answer, served = asyncio.run(run_query_agent(question, product_id))
+        answer, served = asyncio.run(
+            run_query_agent(question, product_id, evidence=bundle["clauses"])
+        )
     except Exception as exc:  # noqa: BLE001 - the deterministic path is the net
         log(logger, logging.WARNING, "query_agent_failed", error=str(exc)[:200])
         return ("", [])

@@ -3,6 +3,13 @@
 # of the plan's exit criteria, one curl at a time.
 set -uo pipefail
 
+# `pipefail` alone was not enough: every check below is a pipeline ending in a
+# python assertion, and nothing read the pipeline's status, so a check that
+# crashed printed its traceback and the run still reported ALL CHECKS PASSED.
+# That happened, on a query that came back empty. Every check now ends in
+# `|| fail "<name>"`, and the query calls carry a timeout so a hung request
+# fails loudly instead of piping nothing into a JSON parser.
+
 # Read regulens.env so this needs no arguments after a quickstart run.
 CONFIG="${CONFIG:-$(dirname "$0")/../regulens.env}"
 if [[ -f "$CONFIG" ]]; then
@@ -40,14 +47,27 @@ PRODUCT=$(curl -sf "$API/products" | python3 -c "import sys,json; ps=json.load(s
 echo "product: $PRODUCT"
 
 say "baseline compliance"
+# The whole drill rests on Germany starting from `unknown`: the headline is that
+# it flips without anyone asking. That is only true on a workspace with no EU
+# rules in it, and this script uploads one — so it removes it again at the end.
+# Before that cleanup existed the assertion could only hold on the first run
+# ever, and because no check read its exit status it failed in silence while the
+# script still printed ALL CHECKS PASSED.
 curl -sf "$API/products/$PRODUCT/compliance" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 print('statuses:', d['statuses'])
 print('issues:', d['issue_counts'])
 assert d['statuses'].get('market_id') == 'compliant', 'Indonesia must read compliant'
-assert d['statuses'].get('market_de') == 'unknown', 'Germany must read unknown'
-print('UC baseline OK')"
+if d['statuses'].get('market_de') != 'unknown':
+    raise SystemExit(
+        'PRECONDITION NOT MET: Germany reads ' + str(d['statuses'].get('market_de'))
+        + ', not unknown, so the unprompted flip cannot be observed here — it has '
+        'already happened. This workspace holds EU rules, most likely the bundled '
+        'rulebook. Either run scripts/verify_local.sh, which starts from a wiped '
+        'stack, or remove the EU documents first (DELETE /documents/{id}).'
+    )
+print('UC baseline OK')" || fail "baseline compliance"
 
 say "upload EU PDF"
 DOC=$(curl -s -X POST "$API/documents" \
@@ -86,7 +106,7 @@ import sys, json
 cs = json.load(sys.stdin)['conflicts']
 print(f'{len(cs)} open conflicts')
 assert len(cs) >= 1, 'expected cross-jurisdiction conflict'
-print('UC-C OK: cross-jurisdiction conflict open')"
+print('UC-C OK: cross-jurisdiction conflict open')" || fail "cross-jurisdiction conflict"
 
 say "the flip: Germany non_compliant with no user action"
 sleep 30
@@ -95,7 +115,7 @@ import sys, json
 d = json.load(sys.stdin)
 print('statuses:', d['statuses'])
 assert d['statuses'].get('market_de') == 'non_compliant', 'Germany must flip to non_compliant'
-print('UC-B OK: unprompted flip')"
+print('UC-B OK: unprompted flip')" || fail "unprompted flip"
 
 say "alerts"
 curl -sf "$API/alerts" | python3 -c "
@@ -103,26 +123,26 @@ import sys, json
 a = json.load(sys.stdin)['alerts']
 assert len(a) >= 1, 'no alert'
 print(f'{len(a)} alert(s); newest:', a[0].get('after'))
-print('alert OK')"
+print('alert OK')" || fail "alert"
 
 say "query: why is my product at risk"
-curl -s -X POST "$API/query" -H 'Content-Type: application/json' \
+curl -s --max-time 120 -X POST "$API/query" -H 'Content-Type: application/json' \
   -d "{\"question\": \"Why is my product at risk?\", \"product_id\": \"$PRODUCT\"}" | python3 -c "
 import sys, json
 r = json.load(sys.stdin)
 print('intent:', r['intent'], '| refusal:', r['refusal'])
 print('answer:', r['answer'][:220])
 assert r['cited_clauses'], 'must cite stored clauses'
-print('grounding OK,', len(r['cited_clauses']), 'citation(s)')"
+print('grounding OK,', len(r['cited_clauses']), 'citation(s)')" || fail "grounded query"
 
 say "query refusal: no data for Japan"
-curl -s -X POST "$API/query" -H 'Content-Type: application/json' \
+curl -s --max-time 120 -X POST "$API/query" -H 'Content-Type: application/json' \
   -d '{"question": "What are the Japan requirements for sodium benzoate?"}' | python3 -c "
 import sys, json
 r = json.load(sys.stdin)
 print('refusal:', r['refusal'], '| answer:', r['answer'][:140])
 assert r['refusal'], 'must refuse when no data ingested'
-print('refusal OK')"
+print('refusal OK')" || fail "query refusal"
 
 say "cache hit on identical re-upload"
 CACHE=$(curl -s -X POST "$API/documents" \
@@ -134,7 +154,7 @@ echo "$CACHE" | python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 assert d.get('cached') is True, 'identical upload must short-circuit'
-print('cached:', d['cached'], '-> same doc id', d['document']['id'])"
+print('cached:', d['cached'], '-> same doc id', d['document']['id'])" || fail "upload cache"
 
 say "redelivery produces no duplicate clauses"
 COUNT_BEFORE=$(curl -sf "$API/documents/$DOC_ID" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['clauses']))")
@@ -144,5 +164,34 @@ sleep 25
 COUNT_AFTER=$(curl -sf "$API/documents/$DOC_ID" | python3 -c "import sys,json; print(len(json.load(sys.stdin)['clauses']))")
 echo "clauses before=$COUNT_BEFORE after=$COUNT_AFTER"
 [ "$COUNT_BEFORE" = "$COUNT_AFTER" ] && echo "redelivery OK" || fail "duplicate clauses after redelivery"
+
+say "cleanup: put the workspace back where the drill found it"
+# Without this the run is not repeatable: the EU document it uploads is exactly
+# what makes Germany non_compliant, so the next run's baseline assertion cannot
+# hold. Leaving it behind is also how six copies of one regulation accumulated in
+# the demo workspace. Pass KEEP=1 to inspect the document after a run.
+if [ -n "${KEEP:-}" ]; then
+  echo "kept $DOC_ID (KEEP is set); the next run's baseline check will fail"
+else
+  curl -s -X DELETE "$API/documents/$DOC_ID" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print('removed', d['deleted'] + ':', d['clauses'], 'clauses,', d['derived'],
+      'derived records,', d['products_reevaluated'], 'product(s) re-evaluated')" \
+    || fail "cleanup"
+  # Reported, not asserted. Germany returns to `unknown` only if nothing else in
+  # the graph carries an EU limit, and a workspace that has loaded the bundled
+  # rulebook has plenty — that is the rulebook working, not a dirty workspace.
+  curl -sf "$API/products/$PRODUCT/compliance" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+print('statuses after cleanup:', d['statuses'])
+if d['statuses'].get('market_de') != 'unknown':
+    print('note: Germany still reads', d['statuses'].get('market_de'), '— other EU rules')
+    print('      remain in the graph, most likely the bundled rulebook. Re-running')
+    print('      the unprompted-flip drill needs a workspace without EU rules;')
+    print('      scripts/verify_local.sh gets one from a wiped stack every time.')" \
+    || fail "cleanup status read"
+fi
 
 say "ALL CHECKS PASSED"

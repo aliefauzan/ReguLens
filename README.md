@@ -21,9 +21,12 @@ regulation enters — bundled library entry, uploaded PDF, or pasted announcemen
   -> a deterministic pass reads the document's own words for jurisdiction,
      publisher, source type and effective date (no model call); a low-confidence
      guess is handed back to the user, never silently defaulted
-  -> extracted into structured, confidence-scored clauses (Gemini x2 samples)
+  -> extracted into structured, confidence-scored clauses by the ADK Extraction
+     Agent (two samples per part, run concurrently, for self-consistency)
   -> deterministic guardrail decides whether two clauses may be compared
-  -> judge (LLM) only settles genuinely ambiguous same-jurisdiction pairs
+  -> the ADK Reconciliation Agent is consulted ONLY on a genuinely ambiguous
+     same-jurisdiction pair, and it must walk the guardrail's tools to reach
+     its verdict
   -> transactional verdict mutates the knowledge graph + audit event
   -> impact engine re-evaluates every affected product and market
   -> product status flips on its own; an alert names the cause and the sources
@@ -41,9 +44,15 @@ identical hash → store → publish → extract → reconcile path.
 - **Computed confidence, not self-reported**: `0.3*parse_quality +
   0.4*self_consistency + 0.3*authority_tier`. Low-authority sources are capped
   by construction and routed to a human review queue instead of mutating state.
-- **Grounded query**: every answer must cite stored clause ids; citations are
-  validated in code against the retrieved set. No data means an explicit
-  refusal — never world-knowledge guesses about regulations.
+- **Grounded query**: the answer comes from an ADK agent choosing its own
+  retrieval tools, but every clause id those tools serve is recorded, and the
+  answer's citations are validated in code against that record. An id the model
+  invented cites nothing. When the agent has no relevant evidence it says so in
+  one fixed word that typed code turns into an explicit refusal — because an
+  agent left to phrase its own emptiness will write "I have no information" and
+  cite the clauses it looked at anyway, which is an ungrounded answer wearing a
+  grounded answer's citations. That exact failure happened, and the deployed
+  E2E caught it.
 - **Audit trail**: every state change writes an immutable `graph_events`
   record; `scripts/` walker asserts state and events agree.
 
@@ -74,9 +83,10 @@ Exporter (browser)
   -> regulens-api (Cloud Run, public)  -- writes Firestore + GCS, publishes --> Pub/Sub: document.uploaded
                                                                                      |  push, OIDC
                                                                               regulens-worker (Cloud Run, private)
-   /internal/document-uploaded -> extract (Gemini x2)            -> clause.extracted
-   /internal/clause-extracted  -> reconcile (guardrail + judge)  -> graph.changed
-   /internal/graph-changed     -> impact (pure code)             -> Firestore verdict + graph_events
+   /internal/document-uploaded -> extract (Extraction Agent x2)  -> clause.extracted
+   /internal/clause-extracted  -> reconcile (guardrail; Reconciliation
+                                  Agent only when ambiguous)     -> graph.changed
+   /internal/graph-changed     -> impact (pure code, no model)   -> Firestore verdict + graph_events
    /internal/dead-letter       <- any topic after max retries
   -> alerts, readiness, timeline, grounded query
 ```
@@ -116,8 +126,9 @@ Cloud Run Jobs · Artifact Registry · Cloud Build · Cloud Logging.
 ## Repository layout
 
 ```
-api/app/main.py        API service (upload, detect, products, clauses, conflicts,
-                       compliance, alerts, query, library, substances, debug view)
+api/app/main.py        API service (upload, detect, delete documents, products,
+                       clauses, conflicts, compliance, alerts, query, library,
+                       substances, debug view)
 api/app/worker.py      Pub/Sub push consumers: extract / reconcile / impact / DLQ
 api/app/job.py         Cloud Run Job: idempotent demo seed
 api/app/core/          the plain-Python engine: extraction/, detection.py (what is
@@ -125,13 +136,17 @@ api/app/core/          the plain-Python engine: extraction/, detection.py (what 
                        query.py, citations.py (grounded source spans),
                        normalization.py, substances.py, library.py + library_data.json,
                        integrity.py (state vs event-log walker)
-api/app/adk/           thin ADK registrations over those functions
-api/tests/             257 unit tests + fixture corpus + live-Vertex eval
+api/app/adk/           the four ADK agents: extraction, reconciliation, query,
+                       plus the phase-0 smoke test. Registrations only — every
+                       tool body is a plain function in core/
+api/tests/             279 unit tests + fixture corpus + live-Vertex eval
 web/                   Next.js app (twin, self-describing upload + stepper,
                        readiness, timeline, ask panel, conflicts, review queue,
                        rulebook, cited source-text view)
 data/regulations/      real source PDFs (EU + BPOM) with provenance in SOURCES.md
-scripts/setup.sh       one-command GCP provisioning (idempotent)
+regulens.env.example   the one file a clone edits (copy to regulens.env)
+scripts/quickstart.sh  clone to running stack, one command
+scripts/setup.sh       GCP provisioning on its own (idempotent)
 scripts/build_library.py  rebuild api/app/core/library_data.json from the corpus
 scripts/measure_latency.py  upload -> re-evaluated, stage by stage
 scripts/verify_e2e.sh  end-to-end verification against the deployed stack
@@ -244,7 +259,7 @@ offline behaviour without Vertex calls.
 
 ```bash
 cd api
-pytest -q                       # 257 unit tests, no network
+pytest -q                       # 279 unit tests, no network
 REGULENS_EVAL=1 pytest tests/test_extraction_quality.py -q -s
                                 # live-Vertex fixture accuracy (costs tokens)
 
@@ -263,6 +278,63 @@ bash scripts/verify_e2e.sh      # full E2E against the deployed stack:
 ```
 
 `PYTHONPATH=. python -m app.core.integrity` walks live state vs the event log.
+
+`measure_latency.py` deletes the document it uploaded when it is done — pass
+`KEEP=1` to inspect it instead. That is not tidiness: six unattended runs left
+six near-identical copies of the same EU regulation in the demo workspace, and
+the next verification run counted them as nine open conflicts and six separate
+benzoate clauses. A measurement that changes what the next measurement sees is
+not a measurement.
+
+### What the E2E proved, and what it cannot
+
+Run 29 Aug against the live stack, with the ADK agents on the answer path:
+
+| Check | Result |
+|---|---|
+| Baseline: Indonesia compliant, Germany unknown | pass |
+| EU excerpt uploaded, extracted | pass |
+| Cross-jurisdiction conflict opens | pass |
+| Germany flips `non_compliant` with no user action | pass |
+| Alert fires naming market, clause and transition | pass |
+| Grounded answer cites stored clauses | pass — 8 citations, `refusal: false` |
+| No data for Japan | pass — `refusal: true`, 0 citations |
+| Identical re-upload hits the cache | pass |
+| Redelivered `document.uploaded` creates no duplicate clauses | pass — 42 before, 42 after |
+
+**`verify_e2e.sh` has a precondition it now states out loud.** The headline it
+checks is that Germany flips *without being asked*, and that can only be watched
+on a workspace holding no EU rules yet. A workspace that has loaded the bundled
+rulebook already has them, so the flip has already happened and the drill has
+nothing left to observe. It says exactly that and exits non-zero, rather than
+asserting something that cannot hold. `verify_local.sh` gets a wiped stack every
+time, which is why the flip is proven there on every run.
+
+Four defects that suite found, all fixed rather than filed:
+
+1. **The grounded-query regression** described above — an answer saying "I have
+   no information" while citing clauses, reported as grounded.
+2. **The script reported `ALL CHECKS PASSED` while a check crashed.** Every check
+   was a pipeline ending in a Python assertion and nothing read the exit status,
+   so a query that came back empty printed a traceback into a passing run. Each
+   check now ends in `|| fail "<name>"`. That fix immediately exposed the third.
+3. **The baseline check had been failing in silence on every re-run**, because
+   the script uploads the EU document and never removed it. It cleans up after
+   itself now, so the run is repeatable.
+4. **There was no way to delete a document.** A product could always be deleted;
+   the PDF you uploaded by mistake was permanent unless you had Firestore
+   access. That is also how six copies of one regulation accumulated in the demo
+   workspace during latency measurement. `DELETE /documents/{id}` removes the
+   document, its clauses, the requirements they produced, the conflicts they
+   opened and the debug record, then re-evaluates every affected product — a
+   delete that leaves a stale red verdict on screen is worse than no delete.
+
+**Query latency, measured on the deployed stack:** 19–28s for a grounded answer.
+The agent chooses its own tools, and each choice is a model turn. Two changes cut
+it from a measured 42s: repeated searches within one run are answered from the
+first result, and the retrieval the caller already did is handed to the agent up
+front so searching is no longer compulsory. It is still the slowest thing a user
+can press, and it is a question they asked rather than a page waiting to load.
 
 ## Configuration
 

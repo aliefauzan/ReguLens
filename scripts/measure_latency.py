@@ -215,6 +215,24 @@ def main() -> int:
     statuses = get(f"/products/{product_id}/compliance")["statuses"]
     print(f"\n  TOTAL upload -> evaluated  {t_impact:6.1f}s")
     print(f"  statuses: {statuses}")
+
+    # Measuring must not leave a mess behind. Six runs of this script against the
+    # deployed stack left six near-identical copies of the same EU regulation in
+    # the demo workspace, and the next verification run counted them as findings.
+    # Pass KEEP=1 to inspect the document afterwards.
+    if os.environ.get("KEEP"):
+        print(f"\n  kept {document_id} (KEEP is set)")
+    else:
+        request = urllib.request.Request(f"{API}/documents/{document_id}", method="DELETE")
+        with urllib.request.urlopen(request, timeout=120) as response:
+            removed = json.load(response)
+        print(
+            f"\n  cleaned up {document_id}: {removed.get('clauses')} clauses, "
+            f"{removed.get('derived')} derived records, "
+            f"{removed.get('products_reevaluated')} product(s) re-evaluated"
+        )
+        after = get(f"/products/{product_id}/compliance")["statuses"]
+        print(f"  statuses after cleanup: {after}")
     return 0
 
 

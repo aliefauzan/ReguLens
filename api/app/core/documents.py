@@ -12,7 +12,7 @@ from typing import Any
 
 from google.cloud import firestore
 
-from app.core.repository import events_for, new_id, write_with_event
+from app.core.repository import delete_with_event, events_for, new_id, write_with_event
 from app.db import get_db
 from app.models import (
     WORKSPACE_ID,
@@ -162,6 +162,96 @@ def list_documents(limit: int = 50) -> list[RegulatoryDocument]:
     out = [_to_document(d.id, d.to_dict()) for d in docs]
     out.sort(key=lambda d: d.uploaded_at or 0, reverse=True)
     return out
+
+
+def delete_document(document_id: str) -> dict[str, int] | None:
+    """Remove a document and everything derived from it.
+
+    You could always delete a product you got wrong and never the document you
+    uploaded by mistake, which left the wrong PDF in the rulebook permanently
+    for anyone who cannot reach Firestore. Four kinds of derived state go with
+    it, because all four exist only because this document did:
+
+      - its clauses;
+      - the requirements those clauses produced on every product;
+      - the conflicts they opened, on either side of the pair;
+      - the extraction debug record.
+
+    The affected products are then re-evaluated, so a market that read
+    `non_compliant` only because of this document reads what it should now — a
+    delete that leaves a stale red verdict on screen is worse than no delete.
+
+    The `document_deleted` event stays. The audit trail is the one thing a
+    delete must not erase.
+    """
+    existing = get_document(document_id)
+    if existing is None:
+        return None
+
+    db = get_db()
+    clause_snapshots = list(
+        db.collection("clauses")
+        .where(filter=firestore.FieldFilter("document_id", "==", document_id))
+        .limit(500)
+        .stream()
+    )
+    clause_ids = [s.id for s in clause_snapshots]
+    refs = [s.reference for s in clause_snapshots]
+
+    # Requirements and conflicts are keyed on clause, and Firestore's `in`
+    # filter takes thirty values at a time.
+    product_ids: set[str] = set()
+    for start in range(0, len(clause_ids), 30):
+        chunk = clause_ids[start : start + 30]
+        for snapshot in (
+            db.collection("requirements")
+            .where(filter=firestore.FieldFilter("clause_id", "in", chunk))
+            .stream()
+        ):
+            refs.append(snapshot.reference)
+            product = (snapshot.to_dict() or {}).get("product_id")
+            if product:
+                product_ids.add(str(product))
+        for field in ("clause_a", "clause_b"):
+            for snapshot in (
+                db.collection("conflicts")
+                .where(filter=firestore.FieldFilter(field, "in", chunk))
+                .stream()
+            ):
+                refs.append(snapshot.reference)
+    refs.append(db.collection("extraction_debug").document(document_id))
+
+    # De-duplicate: a conflict between two clauses of this same document is
+    # found once per side, and Firestore rejects a batch that deletes one
+    # reference twice.
+    unique = list({ref.path: ref for ref in refs}.values())
+    delete_with_event(
+        COLLECTION,
+        document_id,
+        event_type=EventType.DOCUMENT_DELETED,
+        entity_type="document",
+        before=existing.model_dump(mode="json"),
+        also_delete=unique,
+    )
+
+    for product_id in sorted(product_ids):
+        try:
+            from app.core.impact import run_impact_for_product
+
+            run_impact_for_product(product_id)
+        except Exception as exc:  # noqa: BLE001 - the delete already happened
+            log(
+                logger, logging.WARNING, "reevaluate_after_delete_failed",
+                product_id=product_id, error=str(exc)[:200],
+            )
+
+    summary = {
+        "clauses": len(clause_ids),
+        "derived": len(unique) - len(clause_ids),
+        "products_reevaluated": len(product_ids),
+    }
+    log(logger, logging.INFO, "document deleted", document_id=document_id, **summary)
+    return summary
 
 
 def retry_document(document_id: str, *, publish_message: bool = True) -> RegulatoryDocument | None:

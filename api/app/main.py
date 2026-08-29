@@ -569,6 +569,23 @@ def get_document(document_id: str) -> dict:
     }
 
 
+@app.delete("/documents/{document_id}", status_code=200)
+def delete_document(document_id: str) -> dict:
+    """Remove a document and everything derived from it.
+
+    A product could always be deleted and the document you uploaded by mistake
+    could not, so the wrong PDF stayed in the rulebook for good unless you had
+    Firestore access. Clauses, the requirements they produced, the conflicts
+    they opened and the debug record all go, and every affected product is
+    re-evaluated — a delete that leaves a stale red verdict on screen is worse
+    than no delete. The `document_deleted` event survives.
+    """
+    summary = documents_core.delete_document(document_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return {"deleted": document_id, **summary, "trace_id": get_trace_id()}
+
+
 @app.get("/documents/{document_id}/text")
 def get_document_text(document_id: str) -> dict:
     """The document's own words, with each clause located inside them.

@@ -49,7 +49,10 @@ def test_insufficient_marker_yields_no_citations(monkeypatch):
     ids its tools happened to serve on the way."""
     from app.adk import query_agent
 
-    async def fake_run(question, product_id):
+    seen = {}
+
+    async def fake_run(question, product_id, evidence=None):
+        seen["evidence"] = evidence
         return (query_agent.INSUFFICIENT, ["clause_aaa", "clause_bbb"])
 
     monkeypatch.setattr(query_agent, "run_query_agent", fake_run)
@@ -59,12 +62,16 @@ def test_insufficient_marker_yields_no_citations(monkeypatch):
     )
     assert cited == [], "an insufficient answer must never arrive with citations"
     assert answer == ""
+    # And prove the call actually reached the fake rather than raising on its
+    # way in: a TypeError here would be swallowed by the fallback and the
+    # assertions above would pass for the wrong reason.
+    assert seen["evidence"] == [{"id": "clause_aaa", "text": "text of clause_aaa"}]
 
 
 def test_agent_failure_falls_through_rather_than_answering(monkeypatch):
     from app.adk import query_agent
 
-    async def boom(question, product_id):
+    async def boom(question, product_id, evidence=None):
         raise RuntimeError("agent unavailable")
 
     monkeypatch.setattr(query_agent, "run_query_agent", boom)

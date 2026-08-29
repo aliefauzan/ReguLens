@@ -45,6 +45,7 @@ class EventType(StrEnum):
     PRODUCT_UPDATED = "product_updated"
     PRODUCT_STATUS_CHANGED = "product_status_changed"
     PRODUCT_DELETED = "product_deleted"
+    DOCUMENT_DELETED = "document_deleted"
 
 
 class SourceType(StrEnum):

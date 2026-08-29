@@ -28,6 +28,12 @@ _served: contextvars.ContextVar[list[str] | None] = contextvars.ContextVar(
 )
 
 
+# Searches already made during this run, keyed on the normalised query.
+_searches: contextvars.ContextVar[dict[str, list[dict]] | None] = contextvars.ContextVar(
+    "regulens_query_searches", default=None
+)
+
+
 def _serve(ids: list[str]) -> None:
     bucket = _served.get()
     if bucket is not None:
@@ -43,6 +49,10 @@ to ground every claim:
 - find_clauses(query) — clause search over ingested regulations
 - get_events(entity_id) — what changed and when
 - get_conflicts() — open cross-jurisdiction conflicts
+
+Be economical. Two searches is almost always enough: rephrasing the same
+question retrieves the same clauses, and every extra call is time the user
+spends watching a spinner. When you have what you need, answer.
 
 Cite stored clause IDs inline as [clause_id]. Never answer a compliance
 question from general knowledge.
@@ -86,11 +96,28 @@ def get_product_compliance_tool(product_id: str) -> dict:
 
 
 def find_clauses_tool(query: str, k: int = 5) -> dict:
+    """Clause search. Repeated searches within one run are answered from the
+    first result.
+
+    Every call embeds the query and scans Firestore, and the agent likes to
+    rephrase and search again: a measured question spent 42 seconds making five
+    of these. Rephrasings of the same question retrieve the same clauses, so
+    remembering the run's searches costs nothing and saves a round trip each
+    time."""
     from app.core.query import _retrieve
 
+    cache = _searches.get()
+    key = " ".join(query.lower().split())
+    if cache is not None and key in cache:
+        _serve([c["id"] for c in cache[key]])
+        return {"clauses": cache[key], "repeat": True}
+
     bundle = _retrieve(query, None)
+    clauses = [{"id": c["id"], "text": str(c.get("text"))[:300]} for c in bundle["clauses"]]
+    if cache is not None:
+        cache[key] = clauses
     _serve([c["id"] for c in bundle["clauses"]])
-    return {"clauses": [{"id": c["id"], "text": str(c.get("text"))[:300]} for c in bundle["clauses"]]}
+    return {"clauses": clauses}
 
 
 def get_events_tool(entity_id: str) -> dict:
@@ -135,7 +162,32 @@ def build_query_agent():
     )
 
 
-async def run_query_agent(question: str, product_id: str | None) -> tuple[str, list[str]]:
+def _evidence_block(clauses: list[dict]) -> str:
+    """What the caller already retrieved, handed to the agent up front.
+
+    The agent used to start with nothing and had to search before it could say
+    anything, which made every question at least two model turns plus an
+    embedding call — measured at 42s, then 31s once repeat searches were cached.
+    The caller has already run retrieval by the time it gets here, so withholding
+    that was paying for the same clauses twice. The tools remain available for
+    when this is not enough; they are simply no longer compulsory.
+    """
+    if not clauses:
+        return ""
+    lines = [
+        f"[{c['id']}] ({c.get('jurisdiction') or 'unknown jurisdiction'}) "
+        f"{str(c.get('text'))[:300]}"
+        for c in clauses[:8]
+    ]
+    return (
+        "\n\nEvidence already retrieved for this question. Cite from it directly "
+        "when it answers the question; search only if it does not:\n" + "\n".join(lines)
+    )
+
+
+async def run_query_agent(
+    question: str, product_id: str | None, evidence: list[dict] | None = None
+) -> tuple[str, list[str]]:
     """Answer one question with the agent choosing its own retrieval.
 
     Returns `(answer, served_clause_ids)`. The caller validates the answer's
@@ -147,12 +199,17 @@ async def run_query_agent(question: str, product_id: str | None) -> tuple[str, l
 
     bucket: list[str] = []
     token = _served.set(bucket)
+    search_token = _searches.set({})
     try:
         runner = InMemoryRunner(agent=build_query_agent(), app_name="regulens")
         session = await runner.session_service.create_session(
             app_name="regulens", user_id="query"
         )
         prompt = question if not product_id else f"{question}\n\n(product_id={product_id})"
+        # Ids handed over up front count as served: this process read them out of
+        # Firestore, which is the whole basis of the citation check.
+        _serve([c["id"] for c in evidence or []])
+        prompt += _evidence_block(evidence or [])
         parts: list[str] = []
         tool_calls: list[str] = []
         async for event in runner.run_async(
@@ -168,6 +225,7 @@ async def run_query_agent(question: str, product_id: str | None) -> tuple[str, l
                     parts.append(part.text)
     finally:
         _served.reset(token)
+        _searches.reset(search_token)
 
     log(
         logger, logging.INFO, "query agent complete",
