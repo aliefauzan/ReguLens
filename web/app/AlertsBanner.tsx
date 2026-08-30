@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ackAlert, getAlerts, type AlertContext, type GraphEvent } from "@/lib/api";
-import { marketName, statusCopy } from "./_ui/status";
+import { marketName, readableDate, statusCopy } from "./_ui/status";
 
 type Alert = GraphEvent & {
   before?: { status?: string; market?: string } | null;
-  after?: { status?: string; market?: string } | null;
+  after?: { status?: string; market?: string; effective_date?: string | null } | null;
   cause?: { clause_id?: string; document_id?: string } | null;
   acknowledged?: boolean;
   context?: AlertContext;
@@ -25,7 +25,9 @@ type Alert = GraphEvent & {
  */
 function why(context: AlertContext | undefined): string {
   if (!context || !context.cause_available) {
-    return "The rule behind this has since been removed, so the verdict above is the last one we calculated.";
+    return context?.scheduled
+      ? "The rule setting this date is no longer on file, so we cannot show you which one it was."
+      : "The rule behind this has since been removed, so the verdict above is the last one we calculated.";
   }
   const source = context.source_name ?? "a rule we read";
   const limit =
@@ -37,6 +39,15 @@ function why(context: AlertContext | undefined): string {
   if (context.unprompted) {
     // The one sentence this whole feature exists to be able to say.
     return `Nobody uploaded this. ${source} was published at an address ReguLens watches, and we read it on our own.${limit}`;
+  }
+  if (context.scheduled) {
+    // Not "your product is wrong". Nothing is wrong yet — which is the whole
+    // reason this alert is worth reading while there is still time to act.
+    const when = context.effective_date ? readableDate(context.effective_date) : null;
+    const source = context.source_name ?? "a rule we read";
+    return `Nothing is wrong today. ${source} changes the answer${
+      when ? ` on ${when}` : " on a date it states"
+    }, which is the window you have to do something about it.${limit}`;
   }
   if (context.origin === "library") {
     return `Caused by ${source}, one of the rules bundled with ReguLens.${limit}`;
@@ -88,7 +99,8 @@ export default function AlertsBanner() {
           const after = statusCopy(alert.after?.status);
           const before = statusCopy(alert.before?.status);
           const market = alert.after?.market ?? alert.before?.market ?? "";
-          const worse = alert.after?.status === "non_compliant";
+          const scheduled = alert.context?.scheduled === true;
+          const worse = alert.after?.status === "non_compliant" && !scheduled;
           const better = alert.after?.status === "compliant";
           const accent = worse ? "var(--danger)" : better ? "var(--good)" : "var(--warn)";
           return (
@@ -99,10 +111,16 @@ export default function AlertsBanner() {
             >
               <span data-testid="impact-chain">
                 <span className="t-body" style={{ color: accent, fontWeight: 600 }}>
-                  {market ? marketName(market) : "This product"}: {after.label.toLowerCase()}
+                  {market ? marketName(market) : "This product"}:{" "}
+                  {alert.context?.scheduled
+                    ? `${after.label.toLowerCase()} from ${readableDate(
+                        alert.context.effective_date,
+                      )}`
+                    : after.label.toLowerCase()}
                 </span>
                 <span className="t-footnote t-secondary block">
-                  was “{before.label}” · {why(alert.context)}
+                  {alert.context?.scheduled ? "today “" : "was “"}
+                  {before.label}” · {why(alert.context)}
                 </span>
               </span>
               <span className="flex gap-2">

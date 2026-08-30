@@ -351,7 +351,7 @@ def get_product_compliance(
     market_id: str | None = None,
 ) -> dict:
     """Readiness view: requirements + evaluations + issue counts per market."""
-    from app.core.impact import rollup_status
+    from app.core.impact import rollup_status, upcoming_changes
 
     if products.get_product(product_id) is None:
         raise HTTPException(status_code=404, detail="product not found")
@@ -373,6 +373,13 @@ def get_product_compliance(
     if market_id:
         reqs = [r for r in reqs if r.get("market_id") == market_id]
     statuses = rollup_status(product_id)
+    # What binds today, and the next date that answer changes. Both, because a
+    # product that passes today and fails in March is neither "compliant" nor
+    # "non_compliant" on its own, and picking one of those words would be a lie
+    # in whichever direction it was picked.
+    upcoming = upcoming_changes(product_id)
+    if market_id:
+        upcoming = {k: v for k, v in upcoming.items() if k == market_id}
     issues = sum(
         1 for r in reqs
         if r.get("evaluation") in {"fail", "needs_review"}
@@ -380,6 +387,7 @@ def get_product_compliance(
     critical = sum(1 for r in reqs if r.get("evaluation") == "fail")
     return {
         "statuses": statuses,
+        "upcoming": upcoming,
         "requirements": reqs,
         "issue_counts": {"total": issues, "critical": critical},
         "trace_id": get_trace_id(),

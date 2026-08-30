@@ -13,9 +13,17 @@ import {
 import AskPanel from "./AskPanel";
 import Provenance from "../../_ui/Provenance";
 import ProductActions from "./ProductActions";
-import { StatusBadge, countryName, marketName, plain, statusCopy } from "../../_ui/status";
+import { StatusBadge, countryName, marketName, plain, readableDate, statusCopy } from "../../_ui/status";
 
 export const dynamic = "force-dynamic";
+
+// A requirement the reader can see but that does not count toward today's
+// verdict. Without this the page shows a red row under a green badge and
+// explains nothing, which is the one thing this project promised not to do.
+function startsLater(req: ComplianceRequirement, today: string): boolean {
+  const when = req.effective_date?.slice(0, 10);
+  return Boolean(when && /^\d{4}-\d{2}-\d{2}$/.test(when) && when > today);
+}
 
 async function load(
   id: string,
@@ -102,6 +110,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const data = await load(id);
   if (!data) notFound();
   const { product, events, compliance, documents } = data;
+  const today = new Date().toISOString().slice(0, 10);
   const sourceById = Object.fromEntries(documents.map((doc) => [doc.id, doc]));
 
   return (
@@ -170,6 +179,36 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                   <StatusBadge status={status} />
                 </div>
                 <p className="t-subhead t-secondary mt-2">{copy.meaning}</p>
+                {compliance.upcoming?.[marketId] ? (
+                  // The pair is the point. "Compliant" alone is true and
+                  // useless when a rule already adopted changes the answer on a
+                  // date, and that date is the only window anybody can act in.
+                  <p
+                    className="t-subhead mt-3"
+                    style={{ color: "var(--warn)", fontWeight: 600 }}
+                    data-testid={`upcoming-${marketId}`}
+                  >
+                    Changes on {readableDate(compliance.upcoming[marketId].effective_date)}:{" "}
+                    {statusCopy(compliance.upcoming[marketId].status).label.toLowerCase()}.{" "}
+                    <span style={{ fontWeight: 400 }}>
+                      {statusCopy(compliance.upcoming[marketId].status).meaning}
+                    </span>{" "}
+                    {compliance.upcoming[marketId].document_id ? (
+                      <Link
+                        className="underline"
+                        style={{ fontWeight: 400 }}
+                        href={`/documents/${compliance.upcoming[marketId].document_id}${
+                          compliance.upcoming[marketId].clause_id
+                            ? `?cite=${compliance.upcoming[marketId].clause_id}`
+                            : ""
+                        }`}
+                        data-testid={`upcoming-source-${marketId}`}
+                      >
+                        Read the rule that sets this date
+                      </Link>
+                    ) : null}
+                  </p>
+                ) : null}
 
                 {rows.length > 0 ? (
                   <ul className="mt-4 space-y-3" data-testid={`requirements-${marketId}`}>
@@ -181,6 +220,16 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                             ? req.substance_normalized.replaceAll("_", " ")
                             : plain(req.requirement_type ?? req.reason)}
                         </p>
+                        {startsLater(req, today) ? (
+                          <p
+                            className="t-footnote t-secondary mt-1"
+                            data-testid="requirement-not-yet-in-force"
+                          >
+                            Not in force yet — this one starts on{" "}
+                            {readableDate(req.effective_date)}, so it is not part of
+                            today’s verdict.
+                          </p>
+                        ) : null}
 
                         {req.limit_value !== null && req.product_value !== null ? (
                           // The comparison is the whole answer. Show it as a

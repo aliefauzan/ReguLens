@@ -65,3 +65,12 @@ def test_every_reported_field_is_watched():
     for field in REPORTED_FIELDS:
         changed = dict(BASELINE) | {field: "something else entirely"}
         assert requirement_changed(BASELINE, changed) is True, f"{field} is not watched"
+
+
+def test_a_corrected_effective_date_is_a_change():
+    """The date decides whether the row counts toward today's verdict at all, so
+    a clause re-read with a corrected date must rewrite the requirement — not
+    leave last night's deadline on the page."""
+    assert "effective_date" in REPORTED_FIELDS
+    moved = dict(BASELINE) | {"effective_date": "2027-01-12"}
+    assert requirement_changed(dict(BASELINE) | {"effective_date": None}, moved) is True

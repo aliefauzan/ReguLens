@@ -502,10 +502,22 @@ export type ComplianceRequirement = {
   evaluation: string;
   severity: string;
   reason: string | null;
+  // The day this rule starts. Null means it is already in force, which is what
+  // every clause read before this field existed looks like.
+  effective_date?: string | null;
 };
 
 export type ComplianceView = {
+  // What is true today. Rules that enter into force later are not counted.
   statuses: Record<string, string>;
+  // Per market, the next date that answer changes and what it changes to.
+  // Absent for a market whose future rules do not move the verdict.
+  upcoming: Record<
+    string,
+    // `clause_id` / `document_id` name the rule that sets the date, so the page
+    // can link to the passage instead of asserting a deadline unsupported.
+    { effective_date: string; status: string; clause_id?: string | null; document_id?: string | null }
+  >;
   requirements: ComplianceRequirement[];
   issue_counts: { total: number; critical: number };
 };
@@ -542,6 +554,10 @@ export type AlertContext = {
   limit_value?: number | null;
   limit_unit?: string | null;
   clause_text?: string | null;
+  // Set on an alert about a verdict that changes on a date nobody has reached
+  // yet. `effective_date` is the day it starts.
+  scheduled?: boolean;
+  effective_date?: string | null;
 };
 
 export function getAlerts(): Promise<{ alerts: (GraphEvent & { context: AlertContext })[] }> {

@@ -35,6 +35,12 @@ SEVERITY: dict[str, int] = {
     "non_compliant": 2,
 }
 
+# Two kinds of news. A verdict that changed today, and a verdict that will
+# change on a date already known — a rule adopted now that enters into force
+# later. The second is the only warning a company can still act on, so it is an
+# alert and not a footnote.
+ALERTING_EVENTS = ("product_status_changed", "product_status_scheduled")
+
 # Origins that mean "no human went and fetched this". The distinction is the
 # product's entire claim, so it is named here rather than inferred in the UI.
 UNPROMPTED_ORIGINS = {"watched_source"}
@@ -95,6 +101,11 @@ def explain(
         # monitor, and the only reason this field exists.
         "unprompted": origin in UNPROMPTED_ORIGINS,
         "origin": origin,
+        # Present only on a scheduled alert: the day the new verdict starts. The
+        # UI needs it to say "from 12 January" rather than "soon", and the
+        # difference between those two sentences is whether anybody can plan.
+        "effective_date": (event.get("after") or {}).get("effective_date"),
+        "scheduled": event.get("event_type") == "product_status_scheduled",
     }
     if document is not None:
         context |= {
@@ -124,7 +135,7 @@ def list_alerts(limit: int = 20) -> list[dict[str, Any]]:
     events = (
         get_db()
         .collection("graph_events")
-        .where(filter=firestore.FieldFilter("event_type", "==", "product_status_changed"))
+        .where(filter=firestore.FieldFilter("event_type", "in", list(ALERTING_EVENTS)))
         .limit(50)
         .stream()
     )

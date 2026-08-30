@@ -56,6 +56,21 @@ export function StatusBadge({ status, testId }: { status: string; testId?: strin
   );
 }
 
+// A date somebody reads out loud, not an ISO string. Rendered in UTC on
+// purpose: an effective date is a legal fact about a calendar day, and shifting
+// it into the reader's timezone can move it by one.
+export function readableDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const parsed = new Date(`${iso.slice(0, 10)}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 // Market ids are storage keys. Nobody outside the codebase should see them.
 export const MARKET_NAMES: Record<string, string> = {
   market_de: "Germany (European Union)",

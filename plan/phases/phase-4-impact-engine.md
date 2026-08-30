@@ -141,6 +141,33 @@ If the schedule slips, protect this phase over phase 5.
       fire only on actual transitions; redelivery drill in verify_e2e).
 - [x] Deployed.
 
+## Extended 30 Aug 2026 — the verdict is asked as of a date
+
+Tracked in `plan/todo-improvements.md` (loop 1), recorded here because it changes
+what this phase's engine means.
+
+`effective_date` was extracted and stored from phase 2 onward and read only by
+reconciliation, to order supersessions. This module never looked at it, so a
+limit entering into force in 2027 failed a product today, and a limit binding in
+60 days stayed invisible for 60 days.
+
+- [x] `rollup_status(product_id, as_of=None)` counts only rules in force on that
+      date; `upcoming_changes()` returns the next date the answer changes, what
+      it changes to, and the clause and document that set it
+- [x] Absent or unreadable `effective_date` binds **now** — failing open, because
+      hiding a real limit is the worse error and every clause stored before this
+      change carries no date
+- [x] A market whose rules are all future-dated reads `compliant`, not
+      `unknown`: nothing in force is broken, and "we have read no regulation"
+      would be false
+- [x] `EventType.PRODUCT_STATUS_SCHEDULED` written through `write_with_event`;
+      `alerts.worsened` decides which of them is news, so a cleared deadline
+      reaches the audit trail without raising an alert
+- [x] `/products/{id}/compliance` returns `upcoming` beside `statuses`; the
+      product page reads "Changes on 12 January 2027" and links to the passage
+- [x] Verified live on `a05be18-175751` against the real model, and by a new
+      step in `scripts/verify_local.sh` that runs offline
+
 ## Out of scope
 
 Remediation suggestions ("reformulate to 0.04%") — that is advice we cannot

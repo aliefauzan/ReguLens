@@ -44,6 +44,9 @@ class EventType(StrEnum):
     PRODUCT_CREATED = "product_created"
     PRODUCT_UPDATED = "product_updated"
     PRODUCT_STATUS_CHANGED = "product_status_changed"
+    # A verdict that changes on a date nobody has reached yet. Distinct from
+    # PRODUCT_STATUS_CHANGED because nothing about the product is wrong today.
+    PRODUCT_STATUS_SCHEDULED = "product_status_scheduled"
     PRODUCT_DELETED = "product_deleted"
     DOCUMENT_DELETED = "document_deleted"
     SOURCE_ADDED = "source_added"

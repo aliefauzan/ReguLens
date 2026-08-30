@@ -122,3 +122,58 @@ def test_only_unprompted_origins_count_as_found_on_our_own():
     assert alerts_core.UNPROMPTED_ORIGINS == {"watched_source"}
     for origin in ("upload", "library", "demo"):
         assert origin not in alerts_core.UNPROMPTED_ORIGINS
+
+
+# ---------------------------------------------------------------------------
+# Scheduled alerts: the verdict that changes on a date nobody has reached yet
+
+
+def scheduled(**overrides) -> dict:
+    base = event(
+        event_type="product_status_scheduled",
+        before={"market": "market_de", "status": "compliant"},
+        after={
+            "market": "market_de",
+            "status": "non_compliant",
+            "effective_date": "2027-01-12",
+        },
+    )
+    return base | overrides
+
+
+def test_a_scheduled_worsening_is_an_alert():
+    """A rule adopted now and binding later is the only warning a company can
+    still act on."""
+    assert alerts.worsened(scheduled())
+
+
+def test_a_cleared_schedule_is_not_an_alert():
+    """The date arrived, or the rule that set it was superseded. It belongs in
+    the audit trail, not in the banner."""
+    assert not alerts.worsened(
+        scheduled(after={"market": "market_de", "status": None, "effective_date": None})
+    )
+
+
+def test_a_scheduled_alert_carries_the_date_and_says_it_is_scheduled(monkeypatch):
+    """"From 12 January" and "soon" are different sentences, and the difference
+    is whether anybody can plan."""
+    install(monkeypatch, document={"origin": "watched_source"}, clause=None)
+    context = alerts.explain(scheduled(), products_by_id=PRODUCTS, markets_by_id=MARKETS)
+    assert context["scheduled"] is True
+    assert context["effective_date"] == "2027-01-12"
+    assert context["to_status"] == "non_compliant"
+
+
+def test_a_status_change_today_is_not_marked_scheduled(monkeypatch):
+    install(monkeypatch, document={"origin": "upload"}, clause=None)
+    context = alerts.explain(event(), products_by_id=PRODUCTS, markets_by_id=MARKETS)
+    assert context["scheduled"] is False
+    assert context["effective_date"] is None
+
+
+def test_both_event_types_are_queried_for_alerts():
+    """A scheduled verdict that never reaches the query is a deadline nobody is
+    told about."""
+    assert "product_status_changed" in alerts.ALERTING_EVENTS
+    assert "product_status_scheduled" in alerts.ALERTING_EVENTS

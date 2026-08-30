@@ -262,6 +262,21 @@ def _fake_number(raw: str) -> float | None:
     return float(cleaned)
 
 
+# A date the document states about itself. The real prompt asks for
+# `effective_date` and Gemini reads it out of prose; the fake cannot parse prose
+# and does not pretend to, so it reads one explicit ISO form. That is enough for
+# the local stack to exercise a rule that has not entered into force yet, which
+# is otherwise only reachable against a paid model.
+_FAKE_EFFECTIVE = re.compile(
+    r"(?:shall\s+)?appl(?:ies|y)\s+from\s+(\d{4}-\d{2}-\d{2})", re.IGNORECASE
+)
+
+
+def _fake_effective_date(text: str) -> str | None:
+    found = _FAKE_EFFECTIVE.search(text)
+    return found.group(1) if found else None
+
+
 def _fake_rows(text: str) -> list[dict[str, Any]]:
     """Read an actual limit table, without a model.
 
@@ -333,8 +348,12 @@ def fake_candidates(text: str) -> list[dict[str, Any]]:
     Either way one candidate is malformed on purpose, so the rejection path is
     exercised by every fake run instead of only by adversarial tests.
     """
+    stated = _fake_effective_date(text)
     parsed = _fake_rows(text)
     if parsed:
+        if stated:
+            for row in parsed:
+                row["effective_date"] = stated
         parsed.append({"text": "Malformed emission with no clause type."})
         return parsed
     lowered = text.lower()
@@ -388,6 +407,9 @@ def fake_candidates(text: str) -> list[dict[str, Any]]:
                 "effective_date": None,
             }
         )
+    if stated:
+        for clause in clauses:
+            clause["effective_date"] = stated
     # Invalid on purpose: missing required `clause_type`.
     clauses.append({"text": "Malformed emission with no clause type."})
     return clauses

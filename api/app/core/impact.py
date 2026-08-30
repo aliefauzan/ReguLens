@@ -8,6 +8,7 @@ model call in this module and the submission says so plainly.
 from __future__ import annotations
 
 import logging
+from datetime import date
 
 from google.cloud import firestore
 
@@ -62,6 +63,7 @@ REPORTED_FIELDS = frozenset(
         "clause_id",
         "limit_value",
         "unit",
+        "effective_date",
         "evaluation",
         "severity",
         "reason",
@@ -146,6 +148,10 @@ def materialize_for_product(product_id: str) -> list[dict]:
                 "substance_normalized": clause.get("substance_normalized"),
                 "limit_value": clause.get("limit_value"),
                 "unit": clause.get("unit"),
+                # The date the clause itself states. Read at rollup, not here: a
+                # requirement that does not bind yet is still evaluated and
+                # still shown, it is only counted into a different total.
+                "effective_date": clause.get("effective_date"),
                 "product_value": evaluation["product_value"],
                 "product_unit": evaluation["product_unit"],
                 "comparable_value": evaluation["comparable_value"],
@@ -187,13 +193,38 @@ def materialize_for_product(product_id: str) -> list[dict]:
     return requirements
 
 
-def rollup_status(product_id: str) -> dict[str, str]:
-    """Per-market compliance status for one product."""
-    statuses: dict[str, str] = {}
-    product = next((p for p in products_all() if p["id"] == product_id), None)
-    if product is None:
-        return statuses
-    requirements = [
+# ---------------------------------------------------------------------------
+# When a rule binds
+
+
+def _parse_date(value: object) -> date | None:
+    """A stored `effective_date` as a date, or None when there is not one to
+    read. Anything unreadable is None and says so in the log."""
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        log(logger, logging.WARNING, "effective_date unparseable", value=str(value)[:32])
+        return None
+
+
+def _in_force(effective_date: object, as_of: date) -> bool:
+    """True when a clause binds on `as_of`.
+
+    Absent means in force. Most stored clauses carry no date, and treating that
+    as "not yet" would hide every limit the system already knows about.
+
+    Unreadable also means in force. Failing open keeps a real limit on screen;
+    failing closed would drop a rule from the verdict because a string was
+    malformed, which is the failure this system is least allowed to have.
+    """
+    parsed = _parse_date(effective_date)
+    return parsed is None or parsed <= as_of
+
+
+def _requirements_for(product_id: str) -> list[dict]:
+    return [
         d.to_dict() | {"id": d.id}
         for d in (
             get_db()
@@ -203,19 +234,160 @@ def rollup_status(product_id: str) -> dict[str, str]:
             .stream()
         )
     ]
-    markets = [m for m in markets_all() if m["id"] in set(product.get("target_markets") or [])]
-    for market in markets:
+
+
+def _status_from(requirements: list[dict]) -> str:
+    """The verdict a set of requirements adds up to. Worst wins."""
+    evaluations = {r.get("evaluation") for r in requirements}
+    if not requirements:
+        return "unknown"
+    if "fail" in evaluations:
+        return "non_compliant"
+    if "needs_review" in evaluations:
+        return "attention_required"
+    return "compliant"
+
+
+def _target_markets(product_id: str) -> list[dict]:
+    product = next((p for p in products_all() if p["id"] == product_id), None)
+    if product is None:
+        return []
+    return [m for m in markets_all() if m["id"] in set(product.get("target_markets") or [])]
+
+
+def rollup_status(product_id: str, as_of: date | None = None) -> dict[str, str]:
+    """Per-market compliance status for one product, as of a date.
+
+    Only rules in force on that date count. A limit that enters into force next
+    year does not make a product illegal today, and saying it does is the same
+    class of error as quoting a superseded limit: a confident verdict drawn from
+    a rule that is not the one in effect.
+    """
+    as_of = as_of or date.today()
+    statuses: dict[str, str] = {}
+    requirements = _requirements_for(product_id)
+    for market in _target_markets(product_id):
         market_reqs = [r for r in requirements if r.get("market_id") == market["id"]]
-        evaluations = {r.get("evaluation") for r in market_reqs}
         if not market_reqs:
             statuses[market["id"]] = "unknown"
-        elif "fail" in evaluations:
-            statuses[market["id"]] = "non_compliant"
-        elif "needs_review" in evaluations:
-            statuses[market["id"]] = "attention_required"
-        else:
-            statuses[market["id"]] = "compliant"
+            continue
+        binding = [r for r in market_reqs if _in_force(r.get("effective_date"), as_of)]
+        # Rules exist for this market and every one of them starts later. Today
+        # nothing they say is broken, so the verdict is `compliant` rather than
+        # `unknown` — "we have read no regulation" would be false. The date it
+        # changes is carried by `upcoming_changes`, not hidden.
+        statuses[market["id"]] = _status_from(binding) if binding else "compliant"
     return statuses
+
+
+def _culprit(market_reqs: list[dict], when: date, status: str) -> dict:
+    """The requirement that starts on `when` and explains the new verdict.
+
+    Worst first, so the row named is the one that decides the status rather than
+    whichever happened to be written first.
+    """
+    starting = [r for r in market_reqs if _parse_date(r.get("effective_date")) == when]
+    rank = {"fail": 0, "needs_review": 1, "pass": 2}
+    starting.sort(key=lambda r: rank.get(r.get("evaluation"), 3))
+    return starting[0] if starting else {}
+
+
+def upcoming_changes(product_id: str, as_of: date | None = None) -> dict[str, dict]:
+    """Per market, the next date the verdict changes and what it changes to.
+
+    Empty for a market whose future rules do not move the verdict — a rule
+    arriving in March that the product already satisfies is not a deadline, and
+    presenting it as one trains people to ignore the ones that are.
+    """
+    as_of = as_of or date.today()
+    requirements = _requirements_for(product_id)
+    upcoming: dict[str, dict] = {}
+    for market in _target_markets(product_id):
+        market_id = market["id"]
+        market_reqs = [r for r in requirements if r.get("market_id") == market_id]
+        # Today's verdict for this market, from the rows already in hand rather
+        # than by asking Firestore for them a second time.
+        binding_now = [r for r in market_reqs if _in_force(r.get("effective_date"), as_of)]
+        now = _status_from(binding_now) if binding_now else "compliant"
+        future_dates = sorted(
+            {
+                d
+                for r in market_reqs
+                if (d := _parse_date(r.get("effective_date"))) is not None and d > as_of
+            }
+        )
+        for when in future_dates:
+            binding = [r for r in market_reqs if _in_force(r.get("effective_date"), when)]
+            status = _status_from(binding) if binding else "compliant"
+            if status != now:
+                # Which rule sets the deadline. Carried because an alert that
+                # cannot name its cause is indistinguishable from one whose
+                # cause was deleted, and the UI says so out loud.
+                culprit = _culprit(market_reqs, when, status)
+                upcoming[market_id] = {
+                    "effective_date": when.isoformat(),
+                    "status": status,
+                    "clause_id": culprit.get("clause_id"),
+                    "document_id": culprit.get("document_id"),
+                }
+                break
+    return upcoming
+
+
+def _apply_upcoming(
+    product_id: str,
+    statuses: dict[str, str],
+    cause: dict | None = None,
+) -> dict[str, dict]:
+    """Persist the product's scheduled verdicts and record what moved.
+
+    Written through the same event path as every other mutation, so a deadline
+    that appeared overnight is in the audit trail next to the ingestion that
+    created it. Which of these events becomes an alert is `alerts.worsened`'s
+    decision, not this module's.
+    """
+    from app.core.alerts import SEVERITY
+
+    upcoming = upcoming_changes(product_id)
+    snapshot = get_db().collection("products").document(product_id).get()
+    stored = (snapshot.to_dict() or {}).get("compliance_upcoming") or {}
+    moved = [m for m in set(stored) | set(upcoming) if stored.get(m) != upcoming.get(m)]
+    for market_id in sorted(moved):
+        entry = upcoming.get(market_id)
+        write_with_event(
+            "products",
+            product_id,
+            {"compliance_upcoming": upcoming, "updated_at": firestore.SERVER_TIMESTAMP},
+            event_type=EventType.PRODUCT_STATUS_SCHEDULED,
+            entity_type="product",
+            before={"market": market_id, "status": statuses.get(market_id)},
+            # A cleared entry is a real transition too — the date arrived, or the
+            # rule that set it was superseded. `status: None` scores zero in
+            # SEVERITY, so it lands in the trail without raising an alert.
+            after={
+                "market": market_id,
+                "status": (entry or {}).get("status"),
+                "effective_date": (entry or {}).get("effective_date"),
+            },
+            triggered_by="impact_engine",
+            # The clause that sets the deadline beats whatever triggered the
+            # re-evaluation: a reader asking "why" means the rule, not the run.
+            cause={
+                "clause_id": (entry or {}).get("clause_id"),
+                "document_id": (entry or {}).get("document_id"),
+            }
+            if entry
+            else cause,
+            merge=True,
+        )
+        log(
+            logger, logging.INFO, "status_scheduled",
+            product_id=product_id, market_id=market_id,
+            status=(entry or {}).get("status"),
+            effective_date=(entry or {}).get("effective_date"),
+            worse=SEVERITY.get((entry or {}).get("status"), 0) > SEVERITY.get(statuses.get(market_id), 0),
+        )
+    return upcoming
 
 
 def run_impact(clause_id: str | None, document_id: str | None) -> dict:
@@ -252,6 +424,11 @@ def run_impact(clause_id: str | None, document_id: str | None) -> dict:
                     product_id=product["id"], market_id=market_id,
                     before=old_status, after=new_status,
                 )
+        _apply_upcoming(
+            product["id"],
+            new_statuses,
+            cause={"clause_id": clause_id, "document_id": document_id},
+        )
         summary["products"][product["id"]] = new_statuses
     return summary
 
@@ -287,7 +464,8 @@ def run_impact_for_product(product_id: str) -> dict:
         db.collection("products").document(product_id).set(
             {"compliance_status": statuses}, merge=True
         )
-    return {"statuses": statuses, "changed": changed}
+    upcoming = _apply_upcoming(product_id, statuses)
+    return {"statuses": statuses, "changed": changed, "upcoming": upcoming}
 
 
 # ---------------------------------------------------------------------------
