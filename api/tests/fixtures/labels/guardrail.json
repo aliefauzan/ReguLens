@@ -1,0 +1,32 @@
+{
+  "description": "May these two things even be compared? Hand-labelled from the corpus in data/regulations/ and from the failure modes that produced core/guardrail.py. Labels are the ground truth a person would give, not what the code currently returns.",
+  "substances": [
+    {"a": "sodium_benzoate", "b": "sodium_benzoate", "comparable": true, "why": "identical"},
+    {"a": "sodium_benzoate", "b": "benzoic_acid", "comparable": true, "why": "same documented basis: benzoates are expressed as benzoic acid"},
+    {"a": "benzoic_acid", "b": "potassium_benzoate", "comparable": true, "why": "same family"},
+    {"a": "sodium_benzoate", "b": "sorbic_acid", "comparable": false, "why": "different preservative"},
+    {"a": "sodium_benzoate", "b": "sodium_nitrite", "comparable": false, "why": "unrelated additive"},
+    {"a": "sorbic_acid", "b": "potassium_sorbate", "comparable": true, "why": "same family"},
+    {"a": "nitrates", "b": "nitrites", "comparable": false, "why": "regulated separately with different limits"},
+    {"a": "sodium_benzoate", "b": null, "comparable": false, "why": "an unstated substance is not a match"},
+    {"a": null, "b": null, "comparable": false, "why": "two unknowns are not the same substance"}
+  ],
+  "product_types": [
+    {"a": "food_beverage_liquid", "b": "food_beverage_powder", "comparable": true, "why": "a drink powder is sold as a drink"},
+    {"a": "food_beverage_liquid", "b": "food_beverage_liquid", "comparable": true, "why": "identical"},
+    {"a": "food_beverage_liquid", "b": "food_solid", "comparable": false, "why": "a drink limit is not a solid-food limit"},
+    {"a": "supplement", "b": "food_beverage_liquid", "comparable": false, "why": "different category with its own limits"},
+    {"a": null, "b": "food_beverage_liquid", "comparable": true, "why": "a rule that names no category is not narrowed by one"},
+    {"a": "cosmetic", "b": "food_solid", "comparable": false, "why": "different regime entirely"}
+  ],
+  "units": [
+    {"value": 150, "unit": "mg_per_kg", "mg_per_kg": 150.0},
+    {"value": 0.03, "unit": "percent_w_w", "mg_per_kg": 300.0},
+    {"value": 150, "unit": "ppm", "mg_per_kg": 150.0},
+    {"value": 1, "unit": "g_per_kg", "mg_per_kg": null, "why": "not a unit this system accepts; refusing beats guessing a factor"},
+    {"value": 0.015, "unit": "percent_w_w", "mg_per_kg": 150.0, "why": "the EU limit expressed the other way round"},
+    {"value": 400, "unit": "ppm", "mg_per_kg": 400.0, "why": "ppm and mg/kg are the same for a solid or a dilute solution"},
+    {"value": null, "unit": "mg_per_kg", "mg_per_kg": null},
+    {"value": 150, "unit": null, "mg_per_kg": null}
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "description": "One product against one clause, and the verdict a compliance officer would give. Numbers are from the real corpus: EU 1129/2011 sets benzoates at 150 mg/kg for flavoured drinks, BPOM 11/2019 sets 400 mg/kg for the same category.",
+  "cases": [
+    {"name": "under the EU limit", "amount": 100, "unit": "mg_per_kg", "limit": 150, "limit_unit": "mg_per_kg", "expected": "pass"},
+    {"name": "over the EU limit", "amount": 300, "unit": "mg_per_kg", "limit": 150, "limit_unit": "mg_per_kg", "expected": "fail"},
+    {"name": "exactly at the limit is permitted", "amount": 150, "unit": "mg_per_kg", "limit": 150, "limit_unit": "mg_per_kg", "expected": "pass"},
+    {"name": "under the BPOM limit", "amount": 300, "unit": "mg_per_kg", "limit": 400, "limit_unit": "mg_per_kg", "expected": "pass"},
+    {"name": "percentage converted before comparing", "amount": 0.03, "unit": "percent_w_w", "limit": 150, "limit_unit": "mg_per_kg", "expected": "fail"},
+    {"name": "small percentage under the limit", "amount": 0.01, "unit": "percent_w_w", "limit": 150, "limit_unit": "mg_per_kg", "expected": "pass"},
+    {"name": "amount unknown needs a person", "amount": null, "unit": null, "limit": 150, "limit_unit": "mg_per_kg", "expected": "needs_review"},
+    {"name": "clause with no number needs a person", "amount": 100, "unit": "mg_per_kg", "limit": null, "limit_unit": null, "clause_type": "labeling", "expected": "needs_review"},
+    {"name": "low-confidence clause is never an automatic verdict", "amount": 300, "unit": "mg_per_kg", "limit": 150, "limit_unit": "mg_per_kg", "confidence": 0.3, "expected": "needs_review"},
+    {"name": "ppm compared against mg/kg", "amount": 200, "unit": "ppm", "limit": 150, "limit_unit": "mg_per_kg", "expected": "fail"}
+  ]
+}

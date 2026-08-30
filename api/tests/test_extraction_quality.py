@@ -46,14 +46,42 @@ def _fields_of(candidate):
     reason="live-Vertex evaluation run — costs tokens; REGULENS_EVAL=1 to enable",
 )
 def test_fixture_accuracy_against_live_vertex():
+    """Precision and recall, not a hit count.
+
+    This used to stop at the first candidate that matched and never look at the
+    others, so a fixture answered correctly *and* with four inventions beside it
+    scored a clean pass. Every accepted candidate is now counted: the ones the
+    label does not contain are false positives, and they are named, because the
+    fix for a spurious clause is sometimes to correct the label instead.
+    """
+    from app.core.evaluation import score_sets
+
     fixtures = _load_fixtures()
     assert fixtures, "fixture set must not be empty"
-    passed = 0
-    misses: list[str] = []
+    expected_items: set[tuple] = set()
+    predicted_items: set[tuple] = set()
     for text_file, expected in fixtures:
-        raw_candidates = generate_candidates(text_file.read_text(), sample_index=0)
-        matched = False
-        for raw in raw_candidates:
+        name = text_file.name
+        expected_items.add(
+            (
+                name,
+                expected.get("substance_normalized"),
+                expected.get("limit_value"),
+                expected.get("unit_enum"),
+            )
+        )
+        # A label may name clauses beyond the headline one; those are expected
+        # too, and without this every correct extra reads as an invention.
+        for extra in expected.get("also_expected", []):
+            expected_items.add(
+                (
+                    name,
+                    extra.get("substance_normalized"),
+                    extra.get("limit_value"),
+                    extra.get("unit_enum"),
+                )
+            )
+        for raw in generate_candidates(text_file.read_text(), sample_index=0):
             candidate, rejection = build_candidate(
                 raw,
                 document_id="fixture",
@@ -61,16 +89,29 @@ def test_fixture_accuracy_against_live_vertex():
                 declared_effective_date=None,
             )
             if rejection:
-                continue
+                continue  # the guardrail refusing is not a prediction
             fields = _fields_of(candidate)
-            if all(fields.get(k) == expected[k] for k in KEY_FIELDS if k in expected):
-                passed += 1
-                matched = True
-                break
-        if not matched:
-            misses.append(text_file.name)
-    print(f"extraction accuracy: {passed}/{len(fixtures)}; missed: {misses}")
-    assert passed / len(fixtures) >= 0.8
+            predicted_items.add(
+                (
+                    name,
+                    fields["substance_normalized"],
+                    fields["limit_value"],
+                    fields["unit_enum"],
+                )
+            )
+
+    scored = score_sets(expected_items, predicted_items)
+    print(
+        f"extraction over n={scored['n']} labelled clauses: "
+        f"precision {scored['precision']:.2f}, recall {scored['recall']:.2f}, "
+        f"F1 {scored['f1']:.2f}"
+    )
+    if scored["missed"]:
+        print("  missed:", scored["missed"])
+    if scored["spurious"]:
+        print("  not in the labels:", scored["spurious"])
+    assert scored["recall"] >= 0.8, scored["missed"]
+    assert scored["precision"] >= 0.6, scored["spurious"]
 
 
 def test_fake_llm_candidates_pass_the_gate():

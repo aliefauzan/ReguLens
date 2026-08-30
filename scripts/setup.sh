@@ -31,7 +31,7 @@ GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.5-flash}"
 EMBED_LOCATION="${EMBED_LOCATION:-asia-southeast1}"
 EMBED_MODEL="${EMBED_MODEL:-text-multilingual-embedding-002}"
 
-TOPICS=(document.uploaded clause.extracted graph.changed)
+TOPICS=(document.uploaded document.chunk clause.extracted graph.changed)
 DLQ_TOPIC="regulens.deadletter"
 
 SA_API="regulens-api"

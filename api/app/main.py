@@ -380,6 +380,14 @@ def get_product_compliance(
     upcoming = upcoming_changes(product_id)
     if market_id:
         upcoming = {k: v for k, v in upcoming.items() if k == market_id}
+    # One recipe, several markets: the number the product must actually meet is
+    # the lowest one still in force. Omitted when the caller narrowed to a
+    # single market, where "strictest across your markets" is not a question.
+    binding = None
+    if not market_id:
+        from app.core.strictest import binding_limits
+
+        binding = binding_limits(product_id)
     issues = sum(
         1 for r in reqs
         if r.get("evaluation") in {"fail", "needs_review"}
@@ -388,10 +396,45 @@ def get_product_compliance(
     return {
         "statuses": statuses,
         "upcoming": upcoming,
+        "binding_limits": binding,
         "requirements": reqs,
         "issue_counts": {"total": issues, "critical": critical},
         "trace_id": get_trace_id(),
     }
+
+
+@app.post("/simulate")
+def simulate_product(payload: ProductIn) -> dict:
+    """What-if: the verdict for a product nobody saved.
+
+    Read-only by construction — it writes no document, emits no event and leaves
+    no requirement row behind, so it can be called from a form as often as the
+    form changes without putting anything in the audit trail.
+    """
+    from app.core.products import _normalize_ingredients
+    from app.core.simulation import simulate
+
+    product = payload.model_dump(mode="json")
+    product["ingredients"] = _normalize_ingredients(payload.ingredients)
+    result = simulate(product)
+    return result | {"trace_id": get_trace_id()}
+
+
+@app.get("/products/{product_id}/evidence")
+def get_product_evidence(product_id: str) -> dict:
+    """The pack somebody hands an auditor: every verdict, the rule behind it as
+    the regulator wrote it, where that document came from, and its content hash.
+
+    Read-only, assembled from stored records. Nothing here is signed — the
+    hashes show the content has not changed, not who produced it.
+    """
+    from app.core.evidence import build
+
+    try:
+        pack = build(product_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="product not found") from None
+    return pack | {"trace_id": get_trace_id()}
 
 
 @app.get("/alerts")

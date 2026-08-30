@@ -518,9 +518,64 @@ export type ComplianceView = {
     // can link to the passage instead of asserting a deadline unsupported.
     { effective_date: string; status: string; clause_id?: string | null; document_id?: string | null }
   >;
+  // One recipe, several markets: the lowest limit still in force is the only
+  // number a product can actually be built to. Null when the caller narrowed to
+  // one market, where the question does not arise.
+  binding_limits: BindingLimits | null;
   requirements: ComplianceRequirement[];
   issue_counts: { total: number; critical: number };
 };
+
+export type BindingSubstance = {
+  substance_normalized: string;
+  binding_limit: number;
+  unit: string;
+  binding_market_id: string;
+  binding_market_label: string | null;
+  binding_jurisdiction: string | null;
+  binding_clause_id: string | null;
+  binding_document_id: string | null;
+  product_value: number | null;
+  verdict: "pass" | "fail" | "unknown";
+  limits_by_market: {
+    market_id: string;
+    market_label: string | null;
+    limit: number;
+    clause_id: string | null;
+  }[];
+  markets_without_a_rule: string[];
+  uncomparable_rules: number;
+};
+
+export type BindingLimits = {
+  substances: BindingSubstance[];
+  markets: string[];
+  skipped: { uncomparable_rules: number; substances_affected: string[] };
+};
+
+export type SimulationResult = {
+  statuses: Record<string, string>;
+  requirements: ComplianceRequirement[];
+  binding_limits: BindingLimits;
+  simulated: true;
+};
+
+/** What-if. Writes nothing — safe to call as often as a form changes. */
+export function simulate(body: {
+  name: string;
+  product_type: string;
+  origin: string;
+  packaging?: string | null;
+  ingredients: { name: string; amount?: number | null; unit?: string | null }[];
+  target_markets: string[];
+}): Promise<SimulationResult> {
+  return post("/simulate", body);
+}
+
+/** The pack somebody hands an auditor. */
+export function evidenceUrl(productId: string): string {
+  return `${BASE}/products/${productId}/evidence`;
+}
 
 export function getCompliance(id: string): Promise<ComplianceView> {
   return get(`/products/${id}/compliance`);

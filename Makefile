@@ -36,6 +36,9 @@ lint: ## ruff over the API, tsc over the web app
 test: ## Unit tests — offline, no GCP, no model calls
 	@(cd api && ../$(PY) -m pytest -q)
 
+eval: ## Accuracy per stage against the hand-labelled sets — offline, free
+	@(cd api && ../$(PY) ../scripts/eval_report.py)
+
 test-local: ## Full pipeline drill against the local emulator stack (needs Docker)
 	@bash scripts/verify_local.sh
 
@@ -59,11 +62,15 @@ test-all: ## Everything runnable offline, with a pass/fail table
 	run pytest "pytest (api)"    "(cd api && ../$(PY) -m pytest -q)"; \
 	run tsc   "tsc (web)"        "(cd web && npx --no-install tsc --noEmit)"; \
 	run build "next build (web)" "(cd web && NEXT_PUBLIC_API_URL=http://localhost:8080 npx --no-install next build)"; \
+	run eval  "accuracy (labelled)" "(cd api && ../$(PY) ../scripts/eval_report.py)"; \
 	if docker info >/dev/null 2>&1; then \
 	  run e2e "local e2e drill"  "bash scripts/verify_local.sh"; \
 	else \
 	  printf '%-28s \033[33mSKIP\033[0m  (Docker is not running)\n' "local e2e drill"; \
 	fi; \
+	echo; \
+	echo; \
+	sed -n '1,8p' /tmp/regulens-eval.log 2>/dev/null; \
 	echo; \
 	if [ $$fail -eq 0 ]; then echo "All green."; else echo "Something failed — see the logs above."; exit 1; fi
 

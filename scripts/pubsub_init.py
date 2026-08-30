@@ -15,6 +15,8 @@ WORKER = os.environ.get("WORKER_URL", "http://worker:8080")
 
 ROUTES = {
     "document.uploaded": "/internal/document-uploaded",
+    # One message per piece of a document too long to read in one request.
+    "document.chunk": "/internal/document-chunk",
     "clause.extracted": "/internal/clause-extracted",
     "graph.changed": "/internal/graph-changed",
 }

@@ -8,11 +8,13 @@ import {
   listDocuments,
   type ComplianceRequirement,
   type ComplianceView,
+  evidenceUrl,
   type GraphEvent,
 } from "@/lib/api";
 import AskPanel from "./AskPanel";
 import Provenance from "../../_ui/Provenance";
 import ProductActions from "./ProductActions";
+import WhatIfPanel from "./WhatIfPanel";
 import { StatusBadge, countryName, marketName, plain, readableDate, statusCopy } from "../../_ui/status";
 
 export const dynamic = "force-dynamic";
@@ -126,7 +128,21 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
             {plain(product.product_type)} · made in {countryName(product.origin)}
           </p>
         </div>
-        <ProductActions productId={id} productName={product.name} />
+        <span className="flex flex-wrap items-center gap-2">
+          {/* The thing a compliance officer is actually asked for: every
+              verdict, the rule behind it as the regulator wrote it, and the
+              hash of the file it was read from. */}
+          <a
+            className="btn btn-secondary btn-small"
+            href={evidenceUrl(id)}
+            target="_blank"
+            rel="noreferrer"
+            data-testid="evidence-pack"
+          >
+            Evidence pack
+          </a>
+          <ProductActions productId={id} productName={product.name} />
+        </span>
       </div>
 
       {/* --- The answer, first. Everything else explains it. ---------------- */}
@@ -382,6 +398,77 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           </div>
         )}
       </section>
+
+      {/* --- One recipe, several markets ------------------------------------ */}
+      {compliance?.binding_limits && compliance.binding_limits.substances.length > 0 ? (
+        <section className="card mt-10 p-6" data-testid="binding-limits">
+          <h2 className="t-section">To sell in every market you target</h2>
+          <p className="t-subhead t-secondary mt-2">
+            One recipe has to satisfy the strictest rule in force anywhere you sell.
+            These are the numbers it must actually meet — not the most generous
+            country&rsquo;s.
+          </p>
+          <ul className="mt-4 space-y-3">
+            {compliance.binding_limits.substances.map((row) => (
+              <li key={row.substance_normalized} className="inset p-5">
+                <p className="t-headline">
+                  <Mark evaluation={row.verdict === "unknown" ? "needs_review" : row.verdict} />{" "}
+                  {row.substance_normalized.replaceAll("_", " ")}
+                </p>
+                <p className="t-number figure mt-3" style={{
+                  color: row.verdict === "fail" ? "var(--danger)" : "var(--good)",
+                }}>
+                  ≤ {row.binding_limit}
+                  <span className="figure-unit">mg per kg</span>
+                </p>
+                <p className="t-footnote t-secondary mt-2">
+                  Set by {row.binding_market_label ?? marketName(row.binding_market_id)}
+                  {row.limits_by_market.length > 1
+                    ? ` — the other markets allow ${row.limits_by_market
+                        .slice(1)
+                        .map((m) => `${m.limit} (${m.market_label ?? marketName(m.market_id)})`)
+                        .join(", ")}`
+                    : ""}
+                  .
+                </p>
+                {row.product_value != null ? (
+                  <p className="t-footnote t-secondary mt-1">
+                    Your product has {row.product_value} mg per kg.
+                  </p>
+                ) : null}
+                {row.markets_without_a_rule.length > 0 ? (
+                  // Said out loud: "strictest of the markets that regulate it"
+                  // and "strictest of everywhere you sell" are different claims.
+                  <p className="t-footnote t-secondary mt-1">
+                    No rule for this in {row.markets_without_a_rule.map(marketName).join(", ")},
+                    so that market is not part of this number.
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+          {compliance.binding_limits.skipped.uncomparable_rules > 0 ? (
+            <p className="t-footnote t-secondary mt-4" data-testid="binding-limits-skipped">
+              {compliance.binding_limits.skipped.uncomparable_rules} rule(s) could not be
+              compared as numbers — a labelling requirement or a unit we do not convert —
+              so they are not in the ceilings above. They are still listed under each
+              market.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {/* --- What if -------------------------------------------------------- */}
+      <WhatIfPanel
+        product={{
+          name: product.name,
+          product_type: product.product_type,
+          origin: product.origin,
+          packaging: product.packaging,
+          target_markets: product.target_markets,
+          ingredients: product.ingredients,
+        }}
+      />
 
       {/* --- Ask ------------------------------------------------------------ */}
       <AskPanel

@@ -147,6 +147,45 @@ assert ctx.get('cause_available'), 'a scheduled alert that cannot name its rule 
 assert ctx.get('effective_date') == '2027-01-12', f'the alert must carry the date: {ctx}'
 print(len(scheduled), 'scheduled alert(s); first:', scheduled[0]['after'], '| source:', ctx.get('source_name'))" || fail "scheduled alert"
 
+say "one recipe, several markets"
+curl -sf "$API/products/$PRODUCT/compliance" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+b = d.get('binding_limits') or {}
+rows = b.get('substances') or []
+assert rows, 'no binding limit computed for a product in two markets'
+row = next((r for r in rows if r['substance_normalized'] == 'sodium_benzoate'), None)
+assert row, f'benzoate missing from {[r[\"substance_normalized\"] for r in rows]}'
+assert row['binding_limit'] == 150.0, f'the EU 150 must bind, not {row[\"binding_limit\"]}'
+assert row['binding_market_id'] == 'market_de', row['binding_market_id']
+print('ceiling:', row['binding_limit'], 'set by', row['binding_market_id'], '| verdict', row['verdict'])" || fail "binding limits"
+
+say "what-if writes nothing"
+BEFORE_DOCS=$(curl -sf "$API/documents" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['documents']))")
+curl -sf -X POST "$API/simulate" -H "Content-Type: application/json" -d '{
+"name":"hypothetical","product_type":"food_beverage_powder","origin":"ID",
+"ingredients":[{"name":"sodium benzoate","amount":100,"unit":"mg_per_kg"}],
+"target_markets":["market_de","market_id"]}' | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+assert d['simulated'] is True
+assert d['statuses'].get('market_de') != 'non_compliant', d['statuses']
+print('simulated:', d['statuses'])" || fail "simulate"
+AFTER_PRODUCTS=$(curl -sf "$API/products" | python3 -c "import sys,json;print(len(json.load(sys.stdin)['products']))")
+[ "$AFTER_PRODUCTS" = "1" ] || fail "a simulation created a product"
+
+say "evidence pack"
+curl -sf "$API/products/$PRODUCT/evidence" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+assert p['kind'] == 'regulens.evidence_pack'
+assert len(p['content_hash']) == 64
+assert p['findings'], 'a pack with no findings explains nothing'
+first = p['findings'][0]
+assert 'rule' in first and 'source' in first and 'comparison' in first
+assert any('not signed' in x for x in p['limitations']), 'the pack must say what it is not'
+print('pack:', len(p['findings']), 'findings,', len(p['history']), 'events, hash', p['content_hash'][:12])" || fail "evidence pack"
+
 say "cache hit on identical re-upload"
 curl -s -X POST "$API/documents" \
   -F source_type=official_regulation \

@@ -84,6 +84,36 @@ def requirement_changed(before: dict, payload: dict) -> bool:
     return any(before.get(field) != payload.get(field) for field in REPORTED_FIELDS)
 
 
+def clause_binds(product: dict, clause: dict, market: dict) -> bool:
+    """Does this rule apply to this product in this market?
+
+    Named and shared rather than inlined, because the what-if simulator has to
+    answer it exactly as the verdict engine does. A simulator that binds a
+    different set of rules than the engine is not a preview of anything.
+    """
+    jurisdictions = {str(j).upper() for j in market.get("jurisdictions", [])}
+    if str(clause.get("jurisdiction") or "").upper() not in jurisdictions:
+        return False
+    numeric = clause.get("clause_type") == "numeric_limit"
+    # Family-aware bind: a clause limiting "benzoic acid — benzoates" binds a
+    # product containing sodium benzoate (same documented basis).
+    matches = any(
+        substances_comparable(clause.get("substance_normalized"), i.get("normalized"))
+        for i in product.get("ingredients", [])
+    )
+    if numeric and not matches:
+        return False  # numeric limits bind only via a matching ingredient
+    # ...and only when the rule was written for this kind of product. The
+    # bundled library carries limits for every food category, so a benzoate
+    # limit for dairy desserts would otherwise be applied to a drink powder and
+    # fail it on a rule that does not cover it.
+    if numeric and not product_types_comparable(
+        clause.get("product_type"), product.get("product_type")
+    ):
+        return False
+    return True
+
+
 def materialize_for_product(product_id: str) -> list[dict]:
     """Create/update `requirements` for one product across its target markets.
 
@@ -100,26 +130,8 @@ def materialize_for_product(product_id: str) -> list[dict]:
     active = clauses_active()
     requirements: list[dict] = []
     for market in markets:
-        ingredient_substances = {i.get("normalized") for i in product.get("ingredients", [])}
         for clause in active:
-            jurisdictions = {str(j).upper() for j in market.get("jurisdictions", [])}
-            if str(clause.get("jurisdiction") or "").upper() not in jurisdictions:
-                continue
-            # Family-aware bind: a clause limiting "benzoic acid — benzoates"
-            # binds a product containing sodium benzoate (same documented basis).
-            matches = any(
-                substances_comparable(clause.get("substance_normalized"), ing)
-                for ing in ingredient_substances
-            )
-            if not matches and clause.get("clause_type") == "numeric_limit":
-                continue  # numeric limits bind only via a matching ingredient
-            # ...and only when the rule was written for this kind of product.
-            # The bundled library carries limits for every food category, so a
-            # benzoate limit for dairy desserts would otherwise be applied to a
-            # drink powder and fail it on a rule that does not cover it.
-            if clause.get("clause_type") == "numeric_limit" and not product_types_comparable(
-                clause.get("product_type"), product.get("product_type")
-            ):
+            if not clause_binds(product, clause, market):
                 continue
             key = f"{product_id}:{market['id']}:{clause['id']}"
             evaluation = evaluate(product, clause)
