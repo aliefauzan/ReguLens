@@ -202,7 +202,48 @@ def materialize_for_product(product_id: str) -> list[dict]:
                 merge=True,
             )
             requirements.append(payload | {"id": (req_ref.id if req_ref else key.replace(":", "_"))})
+    _retire_orphans(product_id, {c["id"] for c in active})
     return requirements
+
+
+def _retire_orphans(product_id: str, active_clause_ids: set[str]) -> int:
+    """Remove requirements whose clause is no longer active.
+
+    A requirement is a rule applied to a product; when the rule stops being the
+    one in effect, so does the requirement. Nothing removed them, so a clause
+    superseded by its own replacement kept failing the product on the limit it
+    had just been replaced by — and kept the value the product held when that
+    requirement was last written, because materialization only revisits clauses
+    that are still active.
+
+    Seen in production: a cured sausage reformulated to 20 mg/kg stayed
+    `non_compliant` against `E 249-250 Nitrites 100`, superseded minutes
+    earlier, recorded against the 120 mg/kg the recipe no longer contained.
+    That is the same error as quoting a superseded limit, which `rollup_status`
+    already refuses to do — arriving through the requirement instead of the
+    clause.
+
+    The clause and its events survive; only the derived row goes.
+    """
+    db = get_db()
+    stale = [
+        snapshot
+        for snapshot in (
+            db.collection("requirements")
+            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
+            .limit(500)
+            .stream()
+        )
+        if str((snapshot.to_dict() or {}).get("clause_id") or "") not in active_clause_ids
+    ]
+    for snapshot in stale:
+        snapshot.reference.delete()
+    if stale:
+        log(
+            logger, logging.INFO, "requirements_retired",
+            product_id=product_id, count=len(stale),
+        )
+    return len(stale)
 
 
 # ---------------------------------------------------------------------------

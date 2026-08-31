@@ -86,3 +86,84 @@ class TestTheCauseNamed:
 
         monkeypatch.setattr(impact, "_requirements_for", lambda pid: [])
         assert impact._cause_of("prod_1", "market_de", None, None) == {}
+
+
+class TestRetiredRequirements:
+    """A requirement is a rule applied to a product. When the rule stops being
+    the one in effect, the requirement has to go with it.
+
+    Seen in production: a cured sausage reformulated to 20 mg/kg stayed
+    `non_compliant` against `E 249-250 Nitrites 100`, superseded minutes
+    earlier by its own replacement, recorded against the 120 mg/kg the recipe
+    no longer contained. Materialization only revisits clauses that are still
+    active, so nothing ever corrected the row and nothing removed it.
+    """
+
+    def _db(self, rows):
+        class _Snap:
+            def __init__(self, data, ref):
+                self._data, self.reference = data, ref
+
+            def to_dict(self):
+                return dict(self._data)
+
+        class _Ref:
+            def __init__(self, sink, key):
+                self.sink, self.key = sink, key
+
+            def delete(self):
+                self.sink.append(self.key)
+
+        deleted: list[str] = []
+
+        class _Q:
+            def __init__(self, rows):
+                self.rows = rows
+
+            def where(self, filter=None):
+                return self
+
+            def limit(self, n):
+                return self
+
+            def stream(self):
+                return iter(
+                    [_Snap(r, _Ref(deleted, r["clause_id"])) for r in self.rows]
+                )
+
+        class _DB:
+            def collection(self, name):
+                return _Q(rows)
+
+        return _DB(), deleted
+
+    def test_a_requirement_whose_clause_was_superseded_is_removed(self, monkeypatch):
+        from app.core import impact
+
+        db, deleted = self._db(
+            [{"clause_id": "clause_superseded"}, {"clause_id": "clause_active"}]
+        )
+        monkeypatch.setattr(impact, "get_db", lambda: db)
+
+        removed = impact._retire_orphans("prod_1", {"clause_active"})
+
+        assert removed == 1
+        assert deleted == ["clause_superseded"]
+
+    def test_a_requirement_whose_clause_still_stands_is_left_alone(self, monkeypatch):
+        from app.core import impact
+
+        db, deleted = self._db([{"clause_id": "clause_active"}])
+        monkeypatch.setattr(impact, "get_db", lambda: db)
+
+        assert impact._retire_orphans("prod_1", {"clause_active"}) == 0
+        assert deleted == []
+
+    def test_a_requirement_with_no_clause_is_an_orphan(self, monkeypatch):
+        """Nothing can re-evaluate it, so nothing can ever correct it."""
+        from app.core import impact
+
+        db, deleted = self._db([{"clause_id": None}])
+        monkeypatch.setattr(impact, "get_db", lambda: db)
+
+        assert impact._retire_orphans("prod_1", {"clause_active"}) == 1
