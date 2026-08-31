@@ -100,3 +100,82 @@ B4 means anything.
 - Extraction and embeddings now draw on the free tier's per-minute limits, so a
   `RESOURCE_EXHAUSTED` during this run is a rate limit, not a defect — it is
   retried, not reported as a failure.
+
+---
+
+# Results — run against `7050f69`, 31 Aug 2026
+
+| # | Result | Evidence |
+|---|---|---|
+| A1 | PASS | `/health` → `7050f69`, firestore `ok` |
+| A2 | PASS | `gemini-api-key` v2 (real), `gemini-discovery-key` present |
+| A3 | PASS | `GEMINI_API_KEY` **and** `DISCOVERY_API_KEY` mounted on api and worker — the check that failed before |
+| A4 | PASS, **mixed by design** | See below |
+| A5 | PASS | 5 topics + DLQ; `country.requested.worker` → `/internal/country-requested` |
+| A6 | PASS | With OIDC: `/internal/country-requested` → 200, `/internal/country-discover` → 404. Exactly inverted from this morning |
+| A7 | PASS | `regulens-source-check` ENABLED, 06:00 Asia/Jakarta |
+| B1 | PASS | `eu_annex_ii_14_1_3` ingested → `doc_54586034e46a` |
+| B2 | PASS | `extracted`, 17 clauses, parse_quality 0.997, self_consistency 0.962 |
+| B3 | not exercised | 0 candidates rejected on this document; the guardrail is covered by unit tests, not by this run |
+| B4 | PASS | Worker logs: `judge_invoked`, `judge agent complete` |
+| B5 | PASS | Worker logs: `requirements_retired`, verdicts written with no model call |
+| B6 | **FAILED, fixed, re-verified** | See below |
+| B7 | PASS | Brazil and Canada refuse with **0 citations** |
+| C1 | PASS | 249 countries, `available: true`, `gemma-4-31b-it` |
+| C2 | PASS | TH job reached `failed` — a result, not stuck in `queued` |
+| C3 | PASS | JP committed `mhlw.go.jp/hourei/` pattern `/hourei/new` (4 links) + `market_jp` |
+| C4 | PASS | MY: "403 … refusing automated reads"; JP's second candidate rejected as "the site's navigation, not a set of regulations" |
+| C5 | PASS | Re-run SG: sources 6 → 6, same `src_14f4475fd50b`, `created: false` |
+| C6 | PASS | `sfa.gov.sg` and `mhlw.go.jp` answered Cloud Run, not just a laptop |
+| D1 | PASS | Sweep: 6 checked, 0 errors — EU `not_modified`, catalogue `no_new_entries`, **JP `baselined`, SG `not_modified`** |
+| D2 | PASS | The console renders "1 of 6 addresses could not be read last time" |
+| E1 | PASS | Deployed console loads against the deployed API |
+| E2 | PASS | Browser-driven discovery for MY rendered the 403 with its reason |
+| F1 | PASS | 307 clauses re-embedded into one space |
+
+## A4 — which provider, precisely
+
+Vertex received **20 calls, all `PredictionService.GenerateContent`, and zero
+embedding calls**, during the window the test document was extracted. So the
+deployment is split, and deliberately:
+
+- **Generation → Vertex.** `GOOGLE_GENAI_USE_VERTEXAI=true` is in the Cloud Run
+  env, and the ADK agents build their own client from it, independent of
+  `settings.use_gemini_api`.
+- **Embeddings → Gemini Developer API**, because `use_gemini_api` is now true.
+- **Discovery → Developer API** on its own key.
+
+Worth knowing rather than assuming: setting `GEMINI_API_KEY` moved embeddings but
+not the agents.
+
+## B6 — the failure this run existed to catch
+
+`/query` refused three times running on "benzoic acid in flavoured drinks under
+EU rules" while the graph held EU benzoic-acid clauses at 150 and 200 mg/kg. Two
+faults, both older than country discovery, both silent because a refusal reads
+like honesty:
+
+1. **The question was never embedded.** `find_similar` scored every candidate
+   -1.0, they tied, and the sort returned whichever five Firestore listed first.
+   "Retrieval by similarity" was retrieval by listing order — which is why
+   *sorbic* acid answered and *benzoic* acid did not.
+2. **The substance hint never matched.** A regex greedy across spaces handed the
+   normaliser the whole sentence, so it returned `None` for every question ever
+   asked and the substance filter never engaged.
+
+Fixed in `7050f69`, merged with the market-name retrieval that landed in
+`f28794d` — the two are complementary. After deploy the same question answers
+with 3 citations, and B7 still refuses on an uncovered country.
+
+## Also fixed during the run
+
+`scripts/reembed.py` hit `EmbedContentRequestsPerMinutePerUserPerProjectPerModel`
+a third of the way through: the free tier allows 100 requests a minute and counts
+each **text**, not each batched call. It now paces and honours the retry delay.
+
+## Left as it is
+
+- BPOM reported `busy` in the forced sweep — a live check already held the lock.
+  Correct behaviour, not an error.
+- Firestore's `documents` count read 0 once mid-run and 15 either side of it; a
+  transient read, not investigated further.
