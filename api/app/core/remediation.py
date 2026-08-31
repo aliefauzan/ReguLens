@@ -32,6 +32,7 @@ from google.cloud import firestore
 
 from app.core import substances as substances_module
 from app.core.guardrail import substances_comparable
+from app.core.paging import read_capped
 from app.db import get_db
 from app.observability import get_trace_id, log
 
@@ -48,23 +49,37 @@ REASON_NO_RULE = "no_rule_for_it"
 REASON_NON_NUMERIC = "rule_has_no_number"
 REASON_RULE_NEEDS_A_PERSON = "rule_needs_a_person"
 REASON_NOT_COMPARED = "not_compared"
+REASON_CLAUSE_UNIT_UNREADABLE = "rule_unit_unreadable"
+REASON_CONDITIONAL = "rule_applies_only_in_one_case"
 
 _REASON_TEXT: dict[str, str] = {
     REASON_AMOUNT_MISSING: (
         "No amount is recorded for this ingredient, so there was nothing to compare "
         "against a limit. Add the amount and it will be checked."
     ),
+    # Not the ingredient's unit. The amount form offers three units and all
+    # three convert (`guardrail._CONVERSIONS_TO_MG_PER_KG`), so this reason can
+    # only ever be the rule's side — and telling a reader their own entry was
+    # the problem sends them to correct something that was already right.
     REASON_UNIT_UNCONVERTIBLE: (
-        "Its unit could not be converted to the unit the rule is written in, so no "
-        "comparison was made."
+        "The rule is written in a unit that does not convert to the one your amount "
+        "is in, so no comparison was made. Your entry is not the problem."
+    ),
+    REASON_CLAUSE_UNIT_UNREADABLE: (
+        "The rule does state a number, but not in a unit we could read, so nothing "
+        "was compared against it rather than a guess being made."
+    ),
+    REASON_CONDITIONAL: (
+        "The rule applies in one named case only, and whether your product is that "
+        "case is the one thing we cannot read off the label."
     ),
     REASON_NO_RULE: (
         "None of the rules we hold set a limit on this for the markets you sell into. "
         "That is not a pass — it means nothing was checked."
     ),
     REASON_NON_NUMERIC: (
-        "The rules we hold for this have no number in them, so a person has to read "
-        "them rather than a comparison being made."
+        "The rules we hold for this state no number, and none of the wordings we can "
+        "decide from either. These are the ones that do need a person."
     ),
     REASON_RULE_NEEDS_A_PERSON: (
         "There is a rule for this, but we are not confident enough in how it was read "
@@ -101,15 +116,15 @@ def build_remediation(product_id: str) -> dict | None:
     product = (snapshot.to_dict() or {}) | {"id": snapshot.id}
 
     market_ids = [str(m) for m in (product.get("target_markets") or [])]
-    requirements = [
-        d.to_dict() | {"id": d.id}
-        for d in (
-            db.collection("requirements")
-            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
-            .limit(200)
-            .stream()
-        )
-    ]
+    # Capped through `read_capped` rather than a bare limit: the target this
+    # plan prints is the strictest limit across these rows, so a row silently
+    # dropped is a fix plan recommending a number that is not strict enough.
+    requirements = read_capped(
+        db.collection("requirements").where(
+            filter=firestore.FieldFilter("product_id", "==", product_id)
+        ),
+        what="requirements",
+    )
     # Requirements outlive a market being removed from the product. A limit for
     # a market they no longer sell into must not tighten the number they are
     # asked to hit.
@@ -315,6 +330,12 @@ def _not_checked(product: dict, requirements: list[dict]) -> list[dict]:
         elif any(r.get("reason") == "unit_unconvertible" for r in mine):
             reason_code = REASON_UNIT_UNCONVERTIBLE
             reason_text = _REASON_TEXT[REASON_UNIT_UNCONVERTIBLE]
+        elif any(r.get("reason") == "clause_unit_unreadable" for r in mine):
+            reason_code = REASON_CLAUSE_UNIT_UNREADABLE
+            reason_text = _REASON_TEXT[REASON_CLAUSE_UNIT_UNREADABLE]
+        elif any(r.get("reason") == "conditional_permission" for r in mine):
+            reason_code = REASON_CONDITIONAL
+            reason_text = _REASON_TEXT[REASON_CONDITIONAL]
         elif any(r.get("reason") == "non_numeric_clause" for r in mine):
             reason_code, reason_text = REASON_NON_NUMERIC, _REASON_TEXT[REASON_NON_NUMERIC]
         elif any(r.get("reason") == "clause_confidence_below_0_5" for r in mine):

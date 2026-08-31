@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 
 from app.core import detection, markets, products, query
 from app.core import documents as documents_core
+from app.core.paging import overflows, reset_overflows
 from app.db import get_db, health_check
 from app.models import (
     CountryDiscoverIn,
@@ -52,6 +53,8 @@ async def trace_middleware(request: Request, call_next):
     """Adopt an inbound trace_id or mint one, and echo it back on every response
     so a caller can quote it when something goes wrong."""
     trace_id = set_trace_id(request.headers.get("x-trace-id"))
+    # Whatever the last request could not see is not this request's business.
+    reset_overflows()
     log(logger, logging.INFO, "request", method=request.method, path=request.url.path)
     response = await call_next(request)
     response.headers["x-trace-id"] = trace_id
@@ -484,18 +487,15 @@ def get_product_compliance(
 
     from google.cloud import firestore
 
+    from app.core.paging import read_capped
     from app.db import get_db
 
-    reqs = [
-        d.to_dict() | {"id": d.id}
-        for d in (
-            get_db()
-            .collection("requirements")
-            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
-            .limit(200)
-            .stream()
-        )
-    ]
+    reqs = read_capped(
+        get_db()
+        .collection("requirements")
+        .where(filter=firestore.FieldFilter("product_id", "==", product_id)),
+        what="requirements",
+    )
     if market_id:
         reqs = [r for r in reqs if r.get("market_id") == market_id]
     statuses = rollup_status(product_id)
@@ -525,6 +525,10 @@ def get_product_compliance(
         "binding_limits": binding,
         "requirements": reqs,
         "issue_counts": {"total": issues, "critical": critical},
+        # What this answer could not see. Empty on every real workspace; when it
+        # is not empty the page must stop presenting a verdict, because the
+        # verdict was computed against part of the rulebook.
+        "incomplete": overflows(),
         "trace_id": get_trace_id(),
     }
 

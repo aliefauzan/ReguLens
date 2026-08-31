@@ -352,7 +352,14 @@ class ClauseCandidateRaw(BaseModel):
     clause_type: ClauseType
     substance: str | None = Field(default=None, max_length=200)
     limit_value: float | None = Field(default=None, ge=0)
-    unit_raw: str | None = Field(default=None, max_length=32)
+    # Wide enough for a table header quoted whole. At 32 characters this
+    # constraint threw away entire clauses: an extraction that copied
+    # "mg/l or mg/kg as appropriate (header)" out of the column heading — which
+    # is exactly what the system prompt asks for — failed validation, and a real
+    # limit with a real number never reached the graph at all. An unusable unit
+    # has its own path (`unnormalized_unit` -> review, number kept); it does not
+    # need a length rule to destroy the row first.
+    unit_raw: str | None = Field(default=None, max_length=120)
     product_type: ProductType | None = None
     effective_date: str | None = Field(default=None, max_length=10)
 

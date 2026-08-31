@@ -21,6 +21,7 @@ from typing import Any
 
 from google.cloud import firestore
 
+from app.core.paging import read_capped
 from app.db import get_db
 from app.observability import log
 
@@ -160,18 +161,20 @@ def list_alerts(limit: int = 20) -> list[dict[str, Any]]:
     from app.core import markets as markets_core
     from app.core import products as products_core
 
-    events = (
+    # The sort below is what makes this list "the newest alerts", and it runs
+    # after the read. A bare `.limit(50)` therefore sorted an arbitrary fifty
+    # events by time and called the result the latest — with an event written on
+    # every mutation, the alert a user most needs to see could simply be absent.
+    events = read_capped(
         get_db()
         .collection("graph_events")
-        .where(filter=firestore.FieldFilter("event_type", "in", list(ALERTING_EVENTS)))
-        .limit(50)
-        .stream()
+        .where(filter=firestore.FieldFilter("event_type", "in", list(ALERTING_EVENTS))),
+        what="graph_events",
     )
-    candidates = []
-    for snapshot in events:
-        event = snapshot.to_dict() | {"id": snapshot.id}
-        if worsened(event) and not event.get("acknowledged"):
-            candidates.append(event)
+    candidates = [
+        event for event in events
+        if worsened(event) and not event.get("acknowledged")
+    ]
     candidates.sort(key=lambda e: e.get("occurred_at") or 0, reverse=True)
 
     # An alert about a product that no longer exists is a link to a 404 and a

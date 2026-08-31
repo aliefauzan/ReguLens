@@ -31,6 +31,7 @@ from typing import Any
 
 from google.cloud import firestore
 
+from app.core.paging import read_capped
 from app.db import get_db
 from app.observability import log
 
@@ -69,15 +70,15 @@ def build(product_id: str) -> dict[str, Any]:
         raise KeyError(product_id)
     product = product_snapshot.to_dict() or {}
 
-    requirements = [
-        d.to_dict() | {"id": d.id}
-        for d in (
-            db.collection("requirements")
-            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
-            .limit(500)
-            .stream()
-        )
-    ]
+    # This module refuses to drop a verdict whose clause was deleted; dropping
+    # one because it was the five-hundred-and-first row would be the same
+    # omission arriving through the query instead.
+    requirements = read_capped(
+        db.collection("requirements").where(
+            filter=firestore.FieldFilter("product_id", "==", product_id)
+        ),
+        what="requirements",
+    )
     clauses = _by_id("clauses", {r.get("clause_id") for r in requirements})
     documents = _by_id(
         "documents",
@@ -86,12 +87,12 @@ def build(product_id: str) -> dict[str, Any]:
     )
     events = sorted(
         (
-            e.to_dict() | {"id": e.id}
-            for e in (
-                db.collection("graph_events")
-                .where(filter=firestore.FieldFilter("entity_id", "==", product_id))
-                .limit(500)
-                .stream()
+            e
+            for e in read_capped(
+                db.collection("graph_events").where(
+                    filter=firestore.FieldFilter("entity_id", "==", product_id)
+                ),
+                what="graph_events",
             )
         ),
         key=lambda e: str(e.get("occurred_at") or ""),

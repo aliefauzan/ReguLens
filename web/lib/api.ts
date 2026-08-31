@@ -502,6 +502,10 @@ export type ComplianceRequirement = {
   evaluation: string;
   severity: string;
   reason: string | null;
+  // The words the reason was read from — the unit that would not parse, or the
+  // condition the row states. A reason a reader cannot check against the source
+  // is the same trust-me as no reason at all.
+  reason_detail?: string | null;
   // The day this rule starts. Null means it is already in force, which is what
   // every clause read before this field existed looks like.
   effective_date?: string | null;
@@ -524,6 +528,10 @@ export type ComplianceView = {
   binding_limits: BindingLimits | null;
   requirements: ComplianceRequirement[];
   issue_counts: { total: number; critical: number };
+  // Reads that hit their ceiling while this answer was assembled. Empty on any
+  // real workspace. When it is not empty the verdict rests on part of the
+  // rulebook, and the page says so rather than showing a tick.
+  incomplete?: { what: string; cap: number; seen: number }[];
 };
 
 export type BindingSubstance = {
