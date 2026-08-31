@@ -22,6 +22,7 @@ from app.models import (
     CountryDiscoverIn,
     DocumentIn,
     LibraryLoadIn,
+    MarketIn,
     ProductIn,
     ProductPatch,
     QueryIn,
@@ -81,6 +82,35 @@ def health() -> JSONResponse:
 @app.get("/markets")
 def get_markets() -> dict:
     return {"markets": markets.list_markets(), "trace_id": get_trace_id()}
+
+
+@app.post("/markets", status_code=201)
+def post_market(payload: MarketIn) -> dict:
+    """Make a market exist for a country, so a product can name it as a target.
+
+    The product form offers every country, not only the two we seed and the
+    ones discovery has already found. Selecting one has to land here first:
+    `impact.evaluate` walks `markets_all()` and keeps only the target markets it
+    finds there, so a product pointed at a market with no document produces no
+    verdict row at all — not even `unknown`. The country would silently vanish
+    from the product page, which is exactly the kind of quiet omission this
+    codebase treats as a bug.
+
+    A market added this way has no watched source and no clause behind it, so
+    its verdict reads "No rules added yet" until somebody watches the country.
+    That is the honest answer, and it is visible.
+    """
+    from app.core import discovery
+
+    country = discovery.find_country(payload.country_code)
+    if country is None:
+        raise HTTPException(status_code=400, detail=f"unknown country '{payload.country_code}'")
+
+    market_id, created = markets.ensure_market(
+        country_code=country.code, country_name=country.name
+    )
+    market = next((m for m in markets.list_markets() if m["id"] == market_id), None)
+    return {"market": market, "created": created, "trace_id": get_trace_id()}
 
 
 @app.post("/markets/seed")

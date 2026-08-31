@@ -6,6 +6,7 @@ import { useState } from "react";
 import { createProduct, updateProduct, PRODUCT_TYPES, type Product } from "@/lib/api";
 import { plain } from "../_ui/status";
 import IngredientsField, { type Row } from "./IngredientsField";
+import MarketsField from "./MarketsField";
 
 const COUNTRIES = [
   { code: "ID", label: "Indonesia" },
@@ -50,12 +51,6 @@ export default function ProductForm({ product }: { product?: Product }) {
   );
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-
-  function toggleMarket(id: string) {
-    setMarkets((current) =>
-      current.includes(id) ? current.filter((m) => m !== id) : [...current, id],
-    );
-  }
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -162,38 +157,7 @@ export default function ProductForm({ product }: { product?: Product }) {
         </div>
       </section>
 
-      <fieldset className="card p-6" data-testid="field-markets">
-        <legend className="t-headline float-left w-full">Where do you want to sell it?</legend>
-        <p className="help clear-both">Pick every country you sell into, or plan to.</p>
-        <div className="mt-4 grid gap-2 sm:grid-cols-2">
-          {[
-            { id: "market_de", label: "Germany", sub: "European Union rules" },
-            { id: "market_id", label: "Indonesia", sub: "BPOM rules" },
-          ].map((market) => {
-            const checked = markets.includes(market.id);
-            return (
-              <label
-                key={market.id}
-                className="inset flex cursor-pointer items-center gap-3 p-4"
-                style={checked ? { boxShadow: "inset 0 0 0 2px var(--accent)" } : undefined}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggleMarket(market.id)}
-                  aria-label={`Sell in ${market.label}`}
-                  data-testid={`market-${market.id}`}
-                  style={{ width: 22, height: 22, accentColor: "var(--accent)" }}
-                />
-                <span>
-                  <span className="t-subhead block" style={{ fontWeight: 600 }}>{market.label}</span>
-                  <span className="t-footnote t-secondary">{market.sub}</span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
+      <MarketsField value={markets} onChange={setMarkets} />
 
       <IngredientsField rows={rows} setRows={setRows} initialMode={editing ? "list" : "paste"} />
 

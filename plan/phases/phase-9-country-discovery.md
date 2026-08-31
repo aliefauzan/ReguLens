@@ -72,6 +72,39 @@ writes rather than selects is dropped and logged.
       `/sources` and swept with the rest. The datacentre caveat below is
       therefore answered for these two, and only these two
 
+## Follow-up — the product form only offered two countries (1 Sep 2026)
+
+Discovery could register a source for any country, and the product form still
+named Germany and Indonesia in its source. The narrowing this phase set out to
+remove was therefore still there one screen away: a user who discovered Japan on
+the Sources page could not tell ReguLens they sell into Japan.
+
+Worse than cosmetic, and the reason this is written down rather than filed as a
+tweak: `impact.evaluate` keeps only the target markets that exist in the
+`markets` collection, so a product naming a market with no document loses that
+country with **no verdict row and no error** — the same silent-omission failure
+`ensure_market` was added to prevent, one layer up.
+
+- [ ] `POST /markets` — makes a market exist for an ISO country so a product can
+      name it. Country name comes from the bundled list; an unknown code is
+      refused. `ensure_market` takes an optional regulator, because a market can
+      exist before anybody has found who writes its rules, and does not claim to
+      have been `discovered` when nothing discovered it. Not deployed
+- [ ] `web/app/products/MarketsField.tsx` — tiles for the markets that exist
+      (the two seeded plus every country anybody has watched), a dropdown for the
+      remaining 240-odd. Picking one creates the market first, then ticks it. A
+      market with no watched source says `not watched yet` on its tile; a target
+      market missing from `/markets` still renders, so editing a product cannot
+      silently drop a country. Not deployed
+- [ ] `marketName` falls back to the country's name via `Intl.DisplayNames`, so a
+      market this phase created reads "Japan" rather than "JP" on every page that
+      names one. Not deployed
+- [x] 5 tests in `test_market_routes.py`; 669 passing, ruff and tsc clean
+- [x] Verified against the emulators: adding Japan from the form created
+      `market_jp`, the saved product listed it, and its verdict read
+      "No rules added yet" — the honest answer for a country nobody watches yet
+
+
 ## Decisions
 
 | # | Decision | Why |

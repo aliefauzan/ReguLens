@@ -12,10 +12,12 @@ const BASE =
 
 export type Market = {
   id: string;
-  jurisdiction: string;
+  /** A market can inherit several regimes at once, so this is a list. */
+  jurisdictions: string[];
   country: string;
+  country_code: string;
   label: string;
-  regulator: string;
+  regulator: string | null;
 };
 
 export type ApiError = { status: number; message: string; traceId: string | null };
@@ -36,6 +38,19 @@ async function get<T>(path: string): Promise<T> {
 
 export function listMarkets(): Promise<{ markets: Market[]; trace_id: string }> {
   return get("/markets");
+}
+
+/**
+ * Make a market exist for a country before a product names it as a target.
+ *
+ * `impact.evaluate` only walks markets that have a document, so a product
+ * pointed at a country with no market row would lose that country silently —
+ * no verdict, not even "no rules yet". This is what stops that.
+ */
+export function ensureMarket(
+  countryCode: string,
+): Promise<{ market: Market; created: boolean }> {
+  return post("/markets", { country_code: countryCode });
 }
 
 export function health(): Promise<{ status: string; version: string; firestore: string }> {
