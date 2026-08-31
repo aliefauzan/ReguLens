@@ -307,9 +307,16 @@ async def check_sources(request: Request) -> JSONResponse:
     return JSONResponse(summary | {"trace_id": get_trace_id()}, status_code=200)
 
 
-@app.post("/internal/country-discover")
+@app.post("/internal/country-requested")
 async def country_discover(request: Request) -> JSONResponse:
     """`country.requested` consumer: find a regulator's catalogue for a country.
+
+    The path is the topic name with its dot turned into a dash, because that is
+    how `scripts/setup.sh` derives every push endpoint it creates. Naming this
+    route for what it does rather than for its topic put production's
+    subscription on `/internal/country-requested` while the handler answered
+    `/internal/country-discover`: every message 404s, retries five times and
+    dead-letters. Locally it worked, because `pubsub_init.py` maps paths by hand.
 
     Slow for the ordinary reasons — two model calls and up to three fetches of a
     government site that may be on the other side of the planet — so it lives

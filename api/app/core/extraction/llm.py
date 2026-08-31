@@ -118,7 +118,22 @@ def _client():
 _CLOSED_CLIENT = "client has been closed"
 
 
-def _generate(**kwargs: Any):
+@lru_cache
+def _keyed_client(api_key: str):
+    """A client for one specific key, separate from the app-wide one.
+
+    Country discovery needs the Gemini Developer API because Vertex does not
+    serve Gemma, while the rest of the app may be deliberately on Vertex. Two
+    clients keep those choices independent — and this one is built with the same
+    owned transport, because the SDK closing a transport it created is the bug
+    that killed the direct extraction path three times in production.
+    """
+    from google import genai
+
+    return genai.Client(vertexai=False, api_key=api_key, http_options=_http_options())
+
+
+def _generate(*, _client_for: Any = None, **kwargs: Any):
     """One generation call, surviving a client that something else closed.
 
     The cached client holds an httpx transport, and the ADK runner's own genai
@@ -137,7 +152,8 @@ def _generate(**kwargs: Any):
     # the client itself unreferenced the moment `.models` is read, and a
     # concurrent `cache_clear()` then makes it collectable mid-call — the same
     # closed-transport failure arriving by a second route.
-    client = _client()
+    factory = _client_for or _client
+    client = factory()
     try:
         return client.models.generate_content(**kwargs)
     except Exception as exc:  # noqa: BLE001 - re-raised below unless it is the one case
@@ -148,7 +164,8 @@ def _generate(**kwargs: Any):
         # document, and took three production runs to see.
         log(logger, logging.WARNING, "genai_client_reopened", error=str(exc)[:200])
         _client.cache_clear()
-        return _client().models.generate_content(**kwargs)
+        _keyed_client.cache_clear()
+        return factory().models.generate_content(**kwargs)
 
 
 def generate_structured(
@@ -158,6 +175,7 @@ def generate_structured(
     system_instruction: str,
     response_schema: dict[str, Any],
     temperature: float = 0.0,
+    api_key: str | None = None,
 ) -> str:
     """One JSON generation call against an arbitrary model. Returns raw text.
 
@@ -170,6 +188,7 @@ def generate_structured(
     from google.genai import types
 
     response = _generate(
+        _client_for=(lambda: _keyed_client(api_key)) if api_key else None,
         model=model,
         contents=contents,
         config=types.GenerateContentConfig(

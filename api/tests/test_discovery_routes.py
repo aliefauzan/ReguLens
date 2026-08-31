@@ -142,3 +142,26 @@ def test_the_stream_gives_up_out_loud(monkeypatch) -> None:
     with client.stream("GET", "/discovery/job_1/events") as response:
         body = "".join(response.iter_text())
     assert "event: timeout" in body
+
+
+def test_every_topic_has_the_route_setup_creates_for_it() -> None:
+    """`scripts/setup.sh` derives each push endpoint from its topic name:
+    `country.requested` becomes `/internal/country-requested`. Naming a handler
+    for what it does instead put production's subscription on a path no route
+    answered — every message 404s, retries five times and dead-letters, while
+    the local stack worked because `pubsub_init.py` maps paths by hand.
+    """
+    from app.worker import app as worker_app
+
+    settings = get_settings()
+    routes = {getattr(r, "path", "") for r in worker_app.routes}
+    topics = [
+        settings.topic_document_uploaded,
+        settings.topic_document_chunk,
+        settings.topic_clause_extracted,
+        settings.topic_graph_changed,
+        settings.topic_country_requested,
+    ]
+    for topic in topics:
+        derived = f"/internal/{topic.replace('.', '-')}"
+        assert derived in routes, f"{topic} would push to {derived}, which no route answers"

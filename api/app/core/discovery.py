@@ -269,6 +269,7 @@ def _ask(system: str, payload: dict[str, Any], schema: dict[str, Any]) -> dict[s
             contents=json.dumps(payload, ensure_ascii=False)[: settings.discovery_prompt_chars],
             system_instruction=system,
             response_schema=schema,
+            api_key=settings.discovery_key,
         )
     except Exception as exc:  # noqa: BLE001 - the SDK raises its own error types
         # An error out of the SDK must not leave this module as itself. Uncaught

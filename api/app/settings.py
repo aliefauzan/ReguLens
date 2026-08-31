@@ -69,6 +69,15 @@ class Settings(BaseSettings):
     # measured free-tier ceiling is 16,000 input tokens per minute per model —
     # which is why the link inventory handed to it is capped.
     discovery_model: str = "gemma-4-31b-it"
+    # Discovery's own key, deliberately separate from `gemini_api_key`.
+    #
+    # Gemma is served by the Gemini Developer API and not by Vertex, so this
+    # flow needs a key even when the rest of the app runs on Vertex. Reusing
+    # `GEMINI_API_KEY` to supply it would switch *everything* over, embeddings
+    # included — and Developer API vectors are not comparable with Vertex
+    # vectors, so every clause already stored would silently stop matching.
+    # A second key keeps the switch from happening by accident.
+    discovery_api_key: str | None = None
     # A prompt is a country name or a list of links. Anything larger means a
     # regulator's index page got inlined by accident.
     discovery_prompt_chars: int = 60_000
@@ -172,6 +181,26 @@ class Settings(BaseSettings):
         return not key.lower().startswith(("your", "todo", "changeme", "placeholder", "xxx"))
 
     @property
+    def discovery_key(self) -> str | None:
+        """The key discovery calls Gemma with, or None.
+
+        Falls back to `gemini_api_key` so a deployment that already runs on the
+        Developer API needs no second secret. A placeholder counts as no key,
+        for the same reason it does above: production ships
+        `gemini-api-key` set to `YOUR_KEY_HERE` on purpose, to force the Vertex
+        path, and treating that as a credential would make every discovery run
+        fail with an authentication error instead of saying it is not
+        configured.
+        """
+        for candidate in (self.discovery_api_key, self.gemini_api_key):
+            key = (candidate or "").strip()
+            if len(key) >= 20 and not key.lower().startswith(
+                ("your", "todo", "changeme", "placeholder", "xxx")
+            ):
+                return key
+        return None
+
+    @property
     def discovery_available(self) -> bool:
         """Whether the Discover panel can do anything.
 
@@ -182,7 +211,7 @@ class Settings(BaseSettings):
         """
         if not self.allow_country_discovery:
             return False
-        return self.fake_discovery or self.use_gemini_api
+        return self.fake_discovery or bool(self.discovery_key)
 
     @property
     def uploads_bucket_name(self) -> str:

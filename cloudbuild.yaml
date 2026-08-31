@@ -66,7 +66,7 @@ steps:
           --allow-unauthenticated \
           --max-instances=3 \
           --set-env-vars="^@^CORS_ORIGINS=$$ORIGINS@VERSION=${SHORT_SHA}@SERVICE_NAME=regulens-api@PROJECT_ID=${PROJECT_ID}@GOOGLE_GENAI_USE_VERTEXAI=true@GOOGLE_CLOUD_PROJECT=${PROJECT_ID}@GOOGLE_CLOUD_LOCATION=global@DEBUG_VIEW=true@FAKE_LLM=false" \
-          --set-secrets=GEMINI_API_KEY=gemini-api-key:latest \
+          --set-secrets=GEMINI_API_KEY=gemini-api-key:latest,DISCOVERY_API_KEY=gemini-discovery-key:latest \
           --command=uvicorn \
           --args=app.main:app,--host,0.0.0.0,--port,8080 \
           --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12
@@ -89,7 +89,7 @@ steps:
       # services stay at 3; only the fan-out consumer needed room.
       - --max-instances=10
       - --set-env-vars=VERSION=${SHORT_SHA},SERVICE_NAME=regulens-worker,PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global
-      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest
+      - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest,DISCOVERY_API_KEY=gemini-discovery-key:latest
       - --command=uvicorn
       - --args=app.worker:app,--host,0.0.0.0,--port,8080
       - --startup-probe=httpGet.path=/health,initialDelaySeconds=10,timeoutSeconds=10,periodSeconds=10,failureThreshold=12

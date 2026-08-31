@@ -592,3 +592,52 @@ def test_a_market_carries_the_field_it_is_ordered_by(monkeypatch) -> None:
         country_code="SG", country_name="Singapore", regulator="SFA"
     )
     assert store[market_id]["id"] == market_id
+
+
+# ---------------------------------------------------------------------------
+# Which key discovery uses
+# ---------------------------------------------------------------------------
+
+
+def test_discovery_key_ignores_the_production_placeholder(monkeypatch) -> None:
+    """Production ships `gemini-api-key` as `YOUR_KEY_HERE` on purpose, to force
+    the Vertex path. Treating it as a credential would make every discovery run
+    fail on authentication instead of saying it is not configured."""
+    from app.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "discovery_api_key", None)
+    monkeypatch.setattr(settings, "gemini_api_key", "YOUR_KEY_HERE")
+    assert settings.discovery_key is None
+    assert settings.discovery_available is False
+
+
+def test_discovery_uses_its_own_key_without_moving_the_rest_of_the_app(monkeypatch) -> None:
+    """The whole reason for a second key: Developer API embeddings are not
+    comparable with Vertex embeddings, so reusing GEMINI_API_KEY to enable
+    discovery would silently stop every stored clause from matching."""
+    from app.settings import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "discovery_api_key", "A" * 40)
+    monkeypatch.setattr(settings, "gemini_api_key", "YOUR_KEY_HERE")
+    assert settings.discovery_key == "A" * 40
+    assert settings.discovery_available is True
+    # The app-wide switch stays where it was: still Vertex.
+    assert settings.use_gemini_api is False
+
+
+def test_the_discovery_call_is_handed_that_key(monkeypatch) -> None:
+    seen: dict = {}
+
+    def capture(**kwargs):
+        seen.update(kwargs)
+        return json.dumps({"regulator": "X", "root_url": "https://x.gov"})
+
+    monkeypatch.setattr("app.core.extraction.llm.generate_structured", capture)
+    from app.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), "discovery_api_key", "B" * 40)
+    discovery.propose_root(discovery.find_country("JP"))
+    assert seen["api_key"] == "B" * 40
+    assert seen["model"] == get_settings().discovery_model
