@@ -41,6 +41,7 @@ instrument(app, settings.project_id)
 HANDLER_EXTRACT = "extract"
 HANDLER_RECONCILE = "reconcile"
 HANDLER_IMPACT = "impact"
+HANDLER_DISCOVER = "discover"
 
 # Every consumer here is `async def` because a push envelope has to be awaited,
 # but the work behind it — Firestore, embeddings, Gemini — is blocking and
@@ -304,6 +305,64 @@ async def check_sources(request: Request) -> JSONResponse:
 
     summary = await run_in_threadpool(sources.check_all, force=force)
     return JSONResponse(summary | {"trace_id": get_trace_id()}, status_code=200)
+
+
+@app.post("/internal/country-discover")
+async def country_discover(request: Request) -> JSONResponse:
+    """`country.requested` consumer: find a regulator's catalogue for a country.
+
+    Slow for the ordinary reasons — two model calls and up to three fetches of a
+    government site that may be on the other side of the planet — so it lives
+    here rather than on the API, behind the same 600-second ack deadline as
+    every other handler.
+
+    It always acks. A regulator whose site refuses automated reads is a *result*
+    with a reason a user reads, not a fault: redelivering it four more times
+    would produce the same 403 and spend four more model calls doing it. The
+    only thing that nacks is a message we cannot parse at all, and that acks
+    too, for the same reason it does everywhere else here.
+    """
+    try:
+        envelope = parse_push_request(await request.json())
+    except Exception as exc:  # noqa: BLE001 - unparseable will never parse
+        log(logger, logging.ERROR, "unparseable push envelope", error=str(exc))
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    set_trace_id(envelope.trace_id)
+    payload = envelope.payload
+    job_id = str(payload.get("job_id") or "")
+    country_code = str(payload.get("country_code") or "")
+    if not job_id or not country_code:
+        log(logger, logging.ERROR, "discovery message missing job_id or country_code")
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    if already_processed(HANDLER_DISCOVER, envelope.message_id):
+        return JSONResponse({"status": "duplicate"}, status_code=200)
+
+    from app.core import discovery
+
+    try:
+        job = await run_in_threadpool(discovery.discover, job_id, country_code)
+    except discovery.TransientDiscoveryError as exc:
+        # The one failure worth a redelivery: the free-tier quota refills on its
+        # own. Nack and let Pub/Sub bring it back with backoff.
+        log(logger, logging.WARNING, "nack transient discovery",
+            job_id=job_id, error=str(exc))
+        await run_in_threadpool(
+            discovery.save_job, job_id, {"status": "queued", "error": str(exc)}
+        )
+        return JSONResponse({"status": "retry_later"}, status_code=500)
+
+    mark_processed(HANDLER_DISCOVER, envelope.message_id)
+    return JSONResponse(
+        {
+            "status": job.get("status"),
+            "job_id": job_id,
+            "committed": job.get("committed", 0),
+            "trace_id": get_trace_id(),
+        },
+        status_code=200,
+    )
 
 
 @app.post("/internal/dead-letter")

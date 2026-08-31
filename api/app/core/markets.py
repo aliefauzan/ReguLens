@@ -44,6 +44,53 @@ def list_markets() -> list[dict]:
     return [doc.to_dict() | {"id": doc.id} for doc in docs]
 
 
+def ensure_market(*, country_code: str, country_name: str, regulator: str) -> tuple[str, bool]:
+    """Make sure a market speaks for this country. Returns `(market_id, created)`.
+
+    Discovery calls this before it commits a source, and the reason is load
+    bearing rather than tidy. `impact.evaluate` skips any clause whose
+    jurisdiction is not listed by some market, and `relevance` does the same on
+    read. A watched source registered for a country with no market row would
+    ingest regulations perfectly and produce no verdict anywhere — a green row
+    in the source list and silence in the console.
+
+    Idempotent, and careful with a market that already exists: Indonesia ships
+    with `jurisdictions: ["ID_BPOM"]`, so discovering ID must *add* to that list
+    rather than replace it. A market's regimes accumulate; nothing here removes
+    one.
+    """
+    code = country_code.strip().upper()
+    market_id = f"market_{code.lower()}"
+    db = get_db()
+    ref = db.collection(COLLECTION).document(market_id)
+    snapshot = ref.get()
+    existing = snapshot.to_dict() or {} if snapshot.exists else {}
+
+    jurisdictions = [str(j) for j in existing.get("jurisdictions") or []]
+    created = not snapshot.exists
+    if code not in jurisdictions:
+        jurisdictions.append(code)
+
+    record = {
+        "country": existing.get("country") or country_name,
+        "country_code": code,
+        "jurisdictions": jurisdictions,
+        "label": existing.get("label") or f"{country_name} — {regulator}",
+        "regulator": existing.get("regulator") or regulator,
+        "discovered": existing.get("discovered", created),
+    }
+    ref.set(record, merge=True)
+    log(
+        logger,
+        logging.INFO,
+        "market ensured",
+        market_id=market_id,
+        created=created,
+        jurisdictions=jurisdictions,
+    )
+    return market_id, created
+
+
 def seed_markets() -> list[dict]:
     """Idempotent: writing the same seed twice leaves the same two documents."""
     db = get_db()

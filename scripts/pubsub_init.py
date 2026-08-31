@@ -19,6 +19,8 @@ ROUTES = {
     "document.chunk": "/internal/document-chunk",
     "clause.extracted": "/internal/clause-extracted",
     "graph.changed": "/internal/graph-changed",
+    # A user asked for a country nobody seeded.
+    "country.requested": "/internal/country-discover",
 }
 DLQ = "regulens.deadletter"
 

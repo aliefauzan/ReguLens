@@ -33,6 +33,7 @@ working locally". If it is not deployed and not verified, it stays unticked.
 | 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `IN PROGRESS` (UC-A..F + redelivery/concurrency/DLQ/walker/grounding all live-green; formal Playwright shell left) | 23 Aug | — |
 | 7 | [Hardening & Submission](phases/phase-7-demo-hardening.md) | Aug 31 | `IN PROGRESS` (deployed and exercised live 29 Aug; submission package outstanding) | 26 Aug | — |
 | 8 | [Watched Sources](phases/phase-8-live-monitoring.md) | Aug 29 | `COMPLETE` (deployed; the scheduler fired, and both change-watching and discovery are proven live) | 29 Aug | 29 Aug |
+| 9 | [Country Discovery](phases/phase-9-country-discovery.md) | Aug 31 | `IN PROGRESS` (code complete, 39 tests, exercised against live regulator sites; not deployed) | 31 Aug | — |
 
 ## Cross-cutting work
 
@@ -149,7 +150,7 @@ Recorded so they are not reopened. Change one only with a reason written here.
 - [x] **Secret Manager** for secrets; plain env vars for non-secret config
 - [x] **Docker Compose** for local, with push subscriptions matching production
 - [x] **Vertex topology** — infra in `asia-southeast1`, Gemini `gemini-3.5-flash` via the `global` endpoint, embeddings `text-multilingual-embedding-002` in `asia-southeast1`. Forced: `asia-southeast1` only offers `gemini-2.5-flash`, which fails the hackathon's 3.5+ rule
-- [x] **Cut Gemma?** — **Cut, 22 Aug.** Optional bonus; nothing depends on it. `prefilter_sections` tool slot stays empty rather than half-built.
+- [x] **Cut Gemma?** — **Cut, 22 Aug**, then **taken up again, 31 Aug** for country discovery. The 22 Aug reasoning stands for `core/extraction/` and is not reopened: the `prefilter_sections` slot stays empty. Discovery is a different flow — it proposes and selects, never writes a clause — and Gemma is free of charge on the Gemini Developer API with no paid tier, so it cannot generate a bill.
 - [x] **Cut OCR fallback. Cut, 22 Aug.** Text-layer PDFs + pasted text only; a near-empty text layer scores low `parse_quality` and the clause lands in review instead of inventing content
 - [x] **The web app is a console, not a page, 29 Aug** — the frontend is laid
   out as an operations dashboard: a fixed rail, a status bar, a metric strip and
@@ -300,6 +301,7 @@ a diary.
 
 | Date | Who | What changed |
 |---|---|---|
+| 31 Aug 2026 | country discovery | Built discovery of a regulator's catalogue for any ISO country, on Gemma 4 via the Gemini Developer API (free of charge; Vertex does not serve Gemma). Measured first: the model names regulators and root domains correctly 6/6 but **every** path-carrying URL it produced was dead, 0/14 — so it is never asked for a path. It proposes the root, we fetch it, it picks the regulations index from the real link inventory, and the `link_pattern` is derived from real paths in code. Commits an ordinary LISTING source plus the market row without which `impact.py:94` would drop every clause it ingests. Yield is about one country in three; the rest render why |
 | 31 Aug 2026 | test fix | `test_a_source_that_is_not_due_is_left_alone` anchored its `last_checked_at` to a hardcoded `NOW` (29 Aug) while `check_source()` reads the wall clock — the source went stale on 30 Aug and the test started failing in Cloud Build. Anchored to `datetime.now(UTC)` instead |
 | 29 Aug 2026 | web UI | Rebuilt the frontend as an operations console: fixed left rail with live queue counts, sticky top bar carrying the service-reachability indicator and the two global actions, and a metric strip over an asymmetric two-column overview (verdict table left, next step / activity feed / verdict legend right). Design system retuned for density — 15px base, hairline panels, monospace figures, one accent. No new dependencies: inline SVG icon set, CSS-only motion. Every `data-testid` preserved; component CSS moved into Tailwind's `components` layer so utilities keep winning |
 | 19 Aug 2026 | planning | Plan folder created; ADK + Pub/Sub + Cloud Build + observability + E2E phase incorporated |

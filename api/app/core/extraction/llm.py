@@ -151,6 +151,37 @@ def _generate(**kwargs: Any):
         return _client().models.generate_content(**kwargs)
 
 
+def generate_structured(
+    *,
+    model: str,
+    contents: str,
+    system_instruction: str,
+    response_schema: dict[str, Any],
+    temperature: float = 0.0,
+) -> str:
+    """One JSON generation call against an arbitrary model. Returns raw text.
+
+    Here rather than in the caller because of `_generate`: the closed-transport
+    workaround above cost three production runs to find, and a second call site
+    that built its own client would reintroduce the bug it fixes. Callers get
+    the text and do their own parsing — a model that ignores the schema is the
+    caller's problem to detect, not something to paper over here.
+    """
+    from google.genai import types
+
+    response = _generate(
+        model=model,
+        contents=contents,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=temperature,
+            response_mime_type="application/json",
+            response_schema=response_schema,
+        ),
+    )
+    return response.text or ""
+
+
 def generate_candidates(text: str, *, sample_index: int) -> list[dict[str, Any]]:
     """One structured extraction pass. Returns raw dicts; validation is NOT done
     here — that is candidates.build_candidate's job."""

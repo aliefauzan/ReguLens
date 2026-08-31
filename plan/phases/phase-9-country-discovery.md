@@ -1,0 +1,89 @@
+# Phase 9 — Country Discovery
+
+**Status:** `IN PROGRESS` — code complete and exercised against live regulator
+sites; **not deployed**, so nothing here is ticked `[x]` yet.
+**Started:** 31 Aug 2026
+**Completed:** —
+**Branch:** `feat/country-discovery`
+
+## Why
+
+`SEED_SOURCES` is four hand-written addresses. A user importing into a country
+nobody seeded gets no monitoring at all — the product silently narrows to "a
+compliance checker for Germany and Indonesia". This phase lets a user name any
+country and have ReguLens go and find where that country's regulator publishes.
+
+## The measurement that shaped the design
+
+Run against `gemma-4-31b-it` on 31 Aug 2026, six countries:
+
+| Asked for | Result |
+|---|---|
+| Regulator name | 6 / 6 correct |
+| Regulator root domain | 6 / 6 correct |
+| A URL with a path | **0 / 14 resolved** — 404, timeout, or 403 |
+| Homepage crawl for additive links | junk (SFA returned training courses) |
+| Gemini + `google_search` grounding | 429 — grounding is not on this key's tier |
+| FAO / FAOLEX, Codex GSFA as an aggregator | 403 to our user agent |
+
+A model has no index. It reconstructs a plausible path and regulators rewrite
+paths constantly. **No prompt fixes this**, so the model is never asked for a
+path. It is asked for the regulator and the root domain — the two things it gets
+right — and everything deeper is read off pages actually fetched:
+
+```
+hop 0  model: country -> regulator + root URL
+hop 1  fetch the root -> its real link inventory
+hop 2  model: pick the regulations index FROM THAT INVENTORY (in-list enforced)
+hop 3  fetch the pick -> derive link_pattern from real paths, deterministically
+commit an ordinary LISTING source + the market that makes it visible
+```
+
+Hop 2 cannot hallucinate: the model selects from a list we hand it, and a URL it
+writes rather than selects is dropped and logged.
+
+## What landed
+
+- [ ] `api/app/core/discovery.py` — the four hops, all refusals named
+- [ ] `api/app/core/data/countries.json` — ISO 3166-1, 249 entries, code and name
+      only. No bundled regulator names: 249 hand-written facts is 249 chances to
+      ship a wrong one, and the model names the regulator correctly anyway
+- [ ] `markets.ensure_market` — **the load-bearing half.** `impact.py:94` skips
+      any clause whose jurisdiction no market lists, so a source committed
+      without its market ingests regulations that never reach a verdict. Adds to
+      an existing market's `jurisdictions` rather than replacing (Indonesia
+      keeps `ID_BPOM`)
+- [ ] `llm.generate_structured` — a JSON call against an arbitrary model, reusing
+      `_generate` so the closed-transport workaround is not duplicated
+- [ ] `country.requested` topic, `/internal/country-discover` worker handler,
+      idempotent via `processed_messages` like every other handler
+- [ ] `GET /countries`, `POST /countries/discover`, `GET /discovery/{id}`,
+      `GET /discovery/{id}/events` (SSE)
+- [ ] `web/app/sources/DiscoverPanel.tsx` — typeahead, live progress, and every
+      rejection rendered with its reason
+- [ ] 39 tests across `test_discovery.py` and `test_discovery_routes.py`
+- [ ] Deployed and verified from Cloud Run
+
+## Decisions
+
+| # | Decision | Why |
+|---|---|---|
+| 1 | Gemma 4 via the **Gemini Developer API**, not Vertex | Vertex does not serve Gemma as a publisher model — verified, it 404s. The Developer API serves it **free of charge with no paid tier at all**, so this flow cannot generate a bill |
+| 2 | The model proposes, never writes | Measured: 0/14 model-authored URLs exist. Hop 2 picks from fetched links; an out-of-list pick is dropped |
+| 3 | `link_pattern` is derived in code, never asked for | A regex is exactly what a model produces confidently and wrongly, and it decides what the nightly sweep ingests |
+| 4 | Commit a `LISTING`, not a `DOCUMENT` | Same reason the BPOM seed watches `jdih.pom.go.id/`: a watched document only sees edits to rules you already know about |
+| 5 | SSE reads the job row, not a per-job Pub/Sub topic | The API service holds `pubsub.publisher` only. A topic per job needs a new role, runtime topic creation, and a reaper. The job row already holds every state |
+| 6 | One worker handler, no per-candidate fan-out | Two candidates inside a 600-second ack deadline. A second topic buys a DLQ and an idempotency table for nothing |
+| 7 | Only an exhausted quota is retried | Free tier is 16,000 input tokens/min/model (measured — undocumented). It refills; a regulator's 403 does not |
+
+## Known limits — state these, do not paper over them
+
+- **Yield is roughly one country in three.** Measured: Singapore and Japan commit
+  a real source; Malaysia 403s, India and Vietnam time out, the Philippines
+  serves a JavaScript application with no anchors in the HTML. Every one renders
+  its reason.
+- Verified from a laptop. The standing rule says a URL that answers a laptop can
+  answer a datacentre with a challenge page, so the deployed yield may differ —
+  which is why the "deployed and verified" box above is unticked.
+- Discovery finds *where regulations are published*. Whether what it then ingests
+  is on-topic is the extraction pipeline's job, unchanged by this phase.
