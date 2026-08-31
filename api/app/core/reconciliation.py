@@ -32,6 +32,11 @@ from app.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
+# The authority gate's floor, named because two places have to agree on it: the
+# gate that parks a clause under it, and the recheck that must never release
+# one from under it.
+CONFIDENCE_FLOOR = 0.5
+
 RECONCILED_STATUSES = {
     ClauseStatus.ACTIVE,
     ClauseStatus.SUPERSEDED,
@@ -299,7 +304,7 @@ def reconcile_clause(clause_id: str) -> dict:
             log(logger, logging.WARNING, "embed_failed", clause_id=clause_id, error=str(exc)[:200])
 
     # Authority gate: low-confidence or review-flagged input never mutates state.
-    if clause.get("confidence", 0) < 0.5 or clause.get("needs_review"):
+    if clause.get("confidence", 0) < CONFIDENCE_FLOOR or clause.get("needs_review"):
         _apply_review(clause, reason="low_confidence_or_flagged")
         _publish_graph_changed(clause_id)
         return {"status": "needs_review"}
@@ -639,11 +644,24 @@ def _renormalized(data: dict) -> dict | None:
     wrong with it. A clause whose unit is also unreadable stays with a person
     even once its substance resolves — settling one of two reasons settles
     nothing.
+
+    `low_confidence_or_flagged` is the one reason allowed to sit alongside, and
+    only when the clause's confidence is above the floor. It is two reasons
+    wearing one name: the authority gate parks a clause when its confidence is
+    too low **or** when extraction flagged it, and an unrecognised substance
+    sets that flag. So a clause scoring 1.0 on every component, parked with this
+    reason and no other, is not a clause anybody doubted — it is this same
+    unrecognised name, seen a second time from the other side of the pipeline.
+    A clause actually under the floor is refused here, because no recheck makes
+    an unreadable number readable.
     """
     from app.core.extraction.candidates import _reads_as_specification
     from app.core.normalization import normalize_substance
 
-    if _park_reasons(data) != {CONDITIONAL_RECHECK_REASON}:
+    reasons = _park_reasons(data) - {"low_confidence_or_flagged"}
+    if reasons != {CONDITIONAL_RECHECK_REASON}:
+        return None
+    if float(data.get("confidence") or 0) < CONFIDENCE_FLOOR:
         return None
     stated = data.get("substance")
     if not stated:

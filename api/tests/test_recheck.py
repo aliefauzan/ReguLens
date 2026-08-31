@@ -146,7 +146,11 @@ def test_a_name_the_dictionary_now_knows_is_reopened():
     from app.core.reconciliation import _renormalized
 
     correction = _renormalized(
-        {"substance": "Nitrites", "review_reasons": ["substance_not_recognized"]}
+        {
+            "substance": "Nitrites",
+            "confidence": 1.0,
+            "review_reasons": ["substance_not_recognized"],
+        }
     )
     assert correction is not None
     assert correction["substance_normalized"] == "nitrites"
@@ -160,7 +164,11 @@ def test_the_authority_flag_is_cleared_with_the_same_write():
     from app.core.reconciliation import _renormalized
 
     correction = _renormalized(
-        {"substance": "Nitrates", "review_reasons": ["substance_not_recognized"]}
+        {
+            "substance": "Nitrates",
+            "confidence": 1.0,
+            "review_reasons": ["substance_not_recognized"],
+        }
     )
     assert correction["needs_review"] is False
     assert correction["review_reasons"] == []
@@ -188,6 +196,7 @@ def test_settling_one_of_two_reasons_settles_nothing():
         _renormalized(
             {
                 "substance": "Nitrites",
+                "confidence": 1.0,
                 "review_reasons": ["substance_not_recognized", "unit_not_normalizable"],
             }
         )
@@ -217,11 +226,13 @@ def test_a_sweep_reopens_a_learned_name_and_leaves_an_unlearned_one(monkeypatch)
         _Snapshot("known", {
             "status": "needs_review",
             "substance": "Nitrites",
+            "confidence": 1.0,
             "review_reasons": ["substance_not_recognized"],
         }),
         _Snapshot("unknown", {
             "status": "needs_review",
             "substance": "Narasin",
+            "confidence": 1.0,
             "review_reasons": ["substance_not_recognized"],
         }),
     ]
@@ -254,6 +265,7 @@ def test_a_recheck_is_not_a_way_in_that_an_upload_would_refuse():
         _renormalized(
             {
                 "substance": "potassium nitrite",
+                "confidence": 1.0,
                 "clause_type": "numeric_limit",
                 "text": "Loss on drying Not more than 3 % (4 hours, over silica gel)",
                 "review_reasons": ["substance_not_recognized"],
