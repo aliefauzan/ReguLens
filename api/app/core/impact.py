@@ -304,6 +304,31 @@ def _culprit(market_reqs: list[dict], when: date, status: str) -> dict:
     return starting[0] if starting else {}
 
 
+def _deciding(product_id: str, market_id: str, as_of: date | None = None) -> dict:
+    """The requirement that the new verdict actually rests on.
+
+    `run_impact` knows which clause *triggered* the re-evaluation, and that is
+    not always the clause that *decided* it. One regulation can carry both, and
+    Commission Regulation (EU) 2023/2108 does: reconciling its nitrates row set
+    a sausage to `non_compliant` on its nitrites row, and the alert read "it
+    sets nitrates at 150 mg/kg" above a verdict about 30 mg/kg of nitrites.
+    Same regulation, wrong sentence.
+
+    Worst first, and only rules in force, so the row named is the one that
+    settles the status — the same rule `_status_from` applies, asked for the
+    row instead of the word.
+    """
+    as_of = as_of or date.today()
+    in_force = [
+        r
+        for r in _requirements_for(product_id)
+        if r.get("market_id") == market_id and _in_force(r.get("effective_date"), as_of)
+    ]
+    rank = {"fail": 0, "needs_review": 1, "pass": 2}
+    in_force.sort(key=lambda r: rank.get(r.get("evaluation"), 3))
+    return in_force[0] if in_force else {}
+
+
 def upcoming_changes(product_id: str, as_of: date | None = None) -> dict[str, dict]:
     """Per market, the next date the verdict changes and what it changes to.
 
@@ -402,6 +427,19 @@ def _apply_upcoming(
     return upcoming
 
 
+def _cause_of(
+    product_id: str, market_id: str, clause_id: str | None, document_id: str | None
+) -> dict:
+    """The deciding rule where there is one, the triggering rule otherwise."""
+    deciding = _deciding(product_id, market_id)
+    if deciding.get("clause_id"):
+        return {
+            "clause_id": deciding.get("clause_id"),
+            "document_id": deciding.get("document_id"),
+        }
+    return {"clause_id": clause_id, "document_id": document_id}
+
+
 def run_impact(clause_id: str | None, document_id: str | None) -> dict:
     """`graph.changed` consumer. Re-evaluates every product; idempotent because
     unchanged requirements write nothing and status events fire only on actual
@@ -425,10 +463,12 @@ def run_impact(clause_id: str | None, document_id: str | None) -> dict:
                     before={"market": market_id, "status": old_status},
                     after={"market": market_id, "status": new_status},
                     triggered_by="impact_engine",
-                    cause={
-                        "clause_id": clause_id,
-                        "document_id": document_id,
-                    },
+                    # The rule the verdict rests on, not the one whose arrival
+                    # started the run. They are usually the same and the alert
+                    # quotes whichever it is given, so when they differ the
+                    # wrong one is a sentence that contradicts the verdict
+                    # printed beside it.
+                    cause=_cause_of(product["id"], market_id, clause_id, document_id),
                     merge=True,
                 )
                 log(
