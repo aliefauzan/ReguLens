@@ -104,3 +104,105 @@ class TestGuardrailUsesTheCategory:
         verdict = comparability(_clause(BEVERAGE, 400), eu)
         assert not isinstance(verdict, IncomparablePair)
         assert (verdict.value_a, verdict.value_b) == (400.0, 150.0)
+
+
+# ---------------------------------------------------------------------------
+# The food stated in words, for annexes that print no category code
+
+
+class TestStatedScope:
+    """EU Annex II limit rows carry no GSFA code. They name the food in the row.
+
+    Twenty-four nitrite rows of Commission Regulation (EU) 2023/2108 are written
+    this way — one per cured meat — and without reading the phrase every pair of
+    them is a supersede question with no date to settle it, which is exactly the
+    case that reaches the judge and comes back ambiguous.
+    """
+
+    def test_the_restriction_phrase_is_read_with_its_keyword(self):
+        from app.core.scope import stated_scope
+
+        assert stated_scope(
+            "E 249-250 Nitrites 50 (39) only jellied veal and brisket : Injection of curing"
+        ) == ("only", "jellied veal and brisket")
+
+    def test_the_validity_window_is_not_part_of_the_food(self):
+        """Two rows about one food, one superseding the other, differ only by
+        their dates. Leaving the window in the scope makes them two foods and
+        the supersede never happens."""
+        from app.core.scope import stated_scope
+
+        new = stated_scope(
+            "E 249-250 Nitrites 80 (59) (XC) (XD) except sterilised meat products "
+            "(Fo > 3,00) Period of application: from 9 October 2025"
+        )
+        old = stated_scope(
+            "E 249-250 Nitrites 150 (7) (59) except sterilised meat products "
+            "(Fo > 3,00) Period of application: until 9 October 2025"
+        )
+        assert new == old
+
+    def test_a_row_that_states_no_food_says_so(self):
+        from app.core.scope import stated_scope
+
+        assert stated_scope("14.1.4.2 Minuman Berbasis Air Berperisa 400 mg/kg") is None
+        assert stated_scope(None) is None
+
+    def test_only_and_except_are_different_statements(self):
+        """A rule that applies to everything but a food and a rule that applies
+        to nothing but a food say opposite things with the same words."""
+        from app.core.scope import scopes_comparable, stated_scope
+
+        a = stated_scope("Nitrites 100 only sterilised meat products")
+        b = stated_scope("Nitrites 80 except sterilised meat products")
+        assert a != b
+        assert scopes_comparable(a, b) is False
+
+    def test_silence_blocks_nothing(self):
+        from app.core.scope import scopes_comparable
+
+        assert scopes_comparable(None, ("only", "dry cured bacon")) is True
+        assert scopes_comparable(None, None) is True
+
+    def test_two_rows_about_different_meats_are_not_compared(self):
+        """The whole point. Refusing is the cautious direction: nothing is
+        superseded, both rows stay active, and a product is still measured
+        against the stricter of them."""
+        from app.core.guardrail import comparability
+
+        row = {
+            "clause_type": "numeric_limit",
+            "substance_normalized": "nitrites",
+            "unit": "mg_per_kg",
+            "product_type": "food_solid",
+        }
+        veal = row | {"limit_value": 50.0, "text": "E 249-250 Nitrites 50 only jellied veal"}
+        bacon = row | {
+            "limit_value": 105.0,
+            "text": "E 249-250 Nitrites 105 only Wiltshire bacon and similar products :",
+        }
+        verdict = comparability(veal, bacon)
+        assert getattr(verdict, "reason", None) == "stated_scope_mismatch"
+
+    def test_one_food_amended_stays_one_supersede_question(self):
+        from app.core.guardrail import comparability
+
+        row = {
+            "clause_type": "numeric_limit",
+            "substance_normalized": "nitrites",
+            "unit": "mg_per_kg",
+            "product_type": "food_solid",
+        }
+        old = row | {
+            "limit_value": 150.0,
+            "text": "E 249-250 Nitrites 150 (7) (59) except sterilised meat products "
+                    "(Fo > 3,00) Period of application: until 9 October 2025",
+        }
+        new = row | {
+            "limit_value": 80.0,
+            "text": "E 249-250 Nitrites 80 (59) (XC) except sterilised meat products "
+                    "(Fo > 3,00) Period of application: from 9 October 2025",
+        }
+        verdict = comparability(old, new)
+        assert getattr(verdict, "reason", None) is None
+        assert (verdict.value_a, verdict.value_b) == (150.0, 80.0)

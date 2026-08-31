@@ -122,3 +122,122 @@ def test_what_it_could_not_settle_is_named_not_just_counted(queue, monkeypatch):
 def test_reason_counts_never_drops_a_blank_reason():
     counted = _reason_counts([{"review_reason": None}, {"review_reason": "low_authority"}])
     assert counted == {"unstated": 1, "low_authority": 1}
+
+
+# ---------------------------------------------------------------------------
+# The other way a queue empties itself: a name the dictionary has since learned
+
+
+def test_the_conditional_reason_is_exactly_one_and_is_not_unconditional():
+    """Pinned separately from `AUTO_RECHECKABLE_REASONS` on purpose. The two
+    sets mean different things — one reason is always settleable by code, the
+    other only when a re-run of the strict matcher says so — and collapsing
+    them would turn "we learned this name" into "we cleared this name"."""
+    from app.core.reconciliation import CONDITIONAL_RECHECK_REASON
+
+    assert CONDITIONAL_RECHECK_REASON == "substance_not_recognized"
+    assert CONDITIONAL_RECHECK_REASON not in AUTO_RECHECKABLE_REASONS
+
+
+def test_a_name_the_dictionary_now_knows_is_reopened():
+    """The live case: EU 2023/2108 was read before the curing-salt entries
+    existed, so `Nitrites` parked as unrecognised. The dictionary knows it now,
+    and the same strict matcher — not a relaxed one — says so."""
+    from app.core.reconciliation import _renormalized
+
+    correction = _renormalized(
+        {"substance": "Nitrites", "review_reasons": ["substance_not_recognized"]}
+    )
+    assert correction is not None
+    assert correction["substance_normalized"] == "nitrites"
+    assert correction["unnormalized_substance"] is False
+
+
+def test_the_authority_flag_is_cleared_with_the_same_write():
+    """`reconcile_clause` parks anything carrying `needs_review` before it looks
+    at anything else. A correction that left the flag standing would reopen the
+    clause and park it again one line later, for the reason it just cleared."""
+    from app.core.reconciliation import _renormalized
+
+    correction = _renormalized(
+        {"substance": "Nitrates", "review_reasons": ["substance_not_recognized"]}
+    )
+    assert correction["needs_review"] is False
+    assert correction["review_reasons"] == []
+
+
+def test_a_name_the_dictionary_still_refuses_stays_with_a_person():
+    """The gate. Without it this reason would be a way of clearing the queue by
+    asking the same question twice."""
+    from app.core.reconciliation import _renormalized
+
+    assert (
+        _renormalized(
+            {"substance": "Narasin", "review_reasons": ["substance_not_recognized"]}
+        )
+        is None
+    )
+
+
+def test_settling_one_of_two_reasons_settles_nothing():
+    """A clause whose unit is also unreadable is not released by its substance
+    resolving — the number is still one nobody can compare."""
+    from app.core.reconciliation import _renormalized
+
+    assert (
+        _renormalized(
+            {
+                "substance": "Nitrites",
+                "review_reasons": ["substance_not_recognized", "unit_not_normalizable"],
+            }
+        )
+        is None
+    )
+
+
+def test_a_reason_written_by_extraction_is_read_from_the_list():
+    """Extraction writes `review_reasons`; reconciliation writes
+    `review_reason`. Reading one field only is how a queue reports every
+    extraction-parked clause as `unstated`."""
+    from app.core.reconciliation import _park_reasons
+
+    assert _park_reasons({"review_reasons": ["substance_not_recognized"]}) == {
+        "substance_not_recognized"
+    }
+    assert _park_reasons({"review_reason": "judge_ambiguous"}) == {"judge_ambiguous"}
+    assert _park_reasons(
+        {"review_reasons": ["unit_not_normalizable"], "review_reason": "judge_ambiguous"}
+    ) == {"unit_not_normalizable", "judge_ambiguous"}
+
+
+def test_a_sweep_reopens_a_learned_name_and_leaves_an_unlearned_one(monkeypatch):
+    """End to end over the queue: the summary and the work agree, and the row
+    nobody can read is still named in `needs_a_person`."""
+    rows = [
+        _Snapshot("known", {
+            "status": "needs_review",
+            "substance": "Nitrites",
+            "review_reasons": ["substance_not_recognized"],
+        }),
+        _Snapshot("unknown", {
+            "status": "needs_review",
+            "substance": "Narasin",
+            "review_reasons": ["substance_not_recognized"],
+        }),
+    ]
+    from app.core import reconciliation
+
+    monkeypatch.setattr(reconciliation, "get_db", lambda: _DB(rows))
+    seen: list[str] = []
+    monkeypatch.setattr(
+        reconciliation,
+        "recheck_clause",
+        lambda cid: (seen.append(cid), {"status": "active"})[1],
+    )
+
+    summary = recheck_review_queue()
+
+    assert seen == ["known"]
+    assert summary["eligible"] == 1
+    assert summary["resolved"] == 1
+    assert summary["needs_a_person"] == {"substance_not_recognized": 1}

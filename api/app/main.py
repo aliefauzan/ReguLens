@@ -889,6 +889,13 @@ def recheck_review_queue_endpoint() -> dict:
     pair went to the judge and came back ambiguous. The guardrail can see it
     now, and this re-runs the decision rather than asking for thirty-six clicks.
 
+    The other reason a queue empties here is a name. A clause parked because
+    the strict matcher did not recognise the substance is re-decided only if
+    that same matcher recognises it now — which happens when the dictionary has
+    since learned the name, as it did for the curing salts an EU amendment
+    named as a group. The matcher is never relaxed and no mapping is guessed;
+    a name it still refuses stays refused, and the clause stays with a person.
+
     Nothing is accepted on trust: a clause is re-decided by the same
     reconciliation path an upload uses, and one that is still genuinely
     ambiguous goes straight back into the queue. Clauses parked for low

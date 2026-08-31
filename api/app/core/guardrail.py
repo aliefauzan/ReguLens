@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.core.scope import categories_comparable, category_of
+from app.core.scope import categories_comparable, category_of, scope_of, scopes_comparable
 
 
 @dataclass(frozen=True)
@@ -132,6 +132,12 @@ def comparability(a: dict, b: dict) -> ComparableOrNot:
     # to ask a person about. Silence on either side blocks nothing.
     if not categories_comparable(category_of(a), category_of(b)):
         return IncomparablePair(reason="food_category_mismatch")
+    # The same question the code answers, for annexes that print no code. An EU
+    # limit row states its food in words ("only dry cured bacon"), and two rows
+    # restricted to different meats are two rules, not one rule stated twice.
+    # Silence on either side blocks nothing.
+    if not scopes_comparable(scope_of(a), scope_of(b)):
+        return IncomparablePair(reason="stated_scope_mismatch")
 
     value_a = to_mg_per_kg(a.get("limit_value"), a.get("unit"))
     value_b = to_mg_per_kg(b.get("limit_value"), b.get("unit"))

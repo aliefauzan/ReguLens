@@ -533,6 +533,71 @@ def dismiss_clause(clause_id: str) -> dict | None:
 # clears them.
 AUTO_RECHECKABLE_REASONS = frozenset({"judge_ambiguous"})
 
+# `substance_not_recognized` is the same shape of reason — typed code had
+# nothing to go on — but it is not unconditionally recheckable, because the
+# thing that was missing may still be missing. It is settled here only when
+# re-running the *same* strict matcher over the substance the document stated
+# now returns a name the dictionary knows. That happens for one reason: the
+# dictionary learned the name. Commission Regulation (EU) 2023/2108 was read on
+# 29 Aug, when nothing joined "E 249-250 Nitrites" to a recipe saying sodium
+# nitrite, so 88 verbatim limits parked here; the curing-salt entries and their
+# family landed two days later. Re-extracting to pick that up would spend a
+# model run to re-derive text already stored verbatim.
+#
+# The gate matters more than the reason: when the matcher still refuses, the
+# clause stays parked and a person still owns it. Nothing here relaxes the
+# matcher, and nothing invents a mapping — a wrong normalization silently
+# compares two different substances, which is the failure this whole module
+# exists to prevent.
+CONDITIONAL_RECHECK_REASON = "substance_not_recognized"
+
+
+def _park_reasons(data: dict) -> set[str]:
+    """Every reason one clause is parked for.
+
+    Two fields carry them, because two things do the parking. Extraction writes
+    the list (`review_reasons`) and can name several at once; reconciliation
+    writes the single `review_reason` when it decides a clause needs a person.
+    Reading only one of them is how a clause held for two reasons gets released
+    for having settled one.
+    """
+    reasons = {str(r) for r in (data.get("review_reasons") or [])}
+    single = data.get("review_reason")
+    if single:
+        reasons.add(str(single))
+    return reasons
+
+
+def _renormalized(data: dict) -> dict | None:
+    """The corrected normalization for a clause parked as unrecognised, or None.
+
+    None means the clause is not eligible, for either of two reasons: the strict
+    matcher still does not know the name, or the name was never the only thing
+    wrong with it. A clause whose unit is also unreadable stays with a person
+    even once its substance resolves — settling one of two reasons settles
+    nothing.
+    """
+    from app.core.normalization import normalize_substance
+
+    if _park_reasons(data) != {CONDITIONAL_RECHECK_REASON}:
+        return None
+    stated = data.get("substance")
+    if not stated:
+        return None
+    normalized, unnormalized = normalize_substance(stated)
+    if unnormalized:
+        return None
+    # `needs_review` is cleared with the same write, and has to be: the
+    # authority gate at the top of `reconcile_clause` reads that flag, so a
+    # clause reopened without it would be parked again one line later, by the
+    # reason it was just cleared of.
+    return {
+        "substance_normalized": normalized,
+        "unnormalized_substance": False,
+        "needs_review": False,
+        "review_reasons": [],
+    }
+
 
 def recheck_clause(clause_id: str) -> dict:
     """Put one parked clause back through reconciliation.
@@ -558,8 +623,19 @@ def recheck_clause(clause_id: str) -> dict:
         data = fresh.to_dict()
         if data.get("status") != "needs_review":
             return {"status": "skipped", "reason": "not_in_review"}
-        reason = data.get("review_reason")
-        if reason not in AUTO_RECHECKABLE_REASONS:
+        reasons = _park_reasons(data)
+        reason = data.get("review_reason") or (sorted(reasons)[0] if reasons else None)
+        correction: dict = {}
+        if reasons & {CONDITIONAL_RECHECK_REASON} and not (reasons & AUTO_RECHECKABLE_REASONS):
+            renormalized = _renormalized(data)
+            if renormalized is None:
+                return {
+                    "status": "skipped",
+                    "reason": "still_unrecognized",
+                    "review_reason": reason,
+                }
+            correction = renormalized
+        elif not (reasons & AUTO_RECHECKABLE_REASONS):
             return {"status": "skipped", "reason": "needs_a_person", "review_reason": reason}
         event_id = new_id("evt")
         transaction.set(
@@ -567,13 +643,13 @@ def recheck_clause(clause_id: str) -> dict:
             _event_payload(
                 EventType.CLAUSE_RECHECKED, clause_id,
                 {"status": "needs_review", "review_reason": reason},
-                {"status": "pending_reconciliation"},
+                {"status": "pending_reconciliation"} | correction,
                 {"rechecked_by": "guardrail"}, "recheck", data.get("confidence"),
             ),
         )
         transaction.set(
             ref,
-            {"status": "pending_reconciliation", "review_reason": None},
+            {"status": "pending_reconciliation", "review_reason": None} | correction,
             merge=True,
         )
         return {"status": "reopened", "review_reason": reason}
@@ -609,7 +685,7 @@ def recheck_review_queue(limit: int = 500) -> dict:
         .limit(limit)
         .stream()
     ]
-    eligible = [c for c in parked if c.get("review_reason") in AUTO_RECHECKABLE_REASONS]
+    eligible = [c for c in parked if _eligible_for_recheck(c)]
     outcomes: dict[str, int] = {}
     resolved = 0
     for clause in eligible:
@@ -626,9 +702,7 @@ def recheck_review_queue(limit: int = 500) -> dict:
         # Named, not just counted: a reason nothing can settle automatically is
         # the reader's next piece of work, and hiding it behind a total makes
         # the queue look shorter than it is.
-        "needs_a_person": _reason_counts(
-            c for c in parked if c.get("review_reason") not in AUTO_RECHECKABLE_REASONS
-        ),
+        "needs_a_person": _reason_counts(c for c in parked if not _eligible_for_recheck(c)),
         "outcomes": outcomes,
     }
     log(logger, logging.INFO, "review_queue_rechecked", **{
@@ -637,11 +711,31 @@ def recheck_review_queue(limit: int = 500) -> dict:
     return summary
 
 
+def _eligible_for_recheck(clause: dict) -> bool:
+    """Whether a sweep should even try this clause.
+
+    Asked with the same test `recheck_clause` applies inside its transaction,
+    so the summary and the work agree: a clause counted as eligible is one that
+    was actually reopened, and one counted under `needs_a_person` is one the
+    dictionary still cannot read.
+    """
+    reasons = _park_reasons(clause)
+    if reasons & AUTO_RECHECKABLE_REASONS:
+        return True
+    if CONDITIONAL_RECHECK_REASON in reasons:
+        return _renormalized(clause) is not None
+    return False
+
+
 def _reason_counts(clauses) -> dict[str, int]:
     counts: dict[str, int] = {}
     for clause in clauses:
-        key = str(clause.get("review_reason") or "unstated")
-        counts[key] = counts.get(key, 0) + 1
+        # Both fields, for the reason `_park_reasons` exists: a clause parked by
+        # extraction carries its reasons in the list and would otherwise be
+        # counted as "unstated" — a queue that cannot name what it is waiting
+        # for is the same silence the filter rule forbids.
+        for key in sorted(_park_reasons(clause)) or ["unstated"]:
+            counts[key] = counts.get(key, 0) + 1
     return counts
 
 
