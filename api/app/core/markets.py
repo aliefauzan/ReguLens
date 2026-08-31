@@ -72,6 +72,11 @@ def ensure_market(*, country_code: str, country_name: str, regulator: str) -> tu
         jurisdictions.append(code)
 
     record = {
+        # `list_markets` orders by the `id` field, and Firestore omits any
+        # document that does not carry the field it is ordered by. A market
+        # written without it exists and is invisible — which is the exact
+        # failure this function was added to prevent, one level down.
+        "id": market_id,
         "country": existing.get("country") or country_name,
         "country_code": code,
         "jurisdictions": jurisdictions,

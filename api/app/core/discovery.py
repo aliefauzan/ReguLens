@@ -95,7 +95,7 @@ MAX_PATTERN_MATCHES = 40
 # Anchor text and paths that mark a regulations index rather than a news page.
 # Used to rank candidates, never to invent one.
 _INDEX_HINTS = re.compile(
-    r"(?i)legislat|regulat|legal|law|act\b|standard|circular|gazette|"
+    r"(?i)legislat|regulat|legal|law|\bact\b|standard|circular|gazette|"
     r"decree|statut|rule|jdih|peraturan|通知"
 )
 

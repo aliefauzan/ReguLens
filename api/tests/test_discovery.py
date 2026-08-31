@@ -571,3 +571,24 @@ def test_hyphenated_paths_read_as_words() -> None:
     )
     pattern, count, _ = discovery.derive_pattern(links)
     assert count == 3
+
+
+def test_a_contact_page_is_not_a_legislation_index() -> None:
+    """`act\\b` matched inside "cont-act-us", and the local drill duly committed
+    `sfa.gov.sg/contact-us` as Singapore's regulations index."""
+    assert discovery._INDEX_HINTS.search("https://x.gov/legislation/food-act")
+    assert not discovery._INDEX_HINTS.search("https://www.sfa.gov.sg/contact-us")
+
+
+def test_a_market_carries_the_field_it_is_ordered_by(monkeypatch) -> None:
+    """`list_markets` orders by `id`, and Firestore omits documents missing the
+    ordered field. A market written without it exists and is invisible — the
+    same silence `ensure_market` was added to prevent."""
+    from app.core import markets
+
+    store: dict = {}
+    monkeypatch.setattr(markets, "get_db", lambda: _FakeDb(store))
+    market_id, _ = markets.ensure_market(
+        country_code="SG", country_name="Singapore", regulator="SFA"
+    )
+    assert store[market_id]["id"] == market_id
