@@ -23,6 +23,8 @@ from app.models import (
     ProductPatch,
     QueryIn,
     SourceType,
+    WatchedSourceIn,
+    WatchedSourcePatch,
 )
 from app.observability import configure_logging, get_trace_id, log, set_trace_id
 from app.settings import get_settings
@@ -203,6 +205,96 @@ def post_demo_seed() -> JSONResponse:
     )
 
 
+@app.get("/stats/autonomy")
+def get_autonomy() -> dict:
+    """What ReguLens did without being asked, counted from stored records.
+
+    Every figure is a query over the same collections that serve the rest of the
+    app, so a number here can be clicked through to the thing it counts. A quiet
+    week reports zeros — which is the ordinary case for a monitor, and the
+    easiest number in this codebase to have inflated.
+    """
+    from app.core import autonomy
+
+    return autonomy.summary() | {"trace_id": get_trace_id()}
+
+
+@app.get("/sources")
+def get_sources() -> dict:
+    """The addresses ReguLens re-reads on a schedule, and what happened last time.
+
+    Rendered rather than hidden because the honest claim depends on it: a source
+    that has been erroring for a week means "we are not watching that", and the
+    only place a user can find that out is here.
+    """
+    from app.core import sources
+
+    return {
+        "sources": [s.model_dump(mode="json") for s in sources.list_sources()],
+        "default_interval_hours": settings.source_check_interval_hours,
+        "trace_id": get_trace_id(),
+    }
+
+
+@app.post("/sources", status_code=201)
+def post_source(payload: WatchedSourceIn) -> JSONResponse:
+    """Start watching an address. Adding one already watched returns it as it
+    stands, with 200 rather than 201."""
+    from app.core import sources
+
+    source, created = sources.add_source(payload)
+    return JSONResponse(
+        {"source": source.model_dump(mode="json"), "created": created, "trace_id": get_trace_id()},
+        status_code=201 if created else 200,
+    )
+
+
+@app.patch("/sources/{source_id}")
+def patch_source(source_id: str, payload: WatchedSourcePatch) -> dict:
+    from app.core import sources
+
+    source = sources.patch_source(source_id, payload)
+    if source is None:
+        raise HTTPException(status_code=404, detail="no such source")
+    return {"source": source.model_dump(mode="json"), "trace_id": get_trace_id()}
+
+
+@app.delete("/sources/{source_id}", status_code=200)
+def delete_source(source_id: str) -> dict:
+    """Stop watching. Documents already read from it stay — they are rules that
+    verdicts cite, and removing one is a separate decision made on its own page."""
+    from app.core import sources
+
+    if not sources.delete_source(source_id):
+        raise HTTPException(status_code=404, detail="no such source")
+    return {"deleted": source_id, "trace_id": get_trace_id()}
+
+
+@app.post("/sources/seed", status_code=201)
+def post_sources_seed() -> dict:
+    """Register the built-in watch list. Idempotent."""
+    from app.core import sources
+
+    return {"sources": sources.seed_sources(), "trace_id": get_trace_id()}
+
+
+@app.post("/sources/{source_id}/check")
+def post_source_check(source_id: str) -> dict:
+    """Read one source now, ignoring the interval.
+
+    Synchronous on purpose: a person who pressed "Check now" is waiting for the
+    answer, and the answer takes one HTTP fetch and a hash comparison. Anything
+    slow that follows — extraction, reconciliation, impact — is already behind
+    Pub/Sub, exactly as it is for an upload.
+    """
+    from app.core import sources
+
+    result = sources.check_source(source_id, force=True)
+    if result.get("status") == "not_found":
+        raise HTTPException(status_code=404, detail="no such source")
+    return result | {"trace_id": get_trace_id()}
+
+
 @app.post("/products", status_code=201)
 def create_product(payload: ProductIn) -> dict:
     product = products.create_product(payload)
@@ -259,7 +351,7 @@ def get_product_compliance(
     market_id: str | None = None,
 ) -> dict:
     """Readiness view: requirements + evaluations + issue counts per market."""
-    from app.core.impact import rollup_status
+    from app.core.impact import rollup_status, upcoming_changes
 
     if products.get_product(product_id) is None:
         raise HTTPException(status_code=404, detail="product not found")
@@ -281,6 +373,21 @@ def get_product_compliance(
     if market_id:
         reqs = [r for r in reqs if r.get("market_id") == market_id]
     statuses = rollup_status(product_id)
+    # What binds today, and the next date that answer changes. Both, because a
+    # product that passes today and fails in March is neither "compliant" nor
+    # "non_compliant" on its own, and picking one of those words would be a lie
+    # in whichever direction it was picked.
+    upcoming = upcoming_changes(product_id)
+    if market_id:
+        upcoming = {k: v for k, v in upcoming.items() if k == market_id}
+    # One recipe, several markets: the number the product must actually meet is
+    # the lowest one still in force. Omitted when the caller narrowed to a
+    # single market, where "strictest across your markets" is not a question.
+    binding = None
+    if not market_id:
+        from app.core.strictest import binding_limits
+
+        binding = binding_limits(product_id)
     issues = sum(
         1 for r in reqs
         if r.get("evaluation") in {"fail", "needs_review"}
@@ -288,6 +395,8 @@ def get_product_compliance(
     critical = sum(1 for r in reqs if r.get("evaluation") == "fail")
     return {
         "statuses": statuses,
+        "upcoming": upcoming,
+        "binding_limits": binding,
         "requirements": reqs,
         "issue_counts": {"total": issues, "critical": critical},
         "trace_id": get_trace_id(),
@@ -320,39 +429,52 @@ def get_product_remediation(product_id: str) -> dict:
     }
 
 
+@app.post("/simulate")
+def simulate_product(payload: ProductIn) -> dict:
+    """What-if: the verdict for a product nobody saved.
+
+    Read-only by construction — it writes no document, emits no event and leaves
+    no requirement row behind, so it can be called from a form as often as the
+    form changes without putting anything in the audit trail.
+    """
+    from app.core.products import _normalize_ingredients
+    from app.core.simulation import simulate
+
+    product = payload.model_dump(mode="json")
+    product["ingredients"] = _normalize_ingredients(payload.ingredients)
+    result = simulate(product)
+    return result | {"trace_id": get_trace_id()}
+
+
+@app.get("/products/{product_id}/evidence")
+def get_product_evidence(product_id: str) -> dict:
+    """The pack somebody hands an auditor: every verdict, the rule behind it as
+    the regulator wrote it, where that document came from, and its content hash.
+
+    Read-only, assembled from stored records. Nothing here is signed — the
+    hashes show the content has not changed, not who produced it.
+    """
+    from app.core.evidence import build
+
+    try:
+        pack = build(product_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="product not found") from None
+    return pack | {"trace_id": get_trace_id()}
+
+
 @app.get("/alerts")
 def list_alerts() -> dict:
-    """Unacknowledged `product_status_changed` events where the status worsened."""
-    from google.cloud import firestore
+    """Unacknowledged worsening status changes, each carrying why it happened.
 
-    severity_order = {
-        "unknown": 0,
-        "attention_required": 1,
-        "compliant": 1,
-        "non_compliant": 2,
-    }
-    events = (
-        get_db()
-        .collection("graph_events")
-        .where(filter=firestore.FieldFilter("event_type", "==", "product_status_changed"))
-        .limit(50)
-        .stream()
-    )
-    alerts = []
-    for d in events:
-        e = d.to_dict() | {"id": d.id}
-        after = (e.get("after") or {}).get("status")
-        before = (e.get("before") or {}).get("status")
-        if severity_order.get(after, 0) > severity_order.get(before, 0) and not e.get("acknowledged"):
-            alerts.append(e)
-    alerts.sort(key=lambda e: e.get("occurred_at") or 0, reverse=True)
+    The `context` on every alert is resolved from stored records — the causing
+    document, the causing clause, the product and the market. It exists so the
+    banner can say which regulation moved the verdict and whether anybody
+    uploaded it, instead of only that something changed.
+    """
+    from app.core import alerts as alerts_core
 
-    # An alert about a product that no longer exists is a link to a 404 and a
-    # verdict nobody can act on. The event stays in the audit trail; it just
-    # stops being presented as something needing attention.
-    live = {p.id for p in products.list_products()}
-    alerts = [a for a in alerts if a.get("entity_id") in live]
-    return {"alerts": alerts[:20], "trace_id": get_trace_id()}
+    return {"alerts": alerts_core.list_alerts(), "trace_id": get_trace_id()}
 
 
 @app.post("/alerts/{alert_id}/ack")
@@ -698,7 +820,16 @@ def list_clauses(
     jurisdiction: str | None = None,
     substance: str | None = None,
     status: str | None = None,
+    relevant_only: bool = False,
 ) -> dict:
+    """Clauses, optionally narrowed to the ones that could bear on this workspace.
+
+    `relevant_only` never deletes and never downgrades. It is computed at read
+    time from the products that exist right now, so a rule held back today
+    applies to a product added tomorrow with no migration and no recompute. The
+    response always carries `hidden` and `hidden_reasons`, because a list that
+    quietly drops a hundred and forty rules is worse than a long one.
+    """
     from app.core.clauses import query_clauses
 
     # Single-field filters only (no composite indexes in the MVP); the
@@ -706,7 +837,18 @@ def list_clauses(
     clauses = query_clauses(substance=substance, status=status)
     if jurisdiction:
         clauses = [c for c in clauses if str(c.get("jurisdiction") or "").upper() == jurisdiction.upper()]
-    return {"clauses": clauses, "trace_id": get_trace_id()}
+
+    hidden_reasons: dict[str, int] = {}
+    if relevant_only:
+        from app.core import relevance
+
+        clauses, hidden_reasons = relevance.partition(clauses, relevance.current_workspace())
+    return {
+        "clauses": clauses,
+        "hidden": sum(hidden_reasons.values()),
+        "hidden_reasons": hidden_reasons,
+        "trace_id": get_trace_id(),
+    }
 
 
 @app.get("/conflicts")

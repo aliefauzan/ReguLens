@@ -28,6 +28,11 @@ const TABS: {
 }[] = [
   { href: "/", label: "Products", icon: "products", testId: "nav-products", onPhone: true },
   { href: "/rules", label: "Rules", icon: "rules", testId: "nav-rules", onPhone: false },
+  // The watch list is the difference between "a checker" and "a monitor", so it
+  // gets a place in the rail rather than living behind a link on another page.
+  // Off the phone bar for the same reason the reference page is: four labels
+  // fit across a phone, and this one is set up once and then read occasionally.
+  { href: "/sources", label: "Watching", icon: "watching", testId: "nav-sources", onPhone: false },
   { href: "/documents/new", label: "Add rules", icon: "add", testId: "nav-add-rules", onPhone: true },
   {
     href: "/conflicts",
@@ -54,15 +59,21 @@ export default function NavBar() {
     let cancelled = false;
     function read() {
       Promise.all([
-        listClauses({ status: "needs_review" }).then((r) => r.clauses.length),
-        listConflicts().then((r) => r.conflicts.length),
-      ])
-        .then(([review, conflicts]) => {
-          if (!cancelled) setCounts({ review, conflicts });
-        })
+        // Relevance-filtered on purpose. The badge is a call to action, and
+        // "200" reads as broken rather than urgent when 190 of them are rules
+        // about products nobody here makes. The full list is still one click
+        // away, and the queue itself says how many it is holding back.
+        listClauses({ status: "needs_review", relevantOnly: true })
+          .then((r) => r.clauses.length)
+          .catch(() => 0),
         // A queue we cannot read is not a queue of zero, but the rail is not
         // where that gets reported: the top bar says the service is down.
-        .catch(() => {});
+        listConflicts()
+          .then((r) => r.conflicts.length)
+          .catch(() => 0),
+      ]).then(([review, conflicts]) => {
+        if (!cancelled) setCounts({ review, conflicts });
+      });
     }
     read();
     // Accepting or ignoring a clause happens without leaving the page.

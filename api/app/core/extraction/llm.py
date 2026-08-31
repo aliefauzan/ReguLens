@@ -57,6 +57,41 @@ class PermanentLLMError(Exception):
 
 
 @lru_cache
+def _owned_transport():
+    """A transport this process owns.
+
+    `google.genai`'s `BaseApiClient` closes its httpx client when it is garbage
+    collected — and its own source says so, noting that ADK cannot rely on that
+    behaviour. It guards the close with `if not self._http_options.httpx_client`:
+    a client the caller supplied is the caller's to close. Supplying one is
+    therefore the documented way to opt out of having the transport closed under
+    us, and opting out is not optional here. Three times in production a
+    document was recorded `failed` with "Cannot send a request, as the client
+    has been closed" — the ADK extraction path emitted nothing for one part of
+    a long regulation, the pipeline degraded to the direct path exactly as
+    designed, and the fallback died on a transport somebody else's finished
+    object had shut.
+
+    The cache is load-bearing: it is what keeps the client alive, and it is
+    also why nothing here closes it. It lives as long as the process.
+    """
+    import httpx
+
+    return httpx.Client(
+        follow_redirects=True,
+        timeout=httpx.Timeout(600.0, connect=30.0),
+        limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
+    )
+
+
+def _http_options():
+    """`HttpOptions` carrying the transport we own."""
+    from google.genai import types
+
+    return types.HttpOptions(httpx_client=_owned_transport())
+
+
+@lru_cache
 def _client():
     """One client for every generation call in the app. An API key routes to
     the Gemini Developer API and its free tier; without one we fall back to
@@ -67,12 +102,53 @@ def _client():
     if settings.use_gemini_api:
         # vertexai=False is explicit on purpose: GOOGLE_GENAI_USE_VERTEXAI is
         # still set in the Cloud Run env, and the SDK reads it as the default.
-        return genai.Client(vertexai=False, api_key=settings.gemini_api_key)
+        return genai.Client(
+            vertexai=False, api_key=settings.gemini_api_key, http_options=_http_options()
+        )
     return genai.Client(
         vertexai=True,
         project=settings.project_id,
         location=settings.gemini_location,
+        http_options=_http_options(),
     )
+
+
+# The SDK's own words when the transport under a cached client has been closed
+# by something else in the process.
+_CLOSED_CLIENT = "client has been closed"
+
+
+def _generate(**kwargs: Any):
+    """One generation call, surviving a client that something else closed.
+
+    The cached client holds an httpx transport, and the ADK runner's own genai
+    client shares enough of that machinery that when a finished runner is
+    collected, our cached client can come back closed. It shows up in exactly
+    the worst place: the ADK path emits nothing for one part of a document, the
+    pipeline degrades to this direct path on purpose — and the fallback dies
+    with "Cannot send a request, as the client has been closed", so a document
+    that had a working path left is recorded as `failed`.
+
+    Observed in production on 23, 28 and 29 August. Rebuilding once and
+    retrying is the whole fix; a second closure inside one call is a real fault
+    and is raised.
+    """
+    # Bound to a local first. `_client().models.generate_content(...)` leaves
+    # the client itself unreferenced the moment `.models` is read, and a
+    # concurrent `cache_clear()` then makes it collectable mid-call — the same
+    # closed-transport failure arriving by a second route.
+    client = _client()
+    try:
+        return client.models.generate_content(**kwargs)
+    except Exception as exc:  # noqa: BLE001 - re-raised below unless it is the one case
+        if _CLOSED_CLIENT not in str(exc).lower():
+            raise
+        # Should now be unreachable: the transport is ours and nothing closes
+        # it. Kept because the failure it covers was silent, cost a whole
+        # document, and took three production runs to see.
+        log(logger, logging.WARNING, "genai_client_reopened", error=str(exc)[:200])
+        _client.cache_clear()
+        return _client().models.generate_content(**kwargs)
 
 
 def generate_candidates(text: str, *, sample_index: int) -> list[dict[str, Any]]:
@@ -86,7 +162,7 @@ def generate_candidates(text: str, *, sample_index: int) -> list[dict[str, Any]]
 
     started = time.monotonic()
     try:
-        response = _client().models.generate_content(
+        response = _generate(
             model=settings.gemini_model,
             contents=f"{text[:120_000]}",
             config=types.GenerateContentConfig(
@@ -186,6 +262,21 @@ def _fake_number(raw: str) -> float | None:
     return float(cleaned)
 
 
+# A date the document states about itself. The real prompt asks for
+# `effective_date` and Gemini reads it out of prose; the fake cannot parse prose
+# and does not pretend to, so it reads one explicit ISO form. That is enough for
+# the local stack to exercise a rule that has not entered into force yet, which
+# is otherwise only reachable against a paid model.
+_FAKE_EFFECTIVE = re.compile(
+    r"(?:shall\s+)?appl(?:ies|y)\s+from\s+(\d{4}-\d{2}-\d{2})", re.IGNORECASE
+)
+
+
+def _fake_effective_date(text: str) -> str | None:
+    found = _FAKE_EFFECTIVE.search(text)
+    return found.group(1) if found else None
+
+
 def _fake_rows(text: str) -> list[dict[str, Any]]:
     """Read an actual limit table, without a model.
 
@@ -257,8 +348,12 @@ def fake_candidates(text: str) -> list[dict[str, Any]]:
     Either way one candidate is malformed on purpose, so the rejection path is
     exercised by every fake run instead of only by adversarial tests.
     """
+    stated = _fake_effective_date(text)
     parsed = _fake_rows(text)
     if parsed:
+        if stated:
+            for row in parsed:
+                row["effective_date"] = stated
         parsed.append({"text": "Malformed emission with no clause type."})
         return parsed
     lowered = text.lower()
@@ -312,6 +407,9 @@ def fake_candidates(text: str) -> list[dict[str, Any]]:
                 "effective_date": None,
             }
         )
+    if stated:
+        for clause in clauses:
+            clause["effective_date"] = stated
     # Invalid on purpose: missing required `clause_type`.
     clauses.append({"text": "Malformed emission with no clause type."})
     return clauses

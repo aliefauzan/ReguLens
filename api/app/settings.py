@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     topic_document_uploaded: str = "document.uploaded"
     topic_clause_extracted: str = "clause.extracted"
     topic_graph_changed: str = "graph.changed"
+    # One message per piece of a long document. It exists because the worker's
+    # request budget is 300 seconds: a 300-page annex cannot be read inside one
+    # request no matter how the work is arranged, and raising the size refusal
+    # without this would turn a named refusal into an unexplained timeout.
+    topic_document_chunk: str = "document.chunk"
 
     # Behaviour switches
     fake_llm: bool = False
@@ -65,6 +70,57 @@ class Settings(BaseSettings):
     max_document_mb: int = 20
     cors_origins: str = "http://localhost:3000"
     log_level: str = "INFO"
+
+    # Watched sources — re-reading a regulator's own page on a schedule.
+    fetch_timeout_seconds: float = 30.0
+    # Where a worsening verdict is sent, so a person learns about it without
+    # opening the app. Empty means alerts stay in-app — the default, because a
+    # URL is a credential and nothing should be posted anywhere by accident.
+    # Any endpoint accepting a JSON POST works; a Slack incoming webhook is one.
+    alert_webhook_url: str = ""
+    alert_webhook_timeout_seconds: float = 10.0
+    # A cap per pipeline run. A first ingestion can move dozens of verdicts at
+    # once, and delivering all of them is how a useful channel becomes one
+    # people mute.
+    alert_webhook_max_per_run: int = 5
+    # At or above this many characters a document is read piece by piece, each
+    # piece its own Pub/Sub message with its own request budget. Read from the
+    # `char_count` stored at upload, so an ordinary document never pays for the
+    # check. Roughly five chunks at the current chunk size.
+    extraction_fanout_min_chars: int = 60_000
+    # The ceiling on pieces. Refuse, do not truncate — and refuse here rather
+    # than let a thousand-chunk document spend an hour of model calls before
+    # anyone notices.
+    extraction_max_chunks: int = 60
+    max_fetch_mb: int = 20
+    # Refuse, do not truncate. A silently half-read regulation produces a
+    # confident answer from the half we happened to read, which is worse than
+    # saying the document is too big to read in one piece.
+    # Raised from 200,000 when chunk fan-out landed: a document this long is now
+    # read in pieces rather than refused. It is still a refusal and not a
+    # truncation — above it, nothing is read at all.
+    max_fetch_chars: int = 400_000
+    # Below this, whatever came back is not a regulation — a login wall, an
+    # error page, or a PDF with no text layer.
+    min_fetch_chars: int = 200
+    source_check_interval_hours: int = 24
+    # How far back a catalogue query looks. Deliberately a fixed window rather
+    # than "since the last check": a missed run, a clock skew or a restored
+    # backup would otherwise open a gap nobody notices. Re-asking for the same
+    # window is free — everything already seen is already remembered.
+    source_sparql_lookback_days: int = 120
+    # A feed that publishes ten things overnight must not become ten extraction
+    # runs before anyone is awake to see the bill.
+    source_max_new_per_check: int = 3
+    # How many entry ids a feed remembers. Enough that a slow-moving feed never
+    # re-ingests, small enough that the record stays well inside Firestore's
+    # per-document limit.
+    source_seen_entry_cap: int = 500
+    # A lock older than this is assumed to belong to a crashed check.
+    source_check_lock_seconds: int = 900
+    source_user_agent: str = (
+        "ReguLens/1.0 (regulatory change monitor; +https://github.com/aliefauzan/ReguLens)"
+    )
 
     # Emulators — set only in docker compose, never in production.
     firestore_emulator_host: str | None = None

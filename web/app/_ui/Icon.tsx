@@ -13,7 +13,8 @@ export type IconName =
   | "review"
   | "arrow"
   | "search"
-  | "activity";
+  | "activity"
+  | "watching";
 
 const PATHS: Record<IconName, React.ReactNode> = {
   // A box on a shelf: the product.
@@ -54,6 +55,15 @@ const PATHS: Record<IconName, React.ReactNode> = {
   ),
   // A pulse line: something changed without being asked.
   activity: <path d="M2.5 10h3.2l2-5 3.4 10 2.2-5h4.2" />,
+  // A radar sweep: an address being re-read on a schedule, whether or not
+  // anything has come back from it yet.
+  watching: (
+    <>
+      <circle cx="10" cy="10" r="6.5" />
+      <circle cx="10" cy="10" r="2.4" />
+      <path d="M10 3.5v2.2M10 14.3v2.2M3.5 10h2.2M14.3 10h2.2" />
+    </>
+  ),
 };
 
 export default function Icon({

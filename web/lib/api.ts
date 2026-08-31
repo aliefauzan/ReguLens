@@ -330,7 +330,7 @@ export type RegulatoryDocument = {
   // typed in rather than letting us read.
   detection: Detection | null;
   declared_fields: string[];
-  /** upload | library | demo — where the document came from. */
+  /** upload | library | demo | watched_source — where the document came from. */
   origin?: string;
   trace_id: string | null;
   uploaded_at: string | null;
@@ -502,13 +502,80 @@ export type ComplianceRequirement = {
   evaluation: string;
   severity: string;
   reason: string | null;
+  // The day this rule starts. Null means it is already in force, which is what
+  // every clause read before this field existed looks like.
+  effective_date?: string | null;
 };
 
 export type ComplianceView = {
+  // What is true today. Rules that enter into force later are not counted.
   statuses: Record<string, string>;
+  // Per market, the next date that answer changes and what it changes to.
+  // Absent for a market whose future rules do not move the verdict.
+  upcoming: Record<
+    string,
+    // `clause_id` / `document_id` name the rule that sets the date, so the page
+    // can link to the passage instead of asserting a deadline unsupported.
+    { effective_date: string; status: string; clause_id?: string | null; document_id?: string | null }
+  >;
+  // One recipe, several markets: the lowest limit still in force is the only
+  // number a product can actually be built to. Null when the caller narrowed to
+  // one market, where the question does not arise.
+  binding_limits: BindingLimits | null;
   requirements: ComplianceRequirement[];
   issue_counts: { total: number; critical: number };
 };
+
+export type BindingSubstance = {
+  substance_normalized: string;
+  binding_limit: number;
+  unit: string;
+  binding_market_id: string;
+  binding_market_label: string | null;
+  binding_jurisdiction: string | null;
+  binding_clause_id: string | null;
+  binding_document_id: string | null;
+  product_value: number | null;
+  verdict: "pass" | "fail" | "unknown";
+  limits_by_market: {
+    market_id: string;
+    market_label: string | null;
+    limit: number;
+    clause_id: string | null;
+  }[];
+  markets_without_a_rule: string[];
+  uncomparable_rules: number;
+};
+
+export type BindingLimits = {
+  substances: BindingSubstance[];
+  markets: string[];
+  skipped: { uncomparable_rules: number; substances_affected: string[] };
+};
+
+export type SimulationResult = {
+  statuses: Record<string, string>;
+  requirements: ComplianceRequirement[];
+  binding_limits: BindingLimits;
+  simulated: true;
+};
+
+/** What-if. Writes nothing — safe to call as often as a form changes. */
+export function simulate(body: {
+  name: string;
+  product_type: string;
+  origin: string;
+  packaging?: string | null;
+  ingredients: { name: string; amount?: number | null; unit?: string | null }[];
+  target_markets: string[];
+}): Promise<SimulationResult> {
+  return post("/simulate", body);
+}
+
+/** The pack somebody hands an auditor. */
+export function evidenceUrl(productId: string): string {
+  return `${BASE}/products/${productId}/evidence`;
+}
 
 export function getCompliance(id: string): Promise<ComplianceView> {
   return get(`/products/${id}/compliance`);
@@ -568,7 +635,41 @@ export function getRemediation(id: string): Promise<RemediationPlan> {
   return get(`/products/${id}/remediation`);
 }
 
-export function getAlerts(): Promise<{ alerts: GraphEvent[] }> {
+/**
+ * Why an alert happened, resolved from stored records by the API.
+ *
+ * `unprompted` is the field the whole feature exists for: true means the
+ * regulation reached the graph without anybody uploading it. `cause_available`
+ * is false when the causing document has since been deleted — the alert then
+ * says the cause is no longer on file rather than showing a plausible guess.
+ */
+export type AlertContext = {
+  product_id?: string;
+  product_name?: string | null;
+  market_id?: string | null;
+  market_label?: string | null;
+  market_country?: string | null;
+  from_status?: string | null;
+  to_status?: string | null;
+  document_id?: string | null;
+  clause_id?: string | null;
+  unprompted: boolean;
+  origin?: string | null;
+  cause_available: boolean;
+  source_name?: string | null;
+  jurisdiction?: string | null;
+  source_type?: string | null;
+  substance?: string | null;
+  limit_value?: number | null;
+  limit_unit?: string | null;
+  clause_text?: string | null;
+  // Set on an alert about a verdict that changes on a date nobody has reached
+  // yet. `effective_date` is the day it starts.
+  scheduled?: boolean;
+  effective_date?: string | null;
+};
+
+export function getAlerts(): Promise<{ alerts: (GraphEvent & { context: AlertContext })[] }> {
   return get("/alerts");
 }
 
@@ -603,6 +704,135 @@ export function ask(question: string, productId?: string): Promise<QueryResult> 
  * without leaving the page, and a count that still says 2 after you cleared one
  * is worse than no count.
  */
+/**
+ * A regulator address ReguLens re-reads on a schedule.
+ *
+ * `document` is one regulation whose wording can change under us; `feed` is a
+ * list where a change means a new entry appeared. `last_status` is rendered
+ * rather than hidden, because a source that has been erroring for a week means
+ * "we are not watching that", and this is the only place to find that out.
+ */
+export type WatchedSource = {
+  id: string;
+  url: string;
+  label: string;
+  kind: "document" | "feed" | "listing" | "sparql";
+  source_type: SourceType;
+  jurisdiction: string;
+  check_interval_hours: number;
+  link_pattern: string | null;
+  sparql_query: string | null;
+  enabled: boolean;
+  last_status: "never_checked" | "unchanged" | "changed" | "baselined" | "busy" | "error";
+  last_error: string | null;
+  last_checked_at: string | null;
+  last_changed_at: string | null;
+  document_ids: string[];
+  checks: number;
+  changes: number;
+};
+
+export type SourceCheckResult = {
+  source_id: string;
+  url?: string;
+  label?: string;
+  status: string;
+  reason?: string;
+  error?: string;
+  first_read?: boolean;
+  new_entries?: number;
+  ingested?: { document_id: string; cached: boolean; source_name: string; chars: number }[];
+  failed?: { title: string; link: string; error: string }[];
+};
+
+/**
+ * What ReguLens did without being asked. Every figure is a query over stored
+ * records, so a number here can be clicked through to the thing it counts —
+ * and a quiet week reports zeros rather than something flattering.
+ */
+export type Autonomy = {
+  watched_sources: number;
+  enabled_sources: number;
+  failing_sources: number;
+  checks_run: number;
+  last_checked_at: string | null;
+  regulations_found: number;
+  clauses_read: number;
+  verdicts_changed: number;
+  documents: string[];
+};
+
+export function getAutonomy(): Promise<Autonomy> {
+  return get("/stats/autonomy");
+}
+
+export function listSources(): Promise<{
+  sources: WatchedSource[];
+  default_interval_hours: number;
+}> {
+  return get("/sources");
+}
+
+export async function addSource(body: {
+  url: string;
+  label: string;
+  kind: "document" | "feed" | "listing" | "sparql";
+  source_type: SourceType;
+  jurisdiction: string;
+  link_pattern?: string | null;
+  sparql_query?: string | null;
+}): Promise<{ source: WatchedSource; created: boolean }> {
+  const response = await fetch(`${BASE}/sources`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(
+      humanizeValidation(payload?.detail, "We could not start watching that address."),
+    );
+  }
+  return payload as { source: WatchedSource; created: boolean };
+}
+
+export async function seedSources(): Promise<{ sources: { id: string; created: boolean }[] }> {
+  const response = await fetch(`${BASE}/sources/seed`, { method: "POST" });
+  if (!response.ok) throw new Error("We could not install the built-in watch list.");
+  return (await response.json()) as { sources: { id: string; created: boolean }[] };
+}
+
+export async function setSourceEnabled(id: string, enabled: boolean): Promise<WatchedSource> {
+  const response = await fetch(`${BASE}/sources/${id}`, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!response.ok) throw new Error("We could not change that source.");
+  return ((await response.json()) as { source: WatchedSource }).source;
+}
+
+export async function deleteSource(id: string): Promise<void> {
+  const response = await fetch(`${BASE}/sources/${id}`, { method: "DELETE" });
+  if (!response.ok) throw new Error("We could not stop watching that address.");
+}
+
+/**
+ * Read one source now, ignoring its interval.
+ *
+ * Synchronous: one HTTP fetch and a hash comparison. Anything slow that follows
+ * — extraction, reconciliation, impact — is already behind Pub/Sub, exactly as
+ * it is for an upload.
+ */
+export async function checkSource(id: string): Promise<SourceCheckResult> {
+  const response = await fetch(`${BASE}/sources/${id}/check`, { method: "POST" });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.detail ?? "We could not read that address just now.");
+  }
+  return payload as SourceCheckResult;
+}
+
 export const COUNTS_CHANGED = "regulens:counts-changed";
 
 function announceCountsChanged(): void {
@@ -646,9 +876,20 @@ export function listConflicts(): Promise<{ conflicts: Conflict[] }> {
   return get("/conflicts");
 }
 
-export function listClauses(params: { status?: string }): Promise<{ clauses: Clause[] }> {
+/**
+ * `relevantOnly` narrows the list to rules that could bear on something this
+ * workspace actually makes. It never deletes and never downgrades — relevance
+ * is recomputed on every read, so a rule held back today applies to a product
+ * added tomorrow. `hidden` and `hidden_reasons` always come back, because a
+ * list that quietly drops a hundred and forty rules is worse than a long one.
+ */
+export function listClauses(params: {
+  status?: string;
+  relevantOnly?: boolean;
+}): Promise<{ clauses: Clause[]; hidden: number; hidden_reasons: Record<string, number> }> {
   const search = new URLSearchParams();
   if (params.status) search.set("status", params.status);
+  if (params.relevantOnly) search.set("relevant_only", "true");
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return get(`/clauses${suffix}`);
 }

@@ -44,8 +44,14 @@ class EventType(StrEnum):
     PRODUCT_CREATED = "product_created"
     PRODUCT_UPDATED = "product_updated"
     PRODUCT_STATUS_CHANGED = "product_status_changed"
+    # A verdict that changes on a date nobody has reached yet. Distinct from
+    # PRODUCT_STATUS_CHANGED because nothing about the product is wrong today.
+    PRODUCT_STATUS_SCHEDULED = "product_status_scheduled"
     PRODUCT_DELETED = "product_deleted"
     DOCUMENT_DELETED = "document_deleted"
+    SOURCE_ADDED = "source_added"
+    SOURCE_UPDATED = "source_updated"
+    SOURCE_REMOVED = "source_removed"
 
 
 class SourceType(StrEnum):
@@ -178,6 +184,122 @@ class QueryIn(BaseModel):
     product_id: str | None = None
 
 
+class SourceKind(StrEnum):
+    """What is at the other end of a watched address.
+
+    `document` is one regulation whose wording can change under us. `feed` is a
+    list of things published over time, where "changed" means a new entry
+    appeared rather than the page being rewritten. They need different
+    change-detection, so the distinction is typed rather than sniffed.
+    """
+
+    DOCUMENT = "document"
+    FEED = "feed"
+    # An index page. New links on it are new regulations — the answer to "what
+    # if the rule is published at a different address?", which watching a known
+    # document can never see.
+    LISTING = "listing"
+    # A query against a publisher's own catalogue. Same discovery job as a
+    # listing, but asked rather than scraped: the publisher decides what counts
+    # as "a food-additive regulation published since June", not a regex over a
+    # page that a redesign can break.
+    SPARQL = "sparql"
+
+
+class SourceCheckStatus(StrEnum):
+    NEVER_CHECKED = "never_checked"
+    UNCHANGED = "unchanged"
+    CHANGED = "changed"
+    # A feed's first look. Its current entries are remembered and deliberately
+    # not ingested: adopting a feed means "tell me what happens next", not
+    # "read the last twenty things that happened".
+    BASELINED = "baselined"
+    # Another check for the same source is already running.
+    BUSY = "busy"
+    ERROR = "error"
+
+
+class WatchedSourceIn(BaseModel):
+    """An address ReguLens re-reads on a schedule."""
+
+    url: str = Field(min_length=8, max_length=2000)
+    label: str = Field(min_length=1, max_length=200)
+    kind: SourceKind = SourceKind.DOCUMENT
+    source_type: SourceType
+    jurisdiction: str = Field(min_length=2, max_length=16)
+    check_interval_hours: int = Field(default=24, ge=1, le=24 * 30)
+    enabled: bool = True
+    # `listing` only: which links on the page are regulations. Required there
+    # and ignored elsewhere — an index page carries navigation, a language
+    # switcher and social links, and a watcher that followed all of them would
+    # ingest the website.
+    link_pattern: str | None = Field(default=None, max_length=400)
+    # `sparql` only: the query to ask. `{since}` is substituted with an ISO date
+    # so the window moves with the calendar instead of growing forever.
+    sparql_query: str | None = Field(default=None, max_length=4000)
+
+    def model_post_init(self, _: Any) -> None:
+        if not self.url.lower().startswith(("http://", "https://")):
+            raise ValueError("a watched source must be an http:// or https:// address")
+        if self.kind == SourceKind.LISTING:
+            if not (self.link_pattern or "").strip():
+                raise ValueError(
+                    "a listing needs a link_pattern saying which links are regulations"
+                )
+            import re as _re
+
+            try:
+                _re.compile(self.link_pattern)
+            except _re.error as exc:
+                # Caught here rather than at fetch time: a pattern that cannot
+                # compile would otherwise fail every night at 06:00, in a log.
+                raise ValueError(f"link_pattern is not a valid expression: {exc}") from exc
+        if self.kind == SourceKind.SPARQL:
+            query = (self.sparql_query or "").strip()
+            if not query:
+                raise ValueError("a sparql source needs a sparql_query to ask")
+            # Same reasoning as the pattern: a query selecting nothing we can
+            # fetch is a source that reports "no new regulations" every night
+            # while watching nothing at all.
+            if not any(name in query for name in ("?celex", "?work", "?uri")):
+                raise ValueError(
+                    "the query must select a ?celex, ?work or ?uri column naming each document"
+                )
+
+
+class WatchedSourcePatch(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=200)
+    check_interval_hours: int | None = Field(default=None, ge=1, le=24 * 30)
+    enabled: bool | None = None
+
+
+class WatchedSource(WatchedSourceIn):
+    id: str
+    workspace_id: str = WORKSPACE_ID
+    last_status: SourceCheckStatus = SourceCheckStatus.NEVER_CHECKED
+    last_error: str | None = None
+    last_checked_at: datetime | None = None
+    last_changed_at: datetime | None = None
+    # Server validators, when the server bothers to send them. EUR-Lex sends
+    # neither, so these stay null there and the text hash does the work.
+    last_etag: str | None = None
+    last_modified: str | None = None
+    # The change signal that actually holds: a hash of the *words*, not the
+    # bytes. The bytes of a government page change on every request.
+    last_text_sha: str | None = None
+    # Feed entries already seen, newest last. Capped — an unbounded list would
+    # eventually exceed Firestore's document limit and take the source with it.
+    seen_entry_ids: list[str] = Field(default_factory=list)
+    # Documents this source has produced, newest first.
+    document_ids: list[str] = Field(default_factory=list)
+    checks: int = 0
+    changes: int = 0
+    # Set while a check is running, so two schedulers cannot double-ingest.
+    check_lock_at: datetime | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class RegulatoryDocument(DocumentIn):
     id: str
     workspace_id: str = WORKSPACE_ID
@@ -202,7 +324,7 @@ class RegulatoryDocument(DocumentIn):
     # overrode. Kept so the UI can show its working rather than assert.
     detection: dict[str, Any] | None = None
     declared_fields: list[str] = Field(default_factory=list)
-    origin: str = "upload"  # upload | library | demo
+    origin: str = "upload"  # upload | library | demo | watched_source
     trace_id: str | None = None
     uploaded_at: datetime | None = None
     updated_at: datetime | None = None

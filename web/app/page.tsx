@@ -35,7 +35,7 @@ async function loadAll(): Promise<{
     const [{ products }, { documents }, toCheck, disagreements] = await Promise.all([
       listProducts(),
       listDocuments(),
-      listClauses({ status: "needs_review" })
+      listClauses({ status: "needs_review", relevantOnly: true })
         .then((r) => r.clauses.length)
         .catch(() => 0),
       listConflicts()

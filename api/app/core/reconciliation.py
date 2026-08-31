@@ -51,11 +51,21 @@ def _embed_client():
     since 23 Aug and this is the same fix on the embedding side."""
     from google import genai
 
+    from app.core.extraction.llm import _http_options
+
     settings = get_settings()
+    # The same owned transport as the generation client, for the same reason:
+    # the SDK closes a transport it created when the object holding it is
+    # collected, and leaves alone one it was handed.
     if settings.use_gemini_api:
-        return genai.Client(vertexai=False, api_key=settings.gemini_api_key)
+        return genai.Client(
+            vertexai=False, api_key=settings.gemini_api_key, http_options=_http_options()
+        )
     return genai.Client(
-        vertexai=True, project=settings.project_id, location=settings.embed_location
+        vertexai=True,
+        project=settings.project_id,
+        location=settings.embed_location,
+        http_options=_http_options(),
     )
 
 

@@ -31,7 +31,7 @@ GEMINI_MODEL="${GEMINI_MODEL:-gemini-3.5-flash}"
 EMBED_LOCATION="${EMBED_LOCATION:-asia-southeast1}"
 EMBED_MODEL="${EMBED_MODEL:-text-multilingual-embedding-002}"
 
-TOPICS=(document.uploaded clause.extracted graph.changed)
+TOPICS=(document.uploaded document.chunk clause.extracted graph.changed)
 DLQ_TOPIC="regulens.deadletter"
 
 SA_API="regulens-api"
@@ -54,6 +54,7 @@ g services enable \
   monitoring.googleapis.com \
   logging.googleapis.com \
   cloudtrace.googleapis.com \
+  cloudscheduler.googleapis.com \
   clouderrorreporting.googleapis.com \
   billingbudgets.googleapis.com
 
@@ -65,6 +66,20 @@ g artifacts repositories describe "$REPO" --location "$REGION" >/dev/null 2>&1 |
 say "Firestore (Native mode)"
 g firestore databases describe --database="(default)" >/dev/null 2>&1 || \
   g firestore databases create --location="$REGION" --type=firestore-native
+
+say "Firestore composite indexes"
+# Single-field filters are served by Firestore's automatic indexes, which is why
+# there are only three of these: the API deliberately filters on one field and
+# refines in process. Creating an index that already exists returns an error
+# rather than a no-op, so the failure is tolerated instead of aborting the run.
+INDEX_FILE="$(dirname "$0")/../firestore.indexes.json"
+if [[ -f "$INDEX_FILE" ]]; then
+  g firestore indexes create --file="$INDEX_FILE" >/dev/null 2>&1 \
+    && echo "indexes submitted (they build in the background)" \
+    || echo "indexes already present, or already building"
+else
+  echo "no firestore.indexes.json — skipping"
+fi
 
 say "GCS bucket"
 gcloud storage buckets describe "gs://$BUCKET" --project "$PROJECT_ID" >/dev/null 2>&1 || \
@@ -137,6 +152,47 @@ else
     g pubsub subscriptions create "${DLQ_TOPIC}.pull" --topic "$DLQ_TOPIC"
 fi
 
+say "Cloud Scheduler — the nightly source check"
+# What makes the product a monitor rather than a checker: once a day the worker
+# re-reads every watched regulator address. A check that finds nothing costs a
+# conditional GET and a hash comparison, so the daily run is close to free; the
+# model only runs when a regulation actually changed.
+#
+# 06:00 Asia/Jakarta, so a change that landed overnight in Brussels is already
+# in the graph before anyone in the target market opens the app.
+if [[ -z "${WORKER_URL:-}" ]]; then
+  echo "worker service not deployed yet — skipping the scheduler job. Re-run after deploy."
+else
+  # Cloud Scheduler mints the OIDC token as the invoker SA, which already holds
+  # run.invoker on the worker. It needs permission to act as that SA, and the
+  # binding is not always created for you.
+  g iam service-accounts add-iam-policy-binding \
+    "${SA_INVOKER}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --member "serviceAccount:service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com" \
+    --role roles/iam.serviceAccountTokenCreator >/dev/null 2>&1 || true
+
+  JOB="regulens-source-check"
+  # The audience must be the service's root URL, not the path being called.
+  # Cloud Run validates it against its own hostname and rejects a token whose
+  # audience carries the path — a 401 that reads exactly like a missing role.
+  sched_args=(--schedule="0 6 * * *"
+              --time-zone="Asia/Jakarta"
+              --uri="${WORKER_URL}/internal/check-sources"
+              --http-method=POST
+              --headers="Content-Type=application/json"
+              --message-body='{"force":false}'
+              --oidc-service-account-email="${SA_INVOKER}@${PROJECT_ID}.iam.gserviceaccount.com"
+              --oidc-token-audience="${WORKER_URL}"
+              --attempt-deadline=1800s
+              --location="$REGION")
+  if g scheduler jobs describe "$JOB" --location "$REGION" >/dev/null 2>&1; then
+    g scheduler jobs update http "$JOB" "${sched_args[@]}"
+  else
+    g scheduler jobs create http "$JOB" "${sched_args[@]}"
+  fi
+  echo "scheduler job $JOB -> ${WORKER_URL}/internal/check-sources (daily 06:00 Asia/Jakarta)"
+fi
+
 say "Done"
 cat <<EOF
 project        $PROJECT_ID
@@ -145,4 +201,5 @@ bucket         gs://$BUCKET
 gemini         $GEMINI_MODEL @ $GEMINI_LOCATION
 embeddings     $EMBED_MODEL @ $EMBED_LOCATION
 topics         ${TOPICS[*]} (dlq: $DLQ_TOPIC)
+source check   daily 06:00 Asia/Jakarta (Cloud Scheduler -> worker /internal/check-sources)
 EOF

@@ -35,20 +35,37 @@ function reasonsOf(clause: Clause): string[] {
   return ["low_confidence_or_flagged"];
 }
 
+// Why a rule can be real, read correctly, and still not worth your time.
+// Deliberately worded as "not applicable", never "not valid" — the app has no
+// opinion on a regulation it cannot apply to anything you make.
+const HELD_BACK: Record<string, string> = {
+  no_market: "for countries you do not sell in",
+  substance_absent: "about ingredients none of your products contain",
+  product_type_absent: "about kinds of product you do not make",
+};
+
 export default function ReviewQueuePage() {
   const [clauses, setClauses] = useState<Clause[]>([]);
   const [documents, setDocuments] = useState<RegulatoryDocument[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
+  // Filtered by default. Watching whole regulations put two hundred entries in
+  // here, almost all of them correct and none of them about anything in this
+  // workspace — and a queue nobody reads hides the three that mattered.
+  const [showAll, setShowAll] = useState(false);
+  const [hidden, setHidden] = useState(0);
+  const [hiddenReasons, setHiddenReasons] = useState<Record<string, number>>({});
 
-  async function load() {
+  async function load(all = showAll) {
     try {
       const [clauseResult, documentResult] = await Promise.all([
-        listClauses({ status: "needs_review" }),
+        listClauses({ status: "needs_review", relevantOnly: !all }),
         listDocuments().catch(() => ({ documents: [] as RegulatoryDocument[] })),
       ]);
       setClauses(clauseResult.clauses);
+      setHidden(clauseResult.hidden ?? 0);
+      setHiddenReasons(clauseResult.hidden_reasons ?? {});
       setDocuments(documentResult.documents);
       setError(null);
     } catch {
@@ -61,6 +78,13 @@ export default function ReviewQueuePage() {
   useEffect(() => {
     load();
   }, []);
+
+  async function toggleScope() {
+    const next = !showAll;
+    setShowAll(next);
+    setLoading(true);
+    await load(next);
+  }
 
   async function confirm(id: string) {
     setBusy(id);
@@ -99,6 +123,31 @@ export default function ReviewQueuePage() {
         for good, though the record of it stays.
       </p>
 
+      {!loading && !error && (hidden > 0 || showAll) ? (
+        <div className="card mt-6 p-4" data-testid="review-scope">
+          <p className="t-footnote t-secondary">
+            {showAll ? (
+              <>Showing every rule waiting to be checked, including ones that cannot affect anything you currently make.</>
+            ) : (
+              <>
+                {hidden} more {hidden === 1 ? "rule is" : "rules are"} waiting but not shown —{" "}
+                {Object.entries(hiddenReasons)
+                  .map(([reason, count]) => `${count} ${HELD_BACK[reason] ?? plain(reason)}`)
+                  .join(", ")}
+                . They are kept, not discarded: add a product they apply to and they appear here.
+              </>
+            )}
+          </p>
+          <button
+            className="btn btn-secondary btn-small mt-3"
+            onClick={toggleScope}
+            data-testid="toggle-review-scope"
+          >
+            {showAll ? "Only show what affects my products" : "Show them anyway"}
+          </button>
+        </div>
+      ) : null}
+
       {loading ? <p className="t-body t-secondary mt-6">Loading…</p> : null}
 
       {error ? (
@@ -111,7 +160,11 @@ export default function ReviewQueuePage() {
       {!loading && !error && clauses.length === 0 ? (
         <div className="card mt-6 p-8 text-center" data-testid="review-empty">
           <p className="t-headline">Nothing to check</p>
-          <p className="t-footnote t-secondary mt-1">Every rule we read was clear enough to apply on its own.</p>
+          <p className="t-footnote t-secondary mt-1">
+            {hidden > 0
+              ? "Nothing here affects what you currently make. The rules we read are kept and will apply to any product you add."
+              : "Every rule we read was clear enough to apply on its own."}
+          </p>
         </div>
       ) : null}
 

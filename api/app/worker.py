@@ -50,6 +50,59 @@ HANDLER_IMPACT = "impact"
 # one to a worker thread and lets the fan-out Pub/Sub already provides be real.
 
 
+@app.post("/internal/document-chunk")
+async def document_chunk(request: Request) -> JSONResponse:
+    """`document.chunk` consumer: read one piece of a long document.
+
+    Every piece is independent and idempotent — it writes to a record keyed by
+    its own index, so a redelivered piece overwrites identical content. The last
+    piece to arrive reduces them all through the same gate a short document goes
+    through; the reduce itself is claimed in a transaction, because two pieces
+    finishing in the same instant is the ordinary case rather than the rare one.
+    """
+    try:
+        envelope = parse_push_request(await request.json())
+    except Exception as exc:  # noqa: BLE001
+        log(logger, logging.ERROR, "unparseable push envelope", error=str(exc))
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    set_trace_id(envelope.trace_id)
+    payload = envelope.payload
+    document_id = str(payload.get("document_id") or "")
+    chunk_index = payload.get("chunk_index")
+    text = payload.get("text") or ""
+    if not document_id or chunk_index is None:
+        return JSONResponse({"status": "dropped"}, status_code=200)
+
+    from app.core.extraction.fanout import process_chunk, reduce_if_complete
+
+    try:
+        stored = await run_in_threadpool(
+            process_chunk, document_id, int(chunk_index), str(text)
+        )
+    except PermanentExtractionError as exc:
+        _fail(document_id, stage="extracting", error=str(exc))
+        return JSONResponse({"status": "failed_permanent", "error": str(exc)}, status_code=200)
+    except TransientExtractionError as exc:
+        log(
+            logger, logging.WARNING, "nack transient chunk",
+            document_id=document_id, chunk_index=chunk_index, error=str(exc),
+        )
+        return JSONResponse({"status": "retry_later"}, status_code=500)
+
+    result = await run_in_threadpool(reduce_if_complete, document_id)
+    if result is None:
+        return JSONResponse({"status": "stored", **stored})
+    return JSONResponse(
+        {
+            "status": "reduced",
+            "document_id": document_id,
+            "accepted": result.accepted,
+            "rejected": len(result.rejected),
+        }
+    )
+
+
 @app.post("/internal/graph-changed")
 async def graph_changed(request: Request) -> JSONResponse:
     """`graph.changed` consumer: re-run impact for the changed clause."""
@@ -70,8 +123,16 @@ async def graph_changed(request: Request) -> JSONResponse:
     from app.core.impact import run_impact
 
     summary = await run_in_threadpool(run_impact, str(clause_id), payload.get("document_id"))
+    # Push the verdicts that got worse to whatever channel is configured. A
+    # channel being down must not fail the run that produced the verdict — the
+    # verdict is stored, and an undelivered alert is retried on the next change.
+    from app.core.notifications import deliver_pending
+
+    delivery = await run_in_threadpool(deliver_pending)
     mark_processed(HANDLER_IMPACT, envelope.message_id)
-    return JSONResponse({"status": "ok", "summary": summary["products"]})
+    return JSONResponse(
+        {"status": "ok", "summary": summary["products"], "delivery": delivery}
+    )
 
 
 @app.get("/health")
@@ -105,6 +166,19 @@ async def document_uploaded(request: Request) -> JSONResponse:
     )
 
     try:
+        # A document too long to read inside one 300-second request becomes one
+        # message per piece. Decided from the character count stored at upload,
+        # so an ordinary document does not pay a text extraction to find out.
+        from app.core.extraction.fanout import plan, should_fan_out
+        from app.db import get_db as _db
+
+        stored = _db().collection("documents").document(document_id).get()
+        if stored.exists and should_fan_out(stored.to_dict() or {}):
+            planned = await run_in_threadpool(plan, document_id)
+            mark_processed(HANDLER_EXTRACT, message_id)
+            return JSONResponse(
+                {"status": "fanned_out", "document_id": document_id, **planned}
+            )
         if settings.fake_llm:
             result = await run_in_threadpool(run_extraction, document_id)
         else:
@@ -195,6 +269,41 @@ async def clause_extracted(request: Request) -> JSONResponse:
             return JSONResponse({"status": "retry_later"}, status_code=500)
         mark_processed(HANDLER_RECONCILE, envelope.message_id)
     return JSONResponse({"status": result.get("status"), "clause_id": clause_id})
+
+
+@app.post("/internal/check-sources")
+async def check_sources(request: Request) -> JSONResponse:
+    """The scheduled sweep. Cloud Scheduler calls this once a day with an OIDC
+    token; the worker is `--no-allow-unauthenticated`, so nothing else can.
+
+    This lives on the worker rather than the API for the same reason extraction
+    does: it is slow, it is nobody's request, and a fetch that hangs must not
+    hold a user-facing instance. It returns 200 even when individual sources
+    fail — a broken regulator site is recorded on the source and shown in the
+    UI, and asking Cloud Scheduler to retry it in five minutes would not fix it.
+
+    A body is optional. `{"source_id": "..."}` checks one; `{"force": true}`
+    ignores each source's interval.
+    """
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - Cloud Scheduler may send no body at all
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+
+    set_trace_id(str(body.get("trace_id") or "") or None)
+    force = bool(body.get("force"))
+    source_id = str(body.get("source_id") or "")
+
+    from app.core import sources
+
+    if source_id:
+        result = await run_in_threadpool(sources.check_source, source_id, force=True)
+        return JSONResponse({"results": [result], "trace_id": get_trace_id()}, status_code=200)
+
+    summary = await run_in_threadpool(sources.check_all, force=force)
+    return JSONResponse(summary | {"trace_id": get_trace_id()}, status_code=200)
 
 
 @app.post("/internal/dead-letter")
