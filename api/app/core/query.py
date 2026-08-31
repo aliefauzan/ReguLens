@@ -46,8 +46,31 @@ def _retrieve(
     bundle: dict[str, Any] = {"clauses": [], "requirements": [], "conflicts": []}
 
     # 1. Clause retrieval by embedding similarity.
+    #
+    # The question has to be embedded for that sentence to be true. Without a
+    # vector, `find_similar` scores every candidate -1.0 — a tie — so the sort
+    # returns whichever five Firestore listed first, and "retrieval by
+    # similarity" is retrieval by listing order. Measured against the deployed
+    # corpus before this: "sorbic acid in the EU" answered with five citations
+    # at 0.899 confidence while "benzoic acid in the EU" refused three times
+    # running, though the graph holds EU benzoic-acid clauses at 150 and 200
+    # mg/kg. The market lookup below rescues a question that names a market;
+    # this rescues the rest.
     try:
-        pseudo_clause = {"id": None, "text": question, "substance_normalized": _substance_of(question)}
+        from app.core.reconciliation import embed_texts
+
+        pseudo_clause: dict[str, Any] = {
+            "id": None,
+            "text": question,
+            "substance_normalized": _substance_of(question),
+        }
+        try:
+            pseudo_clause["embedding"] = embed_texts([question])[0]
+        except Exception as exc:  # noqa: BLE001 - retrieval degrades, never crashes
+            # Falls back to the substance filter, which still narrows. Logged
+            # because a quiet quota failure looks exactly like a corpus that
+            # holds nothing.
+            log(logger, logging.WARNING, "query_question_not_embedded", error=str(exc)[:200])
         bundle["clauses"] = find_similar(pseudo_clause, k=5)
     except Exception as exc:  # noqa: BLE001 - retrieval degrades, never crashes
         log(logger, logging.WARNING, "query_retrieval_degraded", error=str(exc)[:200])
