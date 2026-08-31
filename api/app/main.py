@@ -355,11 +355,20 @@ def get_sources() -> dict:
     Rendered rather than hidden because the honest claim depends on it: a source
     that has been erroring for a week means "we are not watching that", and the
     only place a user can find that out is here.
+
+    `checking` is computed, never stored: a source whose check lock is still held
+    has a read in flight, so the status beside it belongs to the *previous* run.
+    Without it a check that crashed mid-read leaves the page showing an old error
+    as though it were the present state — which is the same lie as a filter that
+    does not say what it hid.
     """
     from app.core import sources
 
     return {
-        "sources": [s.model_dump(mode="json") for s in sources.list_sources()],
+        "sources": [
+            s.model_dump(mode="json") | {"checking": sources.is_locked(s)}
+            for s in sources.list_sources()
+        ],
         "default_interval_hours": settings.source_check_interval_hours,
         "trace_id": get_trace_id(),
     }

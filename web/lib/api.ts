@@ -738,6 +738,13 @@ export type WatchedSource = {
   document_ids: string[];
   checks: number;
   changes: number;
+  /**
+   * A read is in flight right now, so every field above it describes the
+   * *previous* run. Computed by the API from the check lock, never stored — a
+   * check that died mid-read would otherwise leave the last run's error on
+   * screen looking like the current state of the source.
+   */
+  checking?: boolean;
 };
 
 export type SourceCheckResult = {

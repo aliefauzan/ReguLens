@@ -156,6 +156,47 @@ class TestJurisdictionHint:
         assert _jurisdictions_of("additive rules in Japan") == ["JP_MHLW"]
 
 
+class TestMarketsNamed:
+    """A country is not a jurisdiction, and the agent is told in its own
+    instruction that a clause about a different country is not evidence. Taken
+    literally — and it is — "Germany" against a clause marked EU is a different
+    country."""
+
+    def _markets(self, monkeypatch, rows):
+        from app.core import markets as markets_core
+
+        monkeypatch.setattr(markets_core, "list_markets", lambda: rows)
+
+    def test_punctuation_does_not_hide_a_country(self, monkeypatch):
+        """"…in Germany?" ends in a question mark. Matching " germany " against
+        the raw string finds nothing, which is exactly what happened."""
+        from app.core.query import _jurisdictions_of
+
+        self._markets(monkeypatch, [
+            {"id": "eu-de", "country": "Germany", "jurisdiction": "EU"},
+        ])
+        assert _jurisdictions_of("What is the nitrite limit in Germany?") == ["EU"]
+
+    def test_the_pairing_is_reported_not_only_the_code(self, monkeypatch):
+        """The prompt needs both halves to say "an EU clause is evidence about
+        Germany"; a bare list of jurisdictions cannot say it."""
+        from app.core.query import _markets_named
+
+        self._markets(monkeypatch, [
+            {"id": "eu-de", "country": "Germany", "jurisdiction": "EU"},
+        ])
+        assert _markets_named("limits in Germany?") == [("Germany", "EU")]
+
+    def test_two_markets_on_one_jurisdiction_collapse(self, monkeypatch):
+        from app.core.query import _jurisdictions_of
+
+        self._markets(monkeypatch, [
+            {"id": "eu-de", "country": "Germany", "jurisdiction": "EU"},
+            {"id": "market_de", "country": "Germany", "jurisdictions": ["EU"]},
+        ])
+        assert _jurisdictions_of("Germany") == ["EU"]
+
+
 class _EmptyQuery:
     """Firestore stand-in: these tests are about retrieval inputs, not storage."""
 

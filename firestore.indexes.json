@@ -1,40 +1,66 @@
 {
   "//": [
-    "Composite indexes for the queries that filter on more than one field.",
-    "Firestore serves single-field filters from automatic indexes, which is why",
-    "most of this app needs none — the API deliberately does one filter in the",
-    "query and refines the rest in process over a bounded result set. These are",
-    "the three places where that would have meant reading a whole collection.",
+    "A design record, not deployed state. No composite index is required today and",
+    "none is in the project — verified 31 Aug 2026 with",
+    "`gcloud firestore indexes composite list`, which returns nothing.",
     "",
-    "Deploy with:  gcloud firestore indexes create --file=firestore.indexes.json",
-    "or let scripts/setup.sh do it, which is idempotent."
+    "Firestore serves several equality filters from its automatic single-field",
+    "indexes. A composite index is only needed for equality combined with a range",
+    "or an order-by on another field, and the API deliberately has neither: it",
+    "filters on one or two equality fields and does the ordering and the rest of the",
+    "refinement in process over a bounded page.",
+    "",
+    "These three are the places where that would stop being true. Move a sort or a",
+    "range into one of these queries and its index has to exist before the query",
+    "ships, or Firestore answers FAILED_PRECONDITION:",
+    "  gcloud firestore indexes composite create --collection-group=<group> \\",
+    "    --field-config=field-path=<a>,order=ascending \\",
+    "    --field-config=field-path=<b>,order=descending"
   ],
   "indexes": [
     {
-      "//": "documents.find_by_hash: the upload cache. Runs on every upload and every scheduled re-read, so it is the hottest compound query in the system.",
+      "//": "documents.find_by_hash: the upload cache. Two equality filters, so the automatic indexes serve it. Needs this only if it ever sorts or ranges.",
       "collectionGroup": "documents",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "workspace_id", "order": "ASCENDING" },
-        { "fieldPath": "content_sha256", "order": "ASCENDING" }
+        {
+          "fieldPath": "workspace_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "content_sha256",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
-      "//": "sources.find_by_url: dedupes a watched address so one URL cannot be registered twice and checked twice.",
+      "//": "sources.find_by_url: dedupes a watched address. Two equality filters, served automatically today.",
       "collectionGroup": "watched_sources",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "workspace_id", "order": "ASCENDING" },
-        { "fieldPath": "url", "order": "ASCENDING" }
+        {
+          "fieldPath": "workspace_id",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "url",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
-      "//": "alerts and the timeline: status-change events, newest first.",
+      "//": "alerts and the timeline. `list_alerts` reads an `in` filter with a limit and sorts in process precisely so this is not needed; ordering in Firestore instead would require it.",
       "collectionGroup": "graph_events",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "event_type", "order": "ASCENDING" },
-        { "fieldPath": "occurred_at", "order": "DESCENDING" }
+        {
+          "fieldPath": "event_type",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "occurred_at",
+          "order": "DESCENDING"
+        }
       ]
     }
   ],

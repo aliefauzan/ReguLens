@@ -68,18 +68,23 @@ g firestore databases describe --database="(default)" >/dev/null 2>&1 || \
   g firestore databases create --location="$REGION" --type=firestore-native
 
 say "Firestore composite indexes"
-# Single-field filters are served by Firestore's automatic indexes, which is why
-# there are only three of these: the API deliberately filters on one field and
-# refines in process. Creating an index that already exists returns an error
-# rather than a no-op, so the failure is tolerated instead of aborting the run.
-INDEX_FILE="$(dirname "$0")/../firestore.indexes.json"
-if [[ -f "$INDEX_FILE" ]]; then
-  g firestore indexes create --file="$INDEX_FILE" >/dev/null 2>&1 \
-    && echo "indexes submitted (they build in the background)" \
-    || echo "indexes already present, or already building"
-else
-  echo "no firestore.indexes.json — skipping"
-fi
+# None are required, and this step says so rather than pretending to submit any.
+#
+# What was here before ran `gcloud firestore indexes create --file=...`, which is
+# not a command — `gcloud firestore indexes` has only the `composite` and
+# `fields` groups. Both its branches printed a reassuring sentence, so a step
+# that could never work reported success on every run, and the tracker carried a
+# ticked box for three indexes that were never in the project.
+#
+# They were never missed because nothing needs them. Firestore serves several
+# equality filters from its automatic single-field indexes; a composite index is
+# for equality combined with a range or an order-by on another field, and the API
+# deliberately has none of those — `list_alerts` reads a bounded page and sorts in
+# process, and `/clauses` filters on one field and refines the rest in memory.
+# `firestore.indexes.json` stays as the record of where that would stop being
+# true. Adding a sort or a range to one of those queries means creating its index
+# with `gcloud firestore indexes composite create` before the query ships.
+echo "none required — every query is equality-only or sorted in process"
 
 say "GCS bucket"
 gcloud storage buckets describe "gs://$BUCKET" --project "$PROJECT_ID" >/dev/null 2>&1 || \

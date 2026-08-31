@@ -214,8 +214,9 @@ undermining the whole submission.
 - [ ] **Do you narrate the video yourself, or use captions?** Narration is stronger
       but needs a quiet room and a couple of takes. Decide before Aug 30.
 - [x] Devpost profile filled in — name, photo, bio. — confirmed by you on 31 Aug.
-- [ ] Decide whether you are writing the optional bonus blog post. ~1 hour, do it
-      while builds run.
+- [x] Decide whether you are writing the optional bonus blog post. — DONE, published
+      31 Aug. Medium: https://medium.com/@uumaarrrrr22/my-agent-said-i-dont-know-and-then-cited-eight-sources-anyway-ef65e7f802d5
+      LinkedIn post: https://lnkd.in/p/gBxbjqQ4
 
 ---
 

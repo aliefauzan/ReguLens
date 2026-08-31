@@ -2,7 +2,7 @@
 
 **Single source of truth for what is done.** Check here before starting any work.
 
-Last updated: **31 Aug 2026** · Updated by: **the autonomous chain, end to end**
+Last updated: **31 Aug 2026** · Updated by: **the stage cleanup and truth pass**
 
 > **Read this first, every session.** If a phase below is `COMPLETE`, do not rebuild
 > it — read its phase file to see what exists. If it is `IN PROGRESS`, the unticked
@@ -24,8 +24,8 @@ working locally". If it is not deployed and not verified, it stays unticked.
 
 | # | Phase | Planned | Status | Started | Completed |
 |---|---|---|---|---|---|
-| 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `COMPLETE` (web hosting moved to Cloud Run; every Vercel box closed as skipped, push trigger and Secret Manager verified live 31 Aug) | 19 Aug | 31 Aug |
-| 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `COMPLETE` (frontend deployed on the Cloud Run web service; every box in the phase file is ticked) | 19 Aug | 31 Aug |
+| 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `COMPLETE` (web hosting moved to Cloud Run; the Vercel and push-trigger boxes are skips with reasons, not gaps) | 19 Aug | 31 Aug |
+| 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `COMPLETE` (frontend deployed on the Cloud Run web service; no box in the phase file is left unticked) | 19 Aug | 29 Aug |
 | 2 | [Ingestion & Extraction](phases/phase-2-ingestion-extraction.md) | Aug 22–23 | `COMPLETE` | 22 Aug | 23 Aug |
 | 3 | [Guardrail & Reconciliation](phases/phase-3-guardrail-reconciliation.md) | Aug 24–25 | `COMPLETE` | 23 Aug | 23 Aug |
 | 4 | [Impact Engine](phases/phase-4-impact-engine.md) | Aug 26–27 | `COMPLETE` (latency re-measured 29 Aug: 25.5s for one pasted rule, 174.3s for a 55-clause annex, vs a 90s target) | 23 Aug | 23 Aug |
@@ -33,7 +33,7 @@ working locally". If it is not deployed and not verified, it stays unticked.
 | 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `COMPLETE` (UC-A..F + redelivery/concurrency/DLQ/walker/grounding all live-green; Playwright shell and the 90s latency target both skipped with reasons) | 23 Aug | 31 Aug |
 | 7 | [Hardening & Submission](phases/phase-7-demo-hardening.md) | Aug 31 | `IN PROGRESS` (deployed and exercised live 29 Aug; submission package outstanding) | 26 Aug | — |
 | 8 | [Watched Sources](phases/phase-8-live-monitoring.md) | Aug 29 | `COMPLETE` (deployed; the scheduler fired, and both change-watching and discovery are proven live) | 29 Aug | 29 Aug |
-| 9 | [Country Discovery](phases/phase-9-country-discovery.md) | Aug 31 | `COMPLETE` (deployed and verified live; discovery commits a watched source and the nightly sweep reads it) | 31 Aug | 31 Aug |
+| 9 | [Country Discovery](phases/phase-9-country-discovery.md) | Aug 31 | `COMPLETE` (deployed; Singapore and Japan each committed a real watched source from Cloud Run, 52 tests) | 31 Aug | 31 Aug |
 
 ## Cross-cutting work
 
@@ -56,8 +56,19 @@ Tracked here because it spans phases and is easy to lose.
 - [x] `make test-all` — one command runs lint, unit tests, type check, a
       production web build and the full local emulator drill, and prints a
       pass/fail table. Green from a clean checkout, no GCP, no cost
-- [x] `firestore.indexes.json` committed and submitted by `scripts/setup.sh` —
-      the three compound queries that would otherwise scan a collection
+- [~] `firestore.indexes.json` committed and submitted by `scripts/setup.sh` —
+      SKIPPED, and this box was wrong until 31 Aug. The file is committed; nothing
+      was ever submitted, because `scripts/setup.sh` ran
+      `gcloud firestore indexes create --file=`, which is not a command — that
+      group only has `composite` and `fields` — and both branches of the `||`
+      printed a reassuring sentence, so a step that could never work reported
+      success on every run. Nothing missed them: `gcloud firestore indexes
+      composite list` returns nothing on the deployed project and every query
+      works, because Firestore serves several equality filters from its automatic
+      indexes and the two queries that would otherwise sort or range read a
+      bounded page and sort in process on purpose. The script now says "none
+      required" instead of pretending, and the file stays as the record of where
+      one would become necessary
 - [x] `min-instances=1` on the two services a person opens, so the first request
       after a quiet hour does not pay a container start
 - [x] Cloud Scheduler job `regulens-source-check` live and observed firing (phase
@@ -379,7 +390,9 @@ a diary.
 
 | Date | Who | What changed |
 |---|---|---|
-| 31 Aug 2026 | production verification | Checked the deployed stack against a plan written before the run (`plan/PROD-VERIFICATION.md`). Twenty-two checks, two failures, both fixed. `DISCOVERY_API_KEY` was absent from the deployed env, and `/query` refused a question the graph could answer — retrieval never embedded the question, so `find_similar` scored every candidate -1.0, they tied, and the sort returned whichever five Firestore listed first. "Retrieval by similarity" was retrieval by listing order, which is why sorbic acid answered and benzoic acid did not. Also learned what the deployment actually runs on: generation goes to Vertex through `GOOGLE_GENAI_USE_VERTEXAI`, which the ADK agents read directly, while embeddings and discovery go to the Gemini Developer API — measured from 20 `GenerateContent` calls and zero embedding calls on Vertex. All 307 clauses re-embedded into one vector space |
+| 31 Aug 2026 | bonus blog post published | Optional bonus write-up is live and recorded in `todo.md` §6. Medium: "My agent said 'I don't know' and then cited eight sources anyway" (https://medium.com/@uumaarrrrr22/my-agent-said-i-dont-know-and-then-cited-eight-sources-anyway-ef65e7f802d5); LinkedIn post: https://lnkd.in/p/gBxbjqQ4. No code change. |
+| 31 Aug 2026 | the PDF reader was holding the whole book | The stage cleanup below raised the worker to 1Gi and it was **still killed**, at 1039 MiB, on the very next BPOM check. The memory was never the bug. `extract_pdf` read every page in a list comprehension while pdfplumber cached each parsed page onto an object the open document holds, so reading page 900 still held pages 1-899. Measured on the 1156-page BPOM annex already in `data/`: **5612 MB peak**, against **119 MB** once each page is flushed as its text comes out. No Cloud Run memory tier was ever going to cover the first number. Both OOMs landed while the sweep held a source's check lock, which is why a working address read as broken for hours. 1Gi stays as headroom for ADK and the Gemini client, and `cloudbuild.yaml` now says which number is the fix and which is the cushion. One test pins the call rather than the megabytes - a memory assertion would be flaky, and dropping the flush is the single edit that brings the bug back. |
+| 31 Aug 2026 | stage cleanup + truth pass | The sources page had been reporting `ReadTimeout` on the BPOM listing since 06:33 while the address answered in under a second. The address was not the problem: at 13:58:05 the worker crossed 512 MiB during an ADK extraction and Cloud Run killed it **while it held that listing's check lock**, so nothing was written, the previous run's error stayed on screen as though it were current, and the 15-minute stale-lock window blocked every retry in between. Seconds before the kill that same sweep had found and ingested a BPOM regulation nobody uploaded (`doc_146418b98f63`, correctly read as carrying no product rules) — the page was contradicting the product's central claim. Worker and api moved to 1Gi, pinned in `cloudbuild.yaml` along with `--min-instances=1`, which had been set live and written down nowhere. `/sources` now computes a `checking` flag from the lock and the page says "Reading now" and marks the fields beside it as belonging to the previous run; two tests pin it, including the half that matters — a lock left by a dead process is not a read in flight. Discovery stopped calling a successful run "1 of 2 usable": a candidate turned away is the verifier working, and it now says what was kept and what was turned away. **One ticked box was false.** `scripts/setup.sh` submitted Firestore indexes with `gcloud firestore indexes create --file=`, which is not a command, and both branches of its `||` printed a reassuring sentence — a step that could never work reported success on every run since it was written. Nothing missed them: `gcloud firestore indexes composite list` returns nothing on the deployed project and every query works, because Firestore serves several equality filters from its automatic indexes and the two queries that would otherwise sort or range read a bounded page and sort in process on purpose. Script and box now say so. Also made true rather than aspirational: phases 0, 1 and 9 are complete (phase 0's four remaining boxes are one decision — Vercel and a push trigger replaced by a single Cloud Build path); phase 9 verified from Cloud Run, where Singapore committed `sfa.gov.sg/legislation` and Japan `mhlw.go.jp/hourei/`, each turning away one candidate with its reason; the clause stuck in `pending_reconciliation` since 23 Aug is gone; the review backlog is 102, not 110, with 149 more held back and stated on screen; test badge 612 → 618. Scheduler, uptime check and Secret Manager re-verified against the live project and all three hold. |
 | 31 Aug 2026 | rebase onto origin | Rebased the four local commits onto `origin/master`. Two conflicts, both from the same work landing twice: `.gcloudignore` had the unanchored-`data/` fix written independently on both sides — kept the remote one, which also anchors `/plan/`, and the local commit dropped out empty — and the session log had two rows inserted at the same line, both kept. README test badge 601 → 612, the count after the discovery tests arrived from the other side. 612 passed, 1 skipped; ruff clean, tsc clean |
 | 31 Aug 2026 | submission truth pass | Reconciled the two documents a judge reads with what the repo now contains. **README:** 393 tests → 601; the curing salts added to the substance-family note; Gemma and country discovery added to the stack table and the pipeline description; "sources are registered by hand" replaced with the limitation that is actually true now (a discovered source is an index to watch, not a rule, and it fails openly when a regulator publishes through a JavaScript application). One claim was worse than stale — "Answers questions with citations" reads as a product feature and is an API endpoint with no Ask box on any page, whose agent refuses a question phrased around a market even while holding the clause the product page cites. Now stated under Limitations where a reader meets it before a judge does. **Devpost description:** rewritten around the chain the product can prove — EU 2023/2108 found at CELLAR by the sweep, 88 verbatim limits, a cured sausage failed on the 30 mg/kg nitrite row in force from 9 October 2025 — with the benzoate upload story kept as the second path. Challenges now lead with `verdicts_changed: 0` and the five blockers behind it; What we learned gains the expensive one: a pipeline green stage by stage is not a pipeline that works, and four defects were only findable after a verdict finally moved |
 | 31 Aug 2026 | web UI | Reskinned the console as an editorial document: warm bone canvas, white surfaces, one hairline weight (1px `#EAEAEA`), and ink as the only accent — nothing in the interface is blue any more. Page titles and quoted regulation text moved to a serif (`.t-quote`), so the face itself marks the boundary between what a document says and what ReguLens says about it; the UI stays in the platform grotesque and every number stays monospace. Status keeps four washed pastels and its words, badges stay sentence case where the label is a verdict (`.badge-tag` for one-word tags). Resting shadows dropped for hairlines, elevation only under the pointer; page gutters opened up (48/96px). No new dependencies and no fetched fonts — local stacks with system fallbacks. Verified in light and dark, desktop and mobile, against the running app; tsc clean, next build green |

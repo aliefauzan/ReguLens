@@ -395,8 +395,13 @@ Known and not defects:
   more additives than the 45-entry dictionary knows, and an unmatched substance
   is deliberately parked rather than guessed at. Growing the dictionary from the
   corpus is the obvious next step.
-- One clause has been stuck in `pending_reconciliation` since 23 Aug — a message
-  lost before this session. It predates every change here.
+  **Re-counted 31 Aug:** 102 clauses wait, and every one now reports
+  `low_confidence_or_flagged` — the recheck path settled the rest. 149 more are
+  held back from the queue because no product contains their ingredient, and the
+  page says so and offers to show them.
+- ~~One clause has been stuck in `pending_reconciliation` since 23 Aug.~~
+  **Cleared.** `/clauses?status=pending_reconciliation` returns nothing on the
+  deployed stack as of 31 Aug.
 
 ### A fix somebody can approve (29 Aug)
 
@@ -510,8 +515,8 @@ not an action taken for them.
 - [x] Repo pushed; if private, confirm judge access.
 - [ ] Devpost submission form completed and **submitted at least 12 hours early**.
       Upload failures at a deadline are ordinary, not unlucky.
-- [ ] Optional bonus: short blog or social post on the "deterministic code gates the
-      model" principle. Write it while a build or render is running.
+- [x] Optional bonus: short blog or social post on the "deterministic code gates the
+      model" principle. — published 31 Aug. Medium: https://medium.com/@uumaarrrrr22/my-agent-said-i-dont-know-and-then-cited-eight-sources-anyway-ef65e7f802d5 · LinkedIn: https://lnkd.in/p/gBxbjqQ4
 
 ### Documentation
 - [x] Root `README.md` also carries an explicit **Limitations** section listing what
