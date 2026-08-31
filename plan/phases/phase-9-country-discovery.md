@@ -92,17 +92,32 @@ country with **no verdict row and no error** — the same silent-omission failur
       have been `discovered` when nothing discovered it. Not deployed
 - [ ] `web/app/products/MarketsField.tsx` — tiles for the markets that exist
       (the two seeded plus every country anybody has watched), a dropdown for the
-      remaining 240-odd. Picking one creates the market first, then ticks it. A
-      market with no watched source says `not watched yet` on its tile; a target
-      market missing from `/markets` still renders, so editing a product cannot
-      silently drop a country. Not deployed
+      remaining 240-odd. Picking one creates the market, **then starts watching
+      it** — the same discovery run the Sources page offers, streamed onto the
+      tile: `Looking up its regulator…` → the regulator's name, or
+      `Could not find where it publishes` with the reason underneath. A country
+      discovery cannot read stays selectable and says `not watched yet`, because
+      the product still records where it is sold. A target market missing from
+      `/markets` still renders, so editing a product cannot silently drop a
+      country. Not deployed
+- [ ] One country, one rulebook on the tile. A discovered market accumulates
+      both its named regime and the bare country code its sources are registered
+      under (`["ID_BPOM", "ID"]`), and rendering both read "BPOM, National
+      rules" — a country with two separate rulebooks, which is not a thing. A
+      named regime now wins over the country code, and the regulator's own name
+      is used before the word "national". Not deployed
 - [ ] `marketName` falls back to the country's name via `Intl.DisplayNames`, so a
       market this phase created reads "Japan" rather than "JP" on every page that
       names one. Not deployed
 - [x] 5 tests in `test_market_routes.py`; 669 passing, ruff and tsc clean
-- [x] Verified against the emulators: adding Japan from the form created
-      `market_jp`, the saved product listed it, and its verdict read
-      "No rules added yet" — the honest answer for a country nobody watches yet
+- [x] Verified against the emulators, both endings. Adding Japan created
+      `market_jp`, the saved product listed it, and its verdict read "No rules
+      added yet". Adding Singapore ran the whole path — market created,
+      `country.requested` published, worker discovered, `Singapore —
+      Legislation` committed as a watched LISTING — and the tile went from
+      "Starting to watch it…" to "Singapore Food Agency rules" without a reload.
+      The failure ending was exercised too (worker with no model credentials):
+      the tile said "Could not find where it publishes" and printed the reason
 
 
 ## Decisions
