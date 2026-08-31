@@ -1,61 +1,76 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   ReguLens — console layout.
+   ReguLens — editorial console.
 
-   This is an operations dashboard, not a marketing page. Three ideas drive
-   every value below:
+   This is an operations dashboard read like a document. Four ideas drive every
+   value below:
 
    - Frame: a fixed rail on the left, a fixed status bar on top, one scrolling
      work surface between them. The chrome never moves, so the eye only ever
      tracks the data.
-   - Density: 15px base, tight leading, hairlines instead of drop shadows.
-     A regulator's answer is a number and a citation; both should fit on one
-     screen without scrolling past decoration.
-   - Meaning-only colour: neutral greys carry the layout, one accent carries
-     interaction, and the status trio (good / warn / danger) is reserved for
-     the only thing a user must never misread. Every status badge also spells
-     itself out in words, so colour is never the sole carrier.
+   - Warm monochrome: a bone canvas, white surfaces, one hairline weight
+     (1px #EAEAEA). No drop shadows carry structure — borders and whitespace
+     do. Elevation appears only under the pointer, and barely.
+   - Typographic hierarchy: a serif for the thing a page is about, a grotesque
+     for everything you operate, a monospace for every number and identifier.
+     Size does less work than weight, face, and colour.
+   - Colour as a scarce resource: ink is the accent. The only chromatic values
+     in the system are four washed pastels reserved for status, and every
+     status badge also spells itself out in words, so colour is never the sole
+     carrier of meaning.
 
-   Numbers are set in a monospace face. In a table of limits, a proportional
-   font makes 150 and 400 different widths and the column stops being
-   scannable.
+   Numbers are set in monospace. In a table of limits, a proportional font
+   makes 150 and 400 different widths and the column stops being scannable.
 --------------------------------------------------------------------------- */
 
 :root {
-  /* Canvas and surfaces (light) */
-  --background: #f4f5f7;      /* the work surface behind panels */
+  /* Canvas and surfaces (light). Warm bone behind, white in front. */
+  --background: #fbfbfa;      /* the work surface behind panels */
   --surface: #ffffff;         /* panels, rows, fields sitting on the canvas */
-  --surface-2: #f7f8fa;       /* inset blocks and table headers */
-  --rail: #ffffff;            /* the navigation rail */
-  --rail-ink: #3f4450;
+  --surface-2: #f7f6f3;       /* inset blocks and table headers */
+  --rail: #fbfbfa;            /* the navigation rail, flush with the canvas */
+  --rail-ink: #57544e;
 
-  --foreground: #16181d;      /* near-black. #000 is a screen artefact. */
-  --secondary: #4a4f5a;       /* ~7:1 on --surface. Readable, not decorative. */
-  --tertiary: #6b7280;        /* ~4.6:1. Incidental metadata only. */
-  --separator: #e3e5ea;       /* hairline */
-  --separator-strong: #cfd2d9;
-  --fill: #7880902e;          /* quiet control background */
+  --foreground: #111111;      /* off-black. #000 is a screen artefact. */
+  --secondary: #57544e;       /* ~7.5:1 on --surface. Readable, not decorative. */
+  --tertiary: #787774;        /* ~4.7:1. Incidental metadata only. */
+  --separator: #eaeaea;       /* the one hairline in the system */
+  --separator-strong: #dcdbd7;
+  --fill: #11111108;          /* quiet control background */
 
-  /* One accent. Everything else is neutral or status. */
-  --accent: #0b63d6;
+  /* Ink is the accent. Nothing in this interface is blue. */
+  --accent: #111111;
   --accent-ink: #ffffff;
-  --accent-soft: #0b63d614;
-  --good: #1b7a45;
-  --good-soft: #1b7a451f;
-  --warn: #a05a00;
-  --warn-soft: #d1840014;
-  --danger: #c31f2e;
-  --danger-soft: #c31f2e14;
+  --accent-soft: #1111110a;
+  --focus-ring: #1111111f;
 
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%234a4f5a' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  /* Washed pastels. Text values are the accessible pair for their own tint. */
+  --good: #346538;
+  --good-soft: #edf3ec;
+  --warn: #956400;
+  --warn-soft: #fbf3db;
+  --danger: #9f2f2d;
+  --danger-soft: #fdebec;
 
-  --material: #ffffffd9;
-  /* Tinted to the canvas hue, wide and very light: depth without a halo. */
-  --shadow: 0 1px 2px #16181d0a, 0 12px 28px -12px #16181d1a;
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23787774' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  --material: #fbfbfaf2;
+  /* Practically invisible, and only ever under a pointer. Structure is drawn
+     with hairlines; a shadow here would be decoration pretending to be one. */
+  --shadow: 0 1px 2px #1111110a;
+  --shadow-hover: 0 2px 8px #1111110a;
+
+  /* Faces. Each name is tried, then the platform's own equivalent. Nothing is
+     fetched: this page has to load in front of a judge. */
+  --font-sans: "SF Pro Display", "SF Pro Text", -apple-system, BlinkMacSystemFont,
+    "Segoe UI Variable Text", "Segoe UI", "Helvetica Neue", system-ui, sans-serif;
+  --font-serif: "Newsreader", "Lyon Text", "Iowan Old Style", "Palatino Linotype",
+    Palatino, "Hoefler Text", Georgia, serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace;
 
   --radius-card: 12px;
-  --radius-control: 8px;
+  --radius-control: 6px;
   --radius-pill: 999px;
   --tap: 40px;                /* minimum hit target */
   --rail-w: 248px;
@@ -64,33 +79,37 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0e1013;
-    --surface: #17191e;
-    --surface-2: #1d2026;
-    --rail: #121419;
-    --rail-ink: #b7bcc8;
+    /* The same warmth, inverted: charcoal rather than blue-black. */
+    --background: #100f0e;
+    --surface: #191817;
+    --surface-2: #201f1d;
+    --rail: #100f0e;
+    --rail-ink: #a8a49c;
 
-    --foreground: #f2f3f5;
-    --secondary: #b0b6c1;
-    --tertiary: #868d9a;
-    --separator: #272b33;
-    --separator-strong: #343945;
-    --fill: #7b849726;
+    --foreground: #f2f1ee;
+    --secondary: #b3afa7;
+    --tertiary: #8a8680;
+    --separator: #ffffff14;
+    --separator-strong: #ffffff26;
+    --fill: #ffffff0d;
 
-    --accent: #5da2ff;
-    --accent-ink: #0b1220;
-    --accent-soft: #5da2ff1f;
-    --good: #46c980;
-    --good-soft: #46c98021;
-    --warn: #e5a13a;
-    --warn-soft: #e5a13a21;
-    --danger: #ff6b6b;
-    --danger-soft: #ff6b6b21;
+    --accent: #f2f1ee;
+    --accent-ink: #100f0e;
+    --accent-soft: #ffffff12;
+    --focus-ring: #ffffff2e;
 
-    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23b0b6c1' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --good: #86bd8b;
+    --good-soft: #86bd8b1f;
+    --warn: #d8ab5c;
+    --warn-soft: #d8ab5c1f;
+    --danger: #e0918f;
+    --danger-soft: #e0918f1f;
 
-    --material: #121419d9;
-    --shadow: 0 1px 2px #00000059, 0 12px 28px -12px #00000073;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%238a8680' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+    --material: #100f0ef2;
+    --shadow: 0 1px 2px #0000003d;
+    --shadow-hover: 0 2px 8px #00000047;
   }
 }
 
@@ -101,44 +120,104 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  /* The platform's own UI face. It is a high-quality grotesque everywhere it
-     resolves, and it costs no network request on a page that has to load in
-     front of a judge. */
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
-    "Segoe UI", Roboto, "Helvetica Neue", system-ui, sans-serif;
+  font-family: var(--font-sans);
   font-size: 15px;
-  line-height: 1.5;
+  line-height: 1.6;
   letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
 }
 
+/* A single warm light spot behind the whole console, at an opacity you will
+   never consciously see. It stops the bone canvas reading as flat paint. Fixed
+   and unclickable, so it costs nothing on scroll. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 34rem at 78% -8%, #c9a17e14, transparent 70%),
+    radial-gradient(46rem 30rem at 4% 4%, #8d9e8e0f, transparent 68%);
+}
+
 @layer components {
 /* --- Type scale ----------------------------------------------------------
-   Hierarchy comes from weight and colour first, size second. A dashboard
-   heading that screams pushes the data it introduces off the fold.        */
-.t-large-title { font-size: 24px; line-height: 1.2;  font-weight: 650; letter-spacing: -0.02em; }
-.t-title       { font-size: 19px; line-height: 1.25; font-weight: 650; letter-spacing: -0.015em; }
-.t-section     { font-size: 16px; line-height: 1.3;  font-weight: 650; letter-spacing: -0.01em; }
-.t-headline    { font-size: 15px; line-height: 1.35; font-weight: 600; }
-.t-body        { font-size: 15px; line-height: 1.5; }
-.t-subhead     { font-size: 14px; line-height: 1.45; }
+   The serif states what a page is about; the grotesque runs it. Hierarchy
+   comes from face, weight and colour first, size last — a dashboard heading
+   that screams pushes the data it introduces off the fold.                  */
+.t-large-title {
+  font-family: var(--font-serif);
+  font-size: 30px;
+  line-height: 1.1;
+  font-weight: 500;
+  letter-spacing: -0.025em;
+}
+.t-title {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+}
+.t-section     { font-size: 15px; line-height: 1.35; font-weight: 600; letter-spacing: -0.005em; }
+.t-headline    { font-size: 15px; line-height: 1.4;  font-weight: 600; }
+.t-body        { font-size: 15px; line-height: 1.6; }
+.t-subhead     { font-size: 14px; line-height: 1.55; }
 /* 13.5px is the floor for anything a user is expected to read. */
-.t-footnote    { font-size: 13.5px; line-height: 1.45; }
+.t-footnote    { font-size: 13.5px; line-height: 1.5; }
 /* 12px is reserved for ids and timestamps — never for meaning. */
-.t-caption     { font-size: 12px; line-height: 1.4; color: var(--tertiary); }
+.t-caption     { font-size: 12px; line-height: 1.45; color: var(--tertiary); }
 .t-secondary   { color: var(--secondary); }
-.t-number      { font-family: var(--font-mono); font-size: 26px; line-height: 1.05;
-                 font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.mono, .t-number { --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace; }
-.mono          { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.t-number {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  line-height: 1.05;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 /* Column headers and rail sections. Small, wide, quiet — a label, not a title. */
 .t-eyebrow {
   font-size: 11px;
   line-height: 1.3;
-  font-weight: 650;
-  letter-spacing: 0.07em;
+  font-weight: 600;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--tertiary);
+}
+
+/* The wording of a regulation is the only real prose in this interface, so it
+   is set as prose: the serif, one size up from the UI, wide leading. It also
+   marks the boundary — anything in the serif is what the document says,
+   anything in the grotesque is what ReguLens says about it. */
+.t-quote {
+  font-family: var(--font-serif);
+  font-size: 16.5px;
+  line-height: 1.6;
+  letter-spacing: -0.01em;
+}
+
+/* A quoted regulation is the one place this interface sets prose, so it sets
+   it as prose: serif, wide leading, a rule instead of a box. */
+blockquote {
+  font-family: var(--font-serif);
+  font-size: 16px;
+  line-height: 1.6;
+  border-left: 2px solid var(--separator-strong);
+  padding-left: 16px;
+}
+
+/* Shortcuts and literal keys read as objects, not as code. */
+kbd {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 2px 6px;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--secondary);
 }
 
 /* --- Shell ---------------------------------------------------------------
@@ -170,15 +249,17 @@ body {
   border-bottom: 1px solid var(--separator);
 }
 
-/* Page gutter. One value, so every page lines up under the top bar. */
+/* Page gutter. One value, so every page lines up under the top bar. The
+   generous head and foot are the macro-whitespace: they are what stop a dense
+   table reading as a spreadsheet. */
 .page {
   width: 100%;
   max-width: 1400px;
   margin-inline: auto;
-  padding: 24px 20px 40px;
+  padding: 32px 20px 64px;
 }
-@media (min-width: 640px) { .page { padding: 28px 28px 56px; } }
-.page-narrow { max-width: 780px; }
+@media (min-width: 640px) { .page { padding: 48px 32px 96px; } }
+.page-narrow { max-width: 720px; }
 .page-mid { max-width: 1020px; }
 
 /* --- Rail navigation ----------------------------------------------------- */
@@ -192,15 +273,17 @@ body {
   color: var(--rail-ink);
   font-size: 14px;
   font-weight: 500;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.2s ease, color 0.2s ease;
 }
 .nav-item:hover { background: var(--fill); color: var(--foreground); }
 .nav-item[aria-current="page"] {
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  padding: 0 9px;
+  color: var(--foreground);
   font-weight: 600;
 }
-.nav-item[aria-current="page"] .nav-glyph { color: var(--accent); }
+.nav-item[aria-current="page"] .nav-glyph { color: var(--foreground); }
 .nav-glyph { color: var(--tertiary); display: inline-flex; }
 
 .nav-count {
@@ -208,30 +291,36 @@ body {
   min-width: 20px;
   padding: 1px 6px;
   border-radius: var(--radius-pill);
-  background: var(--accent);
-  color: var(--accent-ink);
+  background: var(--fill);
+  border: 1px solid var(--separator);
+  color: var(--secondary);
+  font-family: var(--font-mono);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
 
 /* --- Surfaces ------------------------------------------------------------
-   Hairline first, elevation only where a layer genuinely floats.           */
+   One hairline, one radius, no resting elevation.                          */
 .card,
 .panel {
   background: var(--surface);
   border: 1px solid var(--separator);
   border-radius: var(--radius-card);
 }
-.card { box-shadow: var(--shadow); }
+.card {
+  box-shadow: var(--shadow);
+  transition: box-shadow 0.2s ease;
+}
+.card:hover { box-shadow: var(--shadow-hover); }
 
 .panel-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 16px;
+  padding: 14px 20px;
   border-bottom: 1px solid var(--separator);
 }
 
@@ -242,13 +331,13 @@ body {
 
 .material {
   background: var(--material);
-  backdrop-filter: saturate(180%) blur(20px);
-  -webkit-backdrop-filter: saturate(180%) blur(20px);
+  backdrop-filter: saturate(140%) blur(20px);
+  -webkit-backdrop-filter: saturate(140%) blur(20px);
 }
 
 .hairline { border-bottom: 1px solid var(--separator); }
 .row + .row { border-top: 1px solid var(--separator); }
-.row-hover { transition: background 0.15s ease; }
+.row-hover { transition: background 0.2s ease; }
 .row-hover:hover { background: var(--surface-2); }
 
 /* --- Metric strip --------------------------------------------------------
@@ -264,7 +353,7 @@ body {
 }
 @media (min-width: 768px) { .kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
 .kpi {
-  padding: 16px 18px;
+  padding: 22px 24px;
   border-top: 1px solid var(--separator);
   border-left: 1px solid var(--separator);
   display: block;
@@ -276,7 +365,7 @@ body {
   .kpi:nth-child(2n + 1) { border-left: 1px solid var(--separator); }
   .kpi:first-child { border-left: 0; }
 }
-a.kpi { transition: background 0.15s ease; }
+a.kpi { transition: background 0.2s ease; }
 a.kpi:hover { background: var(--surface-2); }
 
 /* --- Controls ------------------------------------------------------------ */
@@ -289,24 +378,24 @@ a.kpi:hover { background: var(--surface-2); }
   padding: 0 16px;
   border-radius: var(--radius-control);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 550;
   cursor: pointer;
-  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
+  transition: background 0.2s ease, opacity 0.2s ease, transform 0.1s ease;
 }
 /* Tactile: the control moves under the press, so the click is felt. */
-.btn:active { transform: translateY(1px) scale(0.985); }
+.btn:active { transform: scale(0.98); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
-.btn-primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.btn-primary:hover { background: color-mix(in srgb, var(--accent) 86%, var(--surface)); }
 .btn-secondary {
   background: var(--surface);
   color: var(--foreground);
   border: 1px solid var(--separator-strong);
 }
 .btn-secondary:hover { background: var(--surface-2); }
-.btn-quiet { background: transparent; color: var(--accent); padding: 0 8px; }
-.btn-quiet:hover { background: var(--accent-soft); }
+.btn-quiet { background: transparent; color: var(--foreground); padding: 0 8px; }
+.btn-quiet:hover { background: var(--fill); }
 
 .btn-small {
   min-height: 32px;
@@ -334,7 +423,7 @@ a.kpi:hover { background: var(--surface-2); }
   line-height: normal;
   appearance: none;
   -webkit-appearance: none;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 select.field {
@@ -350,7 +439,7 @@ textarea.field {
   height: auto;
   min-height: 128px;
   padding: 10px 12px;
-  line-height: 1.55;
+  line-height: 1.6;
   resize: vertical;
 }
 
@@ -365,16 +454,18 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
   cursor: pointer;
 }
 
+/* Focus is ink, not colour: the border goes to full strength and a soft ring
+   sits behind it, so the focused control is the darkest thing on the page. */
 .field:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  border-color: var(--foreground);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 .field::placeholder { color: var(--tertiary); }
 
 /* Label above the input, helper under it — one order, every form. */
 .label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
-.help { font-size: 13px; line-height: 1.45; color: var(--secondary); margin-top: 6px; }
+.help { font-size: 13px; line-height: 1.5; color: var(--secondary); margin-top: 6px; }
 
 /* One measure for prose. Long lines are the other half of "cannot read it". */
 .prose-measure { max-width: 68ch; }
@@ -384,28 +475,39 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 .figure-unit { font-size: 13.5px; font-weight: 500; color: var(--secondary); }
 
 /* --- Status --------------------------------------------------------------
-   Colour never carries the meaning alone: every badge also spells it out.  */
+   The only chroma in the system. Colour never carries the meaning alone:
+   every badge also spells it out.                                          */
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   padding: 3px 10px;
   border-radius: var(--radius-pill);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 550;
   white-space: nowrap;
   border: 1px solid transparent;
 }
-.badge-good   { background: var(--good-soft);   color: var(--good);   border-color: color-mix(in srgb, var(--good) 22%, transparent); }
-.badge-warn   { background: var(--warn-soft);   color: var(--warn);   border-color: color-mix(in srgb, var(--warn) 22%, transparent); }
-.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 22%, transparent); }
-.badge-muted  { background: var(--fill);        color: var(--secondary); border-color: var(--separator); }
+/* Uppercase and tracked out for one- or two-word tags. A verdict badge reads
+   as a sentence — "No rules added yet" — and setting a sentence in tracked
+   caps is how you make the one thing a user must not misread the hardest
+   thing on the page to scan. Those keep sentence case. */
+.badge-tag {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.badge-good   { background: var(--good-soft);   color: var(--good); }
+.badge-warn   { background: var(--warn-soft);   color: var(--warn); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); }
+.badge-muted  { background: var(--surface-2);   color: var(--secondary); border-color: var(--separator); }
 
 /* A live indicator, and the ring that makes it read as live. */
 .dot {
@@ -426,11 +528,11 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
    one above it, which is how the eye is taught the reading order. Transform
    and opacity only, so it stays on the compositor.                         */
 .rise {
-  animation: rise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--i, 0) * 45ms);
+  animation: rise 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 80ms);
 }
 @keyframes rise {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: none; }
 }
 
@@ -474,10 +576,12 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
     --tertiary: #555555;
     --separator: #cccccc;
     --shadow: none;
+    --shadow-hover: none;
     --rail-w: 0px;
   }
 
   body { background: #ffffff; padding-bottom: 0; }
+  body::before { display: none; }
   .shell-main { padding-left: 0; }
 
   /* Chrome and controls: on screen they are how you get around, on paper they

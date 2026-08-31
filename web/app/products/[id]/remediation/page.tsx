@@ -228,7 +228,7 @@ function Quote({
         {sourceById[limit.document_id ?? ""]?.source_name ?? "A document you added"}
       </p>
       {limit.quote ? (
-        <blockquote className="t-body mt-2 prose-measure">“{limit.quote}”</blockquote>
+        <blockquote className="mt-2 prose-measure">“{limit.quote}”</blockquote>
       ) : (
         <p className="t-body t-secondary mt-2">
           We no longer hold the wording for this one. The limit above is what was read from it.

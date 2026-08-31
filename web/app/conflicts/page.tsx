@@ -61,7 +61,7 @@ export default async function ConflictsPage() {
             <li key={conflict.id} className="card p-6" data-testid={`conflict-${conflict.id}`}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="t-section">{plain(conflict.type)}</h2>
-                <span className="badge badge-danger">{conflict.severity === "high" ? "Important" : conflict.severity}</span>
+                <span className="badge badge-tag badge-danger">{conflict.severity === "high" ? "Important" : conflict.severity}</span>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -121,7 +121,11 @@ function Side({
   return (
     <div
       className="inset p-4"
-      style={strictest ? { boxShadow: "inset 0 0 0 2px var(--accent)" } : undefined}
+      style={
+        strictest
+          ? { background: "var(--surface)", boxShadow: "inset 0 0 0 1px var(--foreground)" }
+          : undefined
+      }
       data-testid={testId}
     >
       <p className="t-headline">{jurisdictionName(clause?.jurisdiction)}</p>
@@ -132,7 +136,7 @@ function Side({
       </p>
       {strictest ? <span className="badge badge-muted mt-3">Stricter — follow this one</span> : null}
       {clause?.text ? (
-        <p className="t-footnote t-secondary mt-4">“{clause.text}”</p>
+        <p className="t-quote t-secondary mt-4" style={{ fontSize: 15 }}>“{clause.text}”</p>
       ) : null}
       <Provenance
         clauseId={clauseId}

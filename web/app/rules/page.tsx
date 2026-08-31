@@ -103,7 +103,7 @@ export default async function RulesPage() {
           return (
             <li key={clause.id} className="card p-5" data-testid={`rule-${clause.id}`}>
               <div className="flex flex-wrap items-start justify-between gap-3">
-                <p className="t-body prose-measure">{clause.text}</p>
+                <p className="t-quote prose-measure">{clause.text}</p>
                 <span className="badge badge-muted whitespace-nowrap" style={{ color: status.tone }}>
                   {status.label}
                 </span>

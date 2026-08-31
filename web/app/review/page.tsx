@@ -239,7 +239,7 @@ export default function ReviewQueuePage() {
       <ul className="mt-6 space-y-4">
         {clauses.map((clause) => (
           <li key={clause.id} className="card p-5" data-testid={`review-${clause.id}`}>
-            <p className="t-body">{clause.text}</p>
+            <p className="t-quote">{clause.text}</p>
 
             <ul className="mt-3 space-y-1">
               {reasonsOf(clause).map((reason) => (

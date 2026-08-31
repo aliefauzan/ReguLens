@@ -272,7 +272,7 @@ export default function Stepper({ documentId }: { documentId: string }) {
             {clauses.map((clause) => (
               <li key={clause.id} className="card p-5" data-testid={"clause-" + clause.id}>
                 <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="t-body prose-measure">{clause.text}</p>
+                  <p className="t-quote prose-measure">{clause.text}</p>
                   {CLAUSE_STANDING[clause.status] ? (
                     <span
                       className="badge badge-muted whitespace-nowrap"

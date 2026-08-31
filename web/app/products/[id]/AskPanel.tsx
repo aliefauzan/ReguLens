@@ -165,7 +165,7 @@ export default function AskPanel({
                     <p className="t-footnote t-secondary">
                       [{index + 1}] · {jurisdictionName(clause.jurisdiction)}
                     </p>
-                    <p className="t-body mt-1">{clause.text}</p>
+                    <p className="t-quote mt-1">{clause.text}</p>
                     {clause.document_id ? (
                       <Link
                         href={`/documents/${clause.document_id}`}
