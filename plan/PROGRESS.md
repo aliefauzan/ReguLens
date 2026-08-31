@@ -2,7 +2,7 @@
 
 **Single source of truth for what is done.** Check here before starting any work.
 
-Last updated: **31 Aug 2026** · Updated by: **S3 — submission drafts**
+Last updated: **31 Aug 2026** · Updated by: **the autonomous chain, end to end**
 
 > **Read this first, every session.** If a phase below is `COMPLETE`, do not rebuild
 > it — read its phase file to see what exists. If it is `IN PROGRESS`, the unticked
@@ -76,6 +76,51 @@ Tracked here because it spans phases and is easy to lose.
 
 Recorded so they are not reopened. Change one only with a reason written here.
 
+- [x] **A name the dictionary has since learned is not a judgement call, 31 Aug**
+  — `substance_not_recognized` joins the reasons a recheck can settle, but
+  conditionally, and the condition is the whole design: the same strict matcher
+  runs again over the substance the document stated, and only a name it now
+  recognises is released. A name it still refuses stays refused. Nothing
+  relaxes the matcher and nothing invents a mapping — a wrong normalization
+  silently compares two different substances. `low_confidence_or_flagged` is
+  allowed to sit alongside it and only above the floor, because that name is
+  two refusals in one: confidence under the floor, or extraction flagged the
+  row, and an unrecognised substance is what raises the flag. A clause actually
+  under the floor is refused exactly as before
+- [x] **A row states its food in words where it prints no code, 31 Aug** — the
+  GSFA code fixed the BPOM tables; the EU annexes carry no code and say it
+  after `only` or `except` instead. `scope.py` reads that phrase and reports
+  it; it does not decide that Wiltshire bacon is a cured meat. Refusing an
+  unmatched pair is the cautious direction: nothing is superseded, both rows
+  stay active, and a product is still measured against the stricter. The
+  alternative is a supersede between two rows about different meats, which
+  deletes a limit that still binds
+- [x] **An amendment is two rows and they say which is current, 31 Aug** —
+  Annex II writes the replaced text as `Period of application: until 9 October
+  2025` and its replacement as `from 9 October 2025`. Only a `from` date is an
+  effective date, so the replaced row arrives dated `None` and the pair looks
+  undecidable. `applies_until` reads the end of the period from the text, which
+  turned sixteen model calls into sixteen deterministic supersedes
+- [x] **A ceiling that names no food is not a food limit, 31 Aug** — the purity
+  tables of Regulation 231/2012 read "Not more than 20 mg/kg expressed as
+  KNO2", naming no category and no scope. At 20 mg/kg it is the strictest
+  nitrite number in the annex, so left active it binds every cured meat in the
+  graph and fails all of them on a specification. An Annex II food limit always
+  says which food it is about; one that does not goes to a person
+- [x] **A rule that is active can be taken back out, 31 Aug** — `dismiss`
+  guarded on `needs_review`, so a clause that reached the graph before the code
+  learned to refuse it could only be removed by deleting its whole document.
+  Found in production: a laboratory drying method reported as the 2 500 mg/kg
+  limit binding a cured sausage. Withdrawal now carries the duty a document
+  delete carries — the requirements it wrote and the conflicts it opened go
+  with it, and every product it touched is re-evaluated. `superseded` stays
+  out: that is a decision reconciliation made, not a rule anybody is acting on
+- [x] **The cause of a verdict is a document, not only a clause, 31 Aug** —
+  `graph.changed` carried the clause alone, so `cause.document_id` was null on
+  every verdict reconciliation ever moved, and `unprompted` — the single claim
+  separating this from a checker — defaulted to "somebody uploaded it". The
+  message now carries the document, and alerts resolve it through the clause on
+  read so events already written answer correctly without a backfill
 - [x] **A queue may empty itself, but only where typed code can answer, 31 Aug**
   — thirty-six rows of one BPOM table sat waiting for a person to confirm that a
   regulation does not contradict itself, which is not a judgement call, it is a
@@ -314,6 +359,7 @@ a diary.
 
 | Date | Who | What changed |
 |---|---|---|
+| 31 Aug 2026 | the chain closed | `/stats/autonomy` had read `regulations_found: 8`, `clauses_read: 123`, `verdicts_changed: 0` since the scheduler started finding regulations. The zero was accurate and it was the product: nothing a watched source found had ever moved a verdict. Five things stood between the two numbers, each one found by simulating the recheck against the live queue before running it. **(1)** 190 EU limit rows were parked `substance_not_recognized` — read on 29 Aug, two days before the dictionary learned the curing salts — and the only auto-recheckable reason was `judge_ambiguous`. `substance_not_recognized` is now conditionally recheckable: the same strict matcher runs again over the substance the document stated, and only a name it now recognises is released. **(2)** Those rows also carried `low_confidence_or_flagged`, which is two refusals wearing one name — under the floor, or extraction flagged it — and an unrecognised substance is what raises the flag. One fact recorded twice is not two reasons; the floor is now a named constant so the gate and the recheck cannot disagree about it. **(3)** The EU annex prints no GSFA code, so every nitrite row would have looked like the same rule stated twenty-four times and gone to the judge in pairs — 96 model calls. `scope.py` now also reads the scope the row states in words (`only dry cured bacon`, `except sterilised meat products`), read and never interpreted, and the guardrail refuses `stated_scope_mismatch`. **(4)** An amendment is written as two rows, `until 9 October 2025` and `from 9 October 2025`, and only the second is an effective date — so sixteen supersedes the rows answer themselves were reaching the model. `applies_until` reads the end of the period from the text. Judge calls fell 96 → 14. **(5)** "Nitrites — Not more than 20 mg/kg expressed as KNO2" is a purity ceiling from Regulation 231/2012 naming no food, and at 20 mg/kg the strictest nitrite number in the annex; a ceiling that names no food now goes to a person. Live result: the queue fell 200 → 141 with every remaining reason named, 58 rows released, 42 active and 16 settled as supersedes by the dates the regulator printed, zero judge calls. Also found in production and fixed: a laboratory drying method (`Loss on drying — 0,25 %`) was **active** and reported as the 2 500 mg/kg limit binding a cured sausage, and could only have been removed by deleting the eighty-seven correct rules of its annex — `dismiss` now withdraws an active clause and takes its requirements and conflicts with it. And `graph.changed` carried the clause but not its document, so `cause.document_id` was null on every verdict reconciliation ever moved: the message now carries it and alerts resolve it on read, which is what `unprompted` and `verdicts_changed` are computed from. 542 tests green (26 new), ruff clean |
 | 31 Aug 2026 | queue self-resolution | The review queue held 36 rows of one BPOM additive table, every one of them `judge_ambiguous`, every one of them asking a person to confirm that a regulation does not contradict itself. Cause: a clause carries a substance, a limit, a jurisdiction and a date but nothing that says *what food*, so two rows of one table read as a supersede question with no date to settle it — the single case that reaches the judge. New `core/scope.py` reads the GSFA category code the regulator prints at the head of the row (`14.1.4.2`, `04.1.2.8`); the guardrail refuses cross-branch pairs as `food_category_mismatch`, so they never reach a model and never reach a person. `POST /clauses/recheck` re-decides the backlog through the ordinary `reconcile_clause` path — `judge_ambiguous` only, never low confidence or low authority, and a clause that is still ambiguous goes back in the queue. Review page gained the button, a plain-language line for `judge_ambiguous` (it read "judge ambiguous" on screen), and a result that names what it could not settle. Proven against the Firestore emulator: fresh pair → `active` with no judge call; parked clause → `active` with `clause_rechecked` + `clause_created`; low-confidence clause untouched; integrity walker green. 503 tests green (21 new), ruff clean, tsc clean, next build green. Not deployed yet |
 | 31 Aug 2026 | test fix | `test_a_source_that_is_not_due_is_left_alone` anchored its `last_checked_at` to a hardcoded `NOW` (29 Aug) while `check_source()` reads the wall clock — the source went stale on 30 Aug and the test started failing in Cloud Build. Anchored to `datetime.now(UTC)` instead |
 | 29 Aug 2026 | web UI | Rebuilt the frontend as an operations console: fixed left rail with live queue counts, sticky top bar carrying the service-reachability indicator and the two global actions, and a metric strip over an asymmetric two-column overview (verdict table left, next step / activity feed / verdict legend right). Design system retuned for density — 15px base, hairline panels, monospace figures, one accent. No new dependencies: inline SVG icon set, CSS-only motion. Every `data-testid` preserved; component CSS moved into Tailwind's `components` layer so utilities keep winning |
