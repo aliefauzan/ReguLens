@@ -505,8 +505,8 @@ not an action taken for them.
 - [ ] Repo pushed; if private, confirm judge access.
 - [ ] Devpost submission form completed and **submitted at least 12 hours early**.
       Upload failures at a deadline are ordinary, not unlucky.
-- [ ] Optional bonus: short blog or social post on the "deterministic code gates the
-      model" principle. Write it while a build or render is running.
+- [x] Optional bonus: short blog or social post on the "deterministic code gates the
+      model" principle. — published 31 Aug. Medium: https://medium.com/@uumaarrrrr22/my-agent-said-i-dont-know-and-then-cited-eight-sources-anyway-ef65e7f802d5 · LinkedIn: https://lnkd.in/p/gBxbjqQ4
 
 ### Documentation
 - [ ] Root `README.md` also carries an explicit **Limitations** section listing what
