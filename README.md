@@ -17,6 +17,7 @@ products just stopped being compliant — before anyone thinks to look.
 
 [Quick start](#quick-start) ·
 [Architecture](#architecture) ·
+[Testing](#testing) ·
 [How it works](#how-it-works) ·
 [Deploy](#deploy-to-google-cloud) ·
 [Limitations](#limitations)
@@ -135,6 +136,60 @@ extracted, guardrailed and reviewed exactly as an upload is. Country discovery
 watched *address*, which the 06:00 sweep then reads through path B like every other.
 
 The diagram is generated, not drawn — regenerate it with `make diagram`.
+
+## Testing
+
+Every check listed here runs from a clean checkout with no Google Cloud account,
+no API key, and no model calls. One command runs them all and prints the table
+below — that is the only thing this section asks a reader to run:
+
+```bash
+make test-all
+```
+
+```
+STEP                         RESULT
+----                         ------
+ruff (api)                   PASS
+pytest (api)                 PASS
+tsc (web)                    PASS
+next build (web)             PASS
+accuracy (labelled)          PASS
+local e2e drill              PASS
+```
+
+`make help` lists the rest. Each target, in dependency order:
+
+| Target | What it runs | Cost | Needs |
+|---|---|---|---|
+| `make install` | venv + API deps + `npm install` | network once | Python 3.12, Node |
+| `make lint` | `ruff` over `api/`, `tsc --noEmit` over `web/` | free | `make install` |
+| `make test` | `pytest -q` over `api/` — unit tests only | free, offline | `make install` |
+| `make eval` | `scripts/eval_report.py` against the hand-labelled sets | free, offline | `make install` |
+| `make test-local` | `scripts/verify_local.sh` — full pipeline drill against emulators | free, offline | Docker |
+| `make test-all` | the table above | free, offline | `make install`, Docker for the e2e row |
+| `make verify-deployed` | `scripts/verify_e2e.sh` against the deployed stack | spends money, mutates a real workspace | GCP credentials, deployed stack |
+
+`make test-local` is **not idempotent** — it uploads the EU document and never
+removes it, so a re-run fails on `Germany must read unknown`. Reset first:
+
+```bash
+docker compose down -v && docker compose up -d
+```
+
+`make verify-deployed` is deliberately kept out of `make test-all`. It calls
+the real Vertex/Gemini API, writes to a live Firestore, and posts a verdict
+that the alerts banner will read. Run it on purpose, not by accident.
+
+### Running one file
+
+The whole suite is fast enough to run end-to-end, but a single test file is
+faster. From the repo root:
+
+```bash
+cd api && .venv/bin/python -m pytest tests/test_sources.py -q
+cd api && .venv/bin/python -m pytest -k "relevance and not market" -q
+```
 
 ### Tech stack
 
