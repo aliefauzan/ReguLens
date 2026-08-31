@@ -8,7 +8,7 @@ import Link from "next/link";
  */
 export default function NotFound() {
   return (
-    <main className="mx-auto max-w-3xl px-5 py-16 sm:px-6" data-testid="not-found">
+    <main className="page page-narrow" data-testid="not-found">
       <h1 className="t-large-title">This page is not here</h1>
       <p className="t-body t-secondary prose-measure mt-3">
         Either the address is wrong, or whatever was here has been deleted since the link was made.

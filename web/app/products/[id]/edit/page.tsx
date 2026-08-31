@@ -15,7 +15,7 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-5 py-8 sm:px-6 sm:py-12" data-testid="edit-product">
+    <main className="page page-narrow" data-testid="edit-product">
       <Link href={`/products/${id}`} className="btn btn-quiet btn-small -ml-2">← Back to the product</Link>
       <h1 className="t-large-title mt-3">Correct this product</h1>
       <p className="t-body t-secondary prose-measure mt-2">

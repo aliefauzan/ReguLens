@@ -38,7 +38,7 @@ export default async function RemediationPage({ params }: { params: Promise<{ id
   const sourceById = Object.fromEntries(documents.map((doc) => [doc.id, doc]));
 
   return (
-    <main className="mx-auto max-w-4xl px-5 py-8 sm:px-6 sm:py-12" data-testid="remediation-page">
+    <main className="page page-mid" data-testid="remediation-page">
       <Link href={`/products/${id}`} className="btn btn-quiet btn-small -ml-2 no-print">
         ← Back to {plan.product_name}
       </Link>
@@ -58,7 +58,7 @@ export default async function RemediationPage({ params }: { params: Promise<{ id
       </div>
 
       {plan.targets.length === 0 ? (
-        <section className="card mt-8 p-8 text-center" data-testid="remediation-empty">
+        <section className="card mt-6 p-8 text-center" data-testid="remediation-empty">
           <p className="t-headline">Nothing is over a limit right now</p>
           <p className="t-subhead t-secondary mt-1 prose-measure mx-auto">
             No ingredient on {plan.product_name} breaks a rule in{" "}
@@ -67,7 +67,7 @@ export default async function RemediationPage({ params }: { params: Promise<{ id
           </p>
         </section>
       ) : (
-        <section className="mt-8 space-y-6" data-testid="targets">
+        <section className="mt-6 space-y-6" data-testid="targets">
           {plan.targets.map((target) => (
             <Target key={target.substance} target={target} plan={plan} sourceById={sourceById} />
           ))}
@@ -76,7 +76,7 @@ export default async function RemediationPage({ params }: { params: Promise<{ id
 
       <NotChecked plan={plan} />
 
-      <p className="t-caption t-secondary mt-8" data-testid="plan-trace">
+      <p className="t-caption t-secondary mt-6" data-testid="plan-trace">
         Prepared from the rules we hold at the time this page was opened. Reference:{" "}
         <span className="mono">{plan.trace_id ?? "—"}</span>
       </p>
@@ -255,7 +255,7 @@ function Quote({
 function NotChecked({ plan }: { plan: RemediationPlan }) {
   if (plan.not_checked.length === 0) return null;
   return (
-    <section className="card mt-8 p-6" data-testid="not-checked">
+    <section className="card mt-6 p-6" data-testid="not-checked">
       <h2 className="t-section">What we did not check</h2>
       <p className="t-subhead t-secondary mt-1 prose-measure">
         These ingredients were not compared against any limit. That is not the same as passing.

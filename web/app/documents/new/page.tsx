@@ -4,7 +4,7 @@ import UploadForm from "./form";
 
 export default function NewDocumentPage() {
   return (
-    <main className="mx-auto max-w-3xl px-5 py-8 sm:px-6 sm:py-12" data-testid="new-document">
+    <main className="page page-narrow" data-testid="new-document">
       <Link href="/" className="btn btn-quiet btn-small -ml-2">← Back</Link>
       <h1 className="t-large-title mt-3">Add rules</h1>
       <p className="t-body t-secondary prose-measure mt-2">

@@ -2,7 +2,7 @@
 
 **Single source of truth for what is done.** Check here before starting any work.
 
-Last updated: **29 Aug 2026** · Updated by: **S1 — a fix somebody can approve**
+Last updated: **29 Aug 2026** · Updated by: **S2 — the web app as a console**
 
 > **Read this first, every session.** If a phase below is `COMPLETE`, do not rebuild
 > it — read its phase file to see what exists. If it is `IN PROGRESS`, the unticked
@@ -71,6 +71,17 @@ Recorded so they are not reopened. Change one only with a reason written here.
 - [x] **Vertex topology** — infra in `asia-southeast1`, Gemini `gemini-3.5-flash` via the `global` endpoint, embeddings `text-multilingual-embedding-002` in `asia-southeast1`. Forced: `asia-southeast1` only offers `gemini-2.5-flash`, which fails the hackathon's 3.5+ rule
 - [x] **Cut Gemma?** — **Cut, 22 Aug.** Optional bonus; nothing depends on it. `prefilter_sections` tool slot stays empty rather than half-built.
 - [x] **Cut OCR fallback. Cut, 22 Aug.** Text-layer PDFs + pasted text only; a near-empty text layer scores low `parse_quality` and the clause lands in review instead of inventing content
+- [x] **The web app is a console, not a page, 29 Aug** — the frontend is laid
+  out as an operations dashboard: a fixed rail, a status bar, a metric strip and
+  a two-column overview. Two constraints came with it and should not be
+  reopened. First, **no new frontend dependencies**: the icon set is inline SVG
+  and the motion is CSS, because a font, an icon package or a motion library
+  added two days before the deadline is a new way for the Cloud Build image to
+  fail and buys nothing a judge can see. Second, **component CSS lives in
+  Tailwind's `components` layer** — unlayered rules outrank every utility, which
+  is how `hidden lg:flex` silently lost to a `display` in `globals.css`.
+  Not deployed yet: the boxes above stay as they are until it is.
+
 - [x] **The fix plan is a draft, never an action, 29 Aug** — the remediation
   endpoint and page prepare the decision (the number to hit, the market that
   sets it, the wording behind it) and stop there. No email, no state change, no
@@ -209,6 +220,7 @@ a diary.
 
 | Date | Who | What changed |
 |---|---|---|
+| 29 Aug 2026 | web UI | Rebuilt the frontend as an operations console: fixed left rail with live queue counts, sticky top bar carrying the service-reachability indicator and the two global actions, and a metric strip over an asymmetric two-column overview (verdict table left, next step / activity feed / verdict legend right). Design system retuned for density — 15px base, hairline panels, monospace figures, one accent. No new dependencies: inline SVG icon set, CSS-only motion. Every `data-testid` preserved; component CSS moved into Tailwind's `components` layer so utilities keep winning |
 | 19 Aug 2026 | planning | Plan folder created; ADK + Pub/Sub + Cloud Build + observability + E2E phase incorporated |
 | 19 Aug 2026 | corpus | Downloaded 5 real regulation PDFs (EU 1333/2008 original + two consolidated versions, EU 1129/2011 Annex II, BPOM 11/2019) into `data/regulations/`; text layers verified; divergence confirmed |
 | 19 Aug 2026 | env audit | Verified user's todo answers: GCP project + Owner OK, GitHub repo public, gcloud/ADC OK; found billing disabled, Docker daemon down, Python 3.14 vs required 3.12; enabled `aiplatform.googleapis.com` |

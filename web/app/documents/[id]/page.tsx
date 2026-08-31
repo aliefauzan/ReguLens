@@ -36,7 +36,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
   }
 
   return (
-    <main className="mx-auto max-w-3xl px-5 py-8 sm:px-6 sm:py-12" data-testid="document-detail">
+    <main className="page page-narrow" data-testid="document-detail">
       <Link href="/" className="btn btn-quiet btn-small -ml-2">← Back</Link>
 
       <h1 className="t-large-title mt-3">{sourceName ?? "Your document"}</h1>
@@ -63,7 +63,7 @@ export default async function DocumentPage({ params }: { params: Promise<{ id: s
         <SourceText documentId={id} />
       </Suspense>
 
-      <p className="t-caption t-secondary mt-8" data-testid="document-id">
+      <p className="t-caption t-secondary mt-6" data-testid="document-id">
         Reference, if you need to quote it to us: <span className="mono">{id}</span>
       </p>
     </main>

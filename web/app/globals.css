@@ -1,80 +1,96 @@
 @import "tailwindcss";
 
 /* ---------------------------------------------------------------------------
-   Apple Human Interface Guidelines, applied to the web.
+   ReguLens — console layout.
 
-   Three ideas drive every value below:
-   - Clarity: one type scale (SF's), generous spacing, no decoration that does
-     not carry meaning.
-   - Deference: content first. Chrome is translucent and quiet; colour is
-     reserved for status, which is the only thing a user must never misread.
-   - Depth: a blurred material for the navigation bar, soft elevation on cards,
-     nothing heavier.
+   This is an operations dashboard, not a marketing page. Three ideas drive
+   every value below:
 
-   The palette is Apple's system colour set, light and dark, because those pairs
-   are already contrast-checked against their own backgrounds.
+   - Frame: a fixed rail on the left, a fixed status bar on top, one scrolling
+     work surface between them. The chrome never moves, so the eye only ever
+     tracks the data.
+   - Density: 15px base, tight leading, hairlines instead of drop shadows.
+     A regulator's answer is a number and a citation; both should fit on one
+     screen without scrolling past decoration.
+   - Meaning-only colour: neutral greys carry the layout, one accent carries
+     interaction, and the status trio (good / warn / danger) is reserved for
+     the only thing a user must never misread. Every status badge also spells
+     itself out in words, so colour is never the sole carrier.
+
+   Numbers are set in a monospace face. In a table of limits, a proportional
+   font makes 150 and 400 different widths and the column stops being
+   scannable.
 --------------------------------------------------------------------------- */
 
 :root {
-  /* System greys (light) */
-  --background: #f2f2f7;      /* systemGroupedBackground */
-  --surface: #ffffff;         /* secondarySystemGroupedBackground */
-  --surface-2: #f9f9fb;
-  --foreground: #000000;      /* label */
-  --secondary: #4a4a51;       /* ~7:1 on --surface. Readable, not decorative. */
-  --tertiary: #6e6e76;        /* ~4.6:1. Incidental metadata only. */
-  --separator: #c6c6c8;       /* opaqueSeparator */
-  --fill: #78788033;          /* secondarySystemFill */
+  /* Canvas and surfaces (light) */
+  --background: #f4f5f7;      /* the work surface behind panels */
+  --surface: #ffffff;         /* panels, rows, fields sitting on the canvas */
+  --surface-2: #f7f8fa;       /* inset blocks and table headers */
+  --rail: #ffffff;            /* the navigation rail */
+  --rail-ink: #3f4450;
 
-  /* System accents (light) */
-  --accent: #007aff;          /* systemBlue */
+  --foreground: #16181d;      /* near-black. #000 is a screen artefact. */
+  --secondary: #4a4f5a;       /* ~7:1 on --surface. Readable, not decorative. */
+  --tertiary: #6b7280;        /* ~4.6:1. Incidental metadata only. */
+  --separator: #e3e5ea;       /* hairline */
+  --separator-strong: #cfd2d9;
+  --fill: #7880902e;          /* quiet control background */
+
+  /* One accent. Everything else is neutral or status. */
+  --accent: #0b63d6;
   --accent-ink: #ffffff;
-  --accent-soft: #007aff14;
-  --good: #248a3d;            /* systemGreen, dark variant for text on white */
-  --good-soft: #34c7591f;
-  --warn: #b25000;            /* systemOrange, text-safe */
-  --warn-soft: #ff95001f;
-  --danger: #d70015;          /* systemRed, text-safe */
-  --danger-soft: #ff3b301f;
+  --accent-soft: #0b63d614;
+  --good: #1b7a45;
+  --good-soft: #1b7a451f;
+  --warn: #a05a00;
+  --warn-soft: #d1840014;
+  --danger: #c31f2e;
+  --danger-soft: #c31f2e14;
 
-  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%234a4a51' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%234a4f5a' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
-  /* Materials */
-  --material: #ffffffcc;
-  --shadow: 0 1px 2px #0000000d, 0 8px 24px #0000000a;
+  --material: #ffffffd9;
+  /* Tinted to the canvas hue, wide and very light: depth without a halo. */
+  --shadow: 0 1px 2px #16181d0a, 0 12px 28px -12px #16181d1a;
 
-  /* Shape — HIG continuous-corner sizes */
-  --radius-card: 14px;
-  --radius-control: 10px;
+  --radius-card: 12px;
+  --radius-control: 8px;
   --radius-pill: 999px;
-  --tap: 44px;                /* minimum hit target */
+  --tap: 40px;                /* minimum hit target */
+  --rail-w: 248px;
+  --topbar-h: 56px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #000000;
-    --surface: #1c1c1e;
-    --surface-2: #2c2c2e;
-    --foreground: #ffffff;
-    --secondary: #b9b9c2;
-    --tertiary: #8e8e97;
-    --separator: #38383a;
-    --fill: #7878805c;
+    --background: #0e1013;
+    --surface: #17191e;
+    --surface-2: #1d2026;
+    --rail: #121419;
+    --rail-ink: #b7bcc8;
 
-    --accent: #0a84ff;
-    --accent-ink: #ffffff;
-    --accent-soft: #0a84ff26;
-    --good: #30d158;
-    --good-soft: #30d15826;
-    --warn: #ff9f0a;
-    --warn-soft: #ff9f0a26;
-    --danger: #ff453a;
-    --danger-soft: #ff453a26;
+    --foreground: #f2f3f5;
+    --secondary: #b0b6c1;
+    --tertiary: #868d9a;
+    --separator: #272b33;
+    --separator-strong: #343945;
+    --fill: #7b849726;
 
-    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23b9b9c2' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    --accent: #5da2ff;
+    --accent-ink: #0b1220;
+    --accent-soft: #5da2ff1f;
+    --good: #46c980;
+    --good-soft: #46c98021;
+    --warn: #e5a13a;
+    --warn-soft: #e5a13a21;
+    --danger: #ff6b6b;
+    --danger-soft: #ff6b6b21;
 
-    --material: #1c1c1ecc;
-    --shadow: 0 1px 2px #00000059, 0 8px 24px #00000040;
+    --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%23b0b6c1' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+    --material: #121419d9;
+    --shadow: 0 1px 2px #00000059, 0 12px 28px -12px #00000073;
   }
 }
 
@@ -85,36 +101,138 @@ html {
 body {
   background: var(--background);
   color: var(--foreground);
-  /* San Francisco where it exists, the platform's own UI face everywhere else. */
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
-    "Segoe UI", system-ui, sans-serif;
-  font-size: 17px;            /* HIG body */
-  line-height: 1.47;
-  letter-spacing: -0.01em;
+  /* The platform's own UI face. It is a high-quality grotesque everywhere it
+     resolves, and it costs no network request on a page that has to load in
+     front of a judge. */
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text",
+    "Segoe UI", Roboto, "Helvetica Neue", system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.5;
+  letter-spacing: -0.006em;
   -webkit-font-smoothing: antialiased;
 }
 
-/* --- Type scale (HIG names kept, so nobody has to guess a size) ----------- */
-.t-large-title { font-size: 34px; line-height: 1.15; font-weight: 700; letter-spacing: -0.025em; }
-.t-title       { font-size: 24px; line-height: 1.25; font-weight: 700; letter-spacing: -0.02em; }
-/* Section heading. Replaces the tiny grey uppercase label, which nobody reads. */
-.t-section     { font-size: 20px; line-height: 1.3;  font-weight: 600; letter-spacing: -0.015em; }
-.t-headline    { font-size: 18px; line-height: 1.35; font-weight: 600; }
-.t-body        { font-size: 17px; line-height: 1.5; }
-.t-subhead     { font-size: 16px; line-height: 1.5; }
-/* 15px is the floor for anything a user is expected to read. */
-.t-footnote    { font-size: 15px; line-height: 1.45; }
-/* 13px is reserved for ids and timestamps — never for meaning. */
-.t-caption     { font-size: 13px; line-height: 1.4; color: var(--tertiary); }
+@layer components {
+/* --- Type scale ----------------------------------------------------------
+   Hierarchy comes from weight and colour first, size second. A dashboard
+   heading that screams pushes the data it introduces off the fold.        */
+.t-large-title { font-size: 24px; line-height: 1.2;  font-weight: 650; letter-spacing: -0.02em; }
+.t-title       { font-size: 19px; line-height: 1.25; font-weight: 650; letter-spacing: -0.015em; }
+.t-section     { font-size: 16px; line-height: 1.3;  font-weight: 650; letter-spacing: -0.01em; }
+.t-headline    { font-size: 15px; line-height: 1.35; font-weight: 600; }
+.t-body        { font-size: 15px; line-height: 1.5; }
+.t-subhead     { font-size: 14px; line-height: 1.45; }
+/* 13.5px is the floor for anything a user is expected to read. */
+.t-footnote    { font-size: 13.5px; line-height: 1.45; }
+/* 12px is reserved for ids and timestamps — never for meaning. */
+.t-caption     { font-size: 12px; line-height: 1.4; color: var(--tertiary); }
 .t-secondary   { color: var(--secondary); }
-.t-number      { font-size: 28px; line-height: 1.1; font-weight: 700; letter-spacing: -0.02em; }
-.mono          { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+.t-number      { font-family: var(--font-mono); font-size: 26px; line-height: 1.05;
+                 font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mono, .t-number { --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Cascadia Mono", Menlo, monospace; }
+.mono          { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* Column headers and rail sections. Small, wide, quiet — a label, not a title. */
+.t-eyebrow {
+  font-size: 11px;
+  line-height: 1.3;
+  font-weight: 650;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--tertiary);
+}
 
-/* --- Surfaces ------------------------------------------------------------ */
-.card {
+/* --- Shell ---------------------------------------------------------------
+   The rail is fixed so it survives every page transition; the work surface
+   is the only thing that scrolls.                                          */
+.shell-main {
+  min-height: 100dvh;
+}
+@media (min-width: 1024px) {
+  .shell-main { padding-left: var(--rail-w); }
+}
+
+.rail {
+  position: fixed;
+  inset: 0 auto 0 0;
+  width: var(--rail-w);
+  background: var(--rail);
+  border-right: 1px solid var(--separator);
+  /* Display is left to the markup: the rail is hidden below its breakpoint,
+     and a `display` here would win against the utility that hides it. */
+  flex-direction: column;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--topbar-h);
+  border-bottom: 1px solid var(--separator);
+}
+
+/* Page gutter. One value, so every page lines up under the top bar. */
+.page {
+  width: 100%;
+  max-width: 1400px;
+  margin-inline: auto;
+  padding: 24px 20px 40px;
+}
+@media (min-width: 640px) { .page { padding: 28px 28px 56px; } }
+.page-narrow { max-width: 780px; }
+.page-mid { max-width: 1020px; }
+
+/* --- Rail navigation ----------------------------------------------------- */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--tap);
+  padding: 0 10px;
+  border-radius: var(--radius-control);
+  color: var(--rail-ink);
+  font-size: 14px;
+  font-weight: 500;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.nav-item:hover { background: var(--fill); color: var(--foreground); }
+.nav-item[aria-current="page"] {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.nav-item[aria-current="page"] .nav-glyph { color: var(--accent); }
+.nav-glyph { color: var(--tertiary); display: inline-flex; }
+
+.nav-count {
+  margin-left: auto;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 11px;
+  font-weight: 650;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Surfaces ------------------------------------------------------------
+   Hairline first, elevation only where a layer genuinely floats.           */
+.card,
+.panel {
   background: var(--surface);
+  border: 1px solid var(--separator);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow);
+}
+.card { box-shadow: var(--shadow); }
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--separator);
 }
 
 .inset {
@@ -130,76 +248,115 @@ body {
 
 .hairline { border-bottom: 1px solid var(--separator); }
 .row + .row { border-top: 1px solid var(--separator); }
+.row-hover { transition: background 0.15s ease; }
+.row-hover:hover { background: var(--surface-2); }
+
+/* --- Metric strip --------------------------------------------------------
+   Four numbers, separated by rules rather than boxed into four cards. The
+   cards were four borders saying nothing the spacing did not already say.  */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  background: var(--surface);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+@media (min-width: 768px) { .kpi-strip { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.kpi {
+  padding: 16px 18px;
+  border-top: 1px solid var(--separator);
+  border-left: 1px solid var(--separator);
+  display: block;
+}
+.kpi:nth-child(-n + 2) { border-top: 0; }
+.kpi:nth-child(2n + 1) { border-left: 0; }
+@media (min-width: 768px) {
+  .kpi:nth-child(-n + 4) { border-top: 0; }
+  .kpi:nth-child(2n + 1) { border-left: 1px solid var(--separator); }
+  .kpi:first-child { border-left: 0; }
+}
+a.kpi { transition: background 0.15s ease; }
+a.kpi:hover { background: var(--surface-2); }
 
 /* --- Controls ------------------------------------------------------------ */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 7px;
   min-height: var(--tap);
-  padding: 0 20px;
-  border-radius: var(--radius-pill);
-  font-size: 17px;
+  padding: 0 16px;
+  border-radius: var(--radius-control);
+  font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  transition: background 0.15s ease, opacity 0.15s ease, transform 0.1s ease;
 }
-.btn:active { transform: scale(0.97); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* Tactile: the control moves under the press, so the click is felt. */
+.btn:active { transform: translateY(1px) scale(0.985); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .btn-primary { background: var(--accent); color: var(--accent-ink); }
-.btn-secondary { background: var(--fill); color: var(--accent); }
+.btn-primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+.btn-secondary {
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--separator-strong);
+}
+.btn-secondary:hover { background: var(--surface-2); }
 .btn-quiet { background: transparent; color: var(--accent); padding: 0 8px; }
+.btn-quiet:hover { background: var(--accent-soft); }
 
 .btn-small {
   min-height: 32px;
-  padding: 0 14px;
-  font-size: 15px;
-  font-weight: 500;
+  padding: 0 12px;
+  font-size: 13.5px;
+  font-weight: 550;
 }
 
 /* Every single-line control is the same height, whatever the browser thinks.
    `min-height` was not enough: an <input> takes its height from body's
    line-height while a <select> uses the browser's own, so the two ended up
-   47px and 44px side by side in the same row. Fix the height, kill the native
-   appearance, and draw one chevron for every select. */
+   different heights side by side in the same row. Fix the height, kill the
+   native appearance, and draw one chevron for every select. */
 .field {
   display: block;
   width: 100%;
-  height: 48px;
-  padding: 0 14px;
+  height: 40px;
+  padding: 0 12px;
   border-radius: var(--radius-control);
-  background: var(--surface-2);
-  border: 1px solid var(--separator);
+  background: var(--surface);
+  border: 1px solid var(--separator-strong);
   color: var(--foreground);
-  font-size: 17px;
+  font-size: 14px;
   font-family: inherit;
   line-height: normal;
   appearance: none;
   -webkit-appearance: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 select.field {
-  padding-right: 40px;
+  padding-right: 36px;
   background-image: var(--chevron);
   background-repeat: no-repeat;
-  background-position: right 14px center;
-  background-size: 12px 8px;
+  background-position: right 12px center;
+  background-size: 11px 7px;
 }
 
 /* Multi-line and file controls grow; they keep the same padding rhythm. */
 textarea.field {
   height: auto;
-  min-height: 132px;
-  padding: 12px 14px;
-  line-height: 1.5;
+  min-height: 128px;
+  padding: 10px 12px;
+  line-height: 1.55;
   resize: vertical;
 }
 
 input[type="file"].field {
   height: auto;
-  padding: 12px 14px;
+  padding: 9px 12px;
   line-height: 1.4;
 }
 
@@ -215,19 +372,22 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
 }
 .field::placeholder { color: var(--tertiary); }
 
-.label { display: block; font-size: 16px; font-weight: 600; margin-bottom: 8px; }
-.help { font-size: 15px; line-height: 1.45; color: var(--secondary); margin-top: 8px; }
+/* Label above the input, helper under it — one order, every form. */
+.label { display: block; font-size: 13.5px; font-weight: 600; margin-bottom: 6px; }
+.help { font-size: 13px; line-height: 1.45; color: var(--secondary); margin-top: 6px; }
 
 /* One measure for prose. Long lines are the other half of "cannot read it". */
-.prose-measure { max-width: 62ch; }
+.prose-measure { max-width: 68ch; }
 
 /* The number a decision turns on, and the number it is compared against. */
 .figure {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 6px;
+  font-family: var(--font-mono, ui-monospace, Menlo, monospace);
+  font-variant-numeric: tabular-nums;
 }
-.figure-unit { font-size: 16px; font-weight: 500; color: var(--secondary); }
+.figure-unit { font-size: 13.5px; font-weight: 500; color: var(--secondary); }
 
 /* --- Status --------------------------------------------------------------
    Colour never carries the meaning alone: every badge also spells it out.  */
@@ -235,20 +395,67 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 14px;
+  padding: 3px 10px;
   border-radius: var(--radius-pill);
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 600;
   white-space: nowrap;
+  border: 1px solid transparent;
 }
-.badge-good   { background: var(--good-soft);   color: var(--good); }
-.badge-warn   { background: var(--warn-soft);   color: var(--warn); }
-.badge-danger { background: var(--danger-soft); color: var(--danger); }
-.badge-muted  { background: var(--fill);        color: var(--secondary); }
+.badge-good   { background: var(--good-soft);   color: var(--good);   border-color: color-mix(in srgb, var(--good) 22%, transparent); }
+.badge-warn   { background: var(--warn-soft);   color: var(--warn);   border-color: color-mix(in srgb, var(--warn) 22%, transparent); }
+.badge-danger { background: var(--danger-soft); color: var(--danger); border-color: color-mix(in srgb, var(--danger) 22%, transparent); }
+.badge-muted  { background: var(--fill);        color: var(--secondary); border-color: var(--separator); }
 
-/* --- Motion: respect the system setting --------------------------------- */
+/* A live indicator, and the ring that makes it read as live. */
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  flex: none;
+}
+.dot-live { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 0 0 currentColor; opacity: 1; }
+  50%      { box-shadow: 0 0 0 4px transparent; opacity: 0.55; }
+}
+
+/* --- Motion --------------------------------------------------------------
+   Load-ins are a cascade, not a curtain: each row arrives a beat after the
+   one above it, which is how the eye is taught the reading order. Transform
+   and opacity only, so it stays on the compositor.                         */
+.rise {
+  animation: rise 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* Placeholders match the shape of the thing that is loading, so the layout
+   does not jump when the data lands. */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  border-radius: var(--radius-control);
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, var(--fill), transparent);
+  animation: shimmer 1.5s infinite;
+}
+@keyframes shimmer { to { transform: translateX(100%); } }
+
 @media (prefers-reduced-motion: reduce) {
-  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+  * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
+  .rise { animation: none; opacity: 1; transform: none; }
+}
 }
 
 /* --- Print ----------------------------------------------------------------
@@ -265,18 +472,24 @@ input[type="date"].field::-webkit-calendar-picker-indicator {
     --foreground: #000000;
     --secondary: #333333;
     --tertiary: #555555;
+    --separator: #cccccc;
     --shadow: none;
+    --rail-w: 0px;
   }
 
   body { background: #ffffff; padding-bottom: 0; }
+  .shell-main { padding-left: 0; }
 
   /* Chrome and controls: on screen they are how you get around, on paper they
      are ink spent on things nobody can click. */
   nav,
+  .rail,
+  .topbar,
   .no-print,
   .btn { display: none !important; }
 
   .card,
+  .panel,
   .inset {
     box-shadow: none;
     border: 1px solid #cccccc;

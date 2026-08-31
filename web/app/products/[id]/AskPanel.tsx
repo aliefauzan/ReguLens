@@ -85,7 +85,7 @@ export default function AskPanel({
   }
 
   return (
-    <section className="card mt-10 p-6" data-testid="ask-panel">
+    <section className="card mt-6 p-6" data-testid="ask-panel">
       <h2 className="t-section">Ask a question</h2>
       <p className="t-footnote t-secondary prose-measure mt-2">
         Plain English is fine. Every answer quotes the exact rule it came from — and if no rule covers

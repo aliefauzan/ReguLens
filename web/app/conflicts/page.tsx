@@ -27,7 +27,7 @@ export default async function ConflictsPage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="conflicts-page">
+    <main className="page page-mid" data-testid="conflicts-page">
       <h1 className="t-large-title">Rules that disagree</h1>
       <p className="t-body t-secondary prose-measure mt-2">
         Two countries can allow different amounts of the same ingredient. Neither rule is wrong —
@@ -36,14 +36,14 @@ export default async function ConflictsPage() {
       </p>
 
       {error ? (
-        <div className="card mt-8 p-5" data-testid="conflicts-error">
+        <div className="card mt-6 p-5" data-testid="conflicts-error">
           <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
           <p className="t-footnote t-secondary mt-1">{error}</p>
         </div>
       ) : null}
 
       {conflicts.length === 0 && !error ? (
-        <div className="card mt-8 p-8 text-center" data-testid="conflicts-empty">
+        <div className="card mt-6 p-8 text-center" data-testid="conflicts-empty">
           <p className="t-headline">Nothing disagrees right now</p>
           <p className="t-footnote t-secondary mt-1">
             None of the rules you have added contradict each other across countries.
@@ -52,7 +52,7 @@ export default async function ConflictsPage() {
         </div>
       ) : null}
 
-      <ul className="mt-8 space-y-4">
+      <ul className="mt-6 space-y-4">
         {conflicts.map((conflict) => {
           const a = Number(conflict.detail?.a_limit);
           const b = Number(conflict.detail?.b_limit);

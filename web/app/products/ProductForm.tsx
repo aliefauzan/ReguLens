@@ -101,7 +101,7 @@ export default function ProductForm({ product }: { product?: Product }) {
   }
 
   return (
-    <form className="mt-8 space-y-6" onSubmit={submit} data-testid="product-form">
+    <form className="mt-6 space-y-6" onSubmit={submit} data-testid="product-form">
       <section className="card p-6">
         <h2 className="t-headline">The basics</h2>
         <div className="mt-4 grid gap-5 sm:grid-cols-2">

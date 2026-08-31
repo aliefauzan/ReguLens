@@ -10,7 +10,15 @@ import {
 } from "@/lib/api";
 import AlertsBanner from "./AlertsBanner";
 import GetStarted, { type Progress } from "./GetStarted";
-import { StatusBadge, marketName, jurisdictionName, plain } from "./_ui/status";
+import Icon from "./_ui/Icon";
+import {
+  StatusBadge,
+  marketName,
+  marketShortName,
+  jurisdictionName,
+  plain,
+  statusCopy,
+} from "./_ui/status";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +163,54 @@ function progressOf(rows: Row[], docs: Awaited<ReturnType<typeof listDocuments>>
   };
 }
 
+/** The four numbers the strip reports, counted from the rows the table shows. */
+function summarise(rows: Row[], toCheck: number, disagreements: number) {
+  const verdicts = rows.flatMap(({ compliance }) => Object.entries(compliance?.statuses ?? {}));
+  const markets = new Set(verdicts.map(([marketId]) => marketId));
+  return {
+    products: rows.length,
+    markets: markets.size,
+    breaking: verdicts.filter(([, status]) => status === "non_compliant").length,
+    queue: toCheck + disagreements,
+  };
+}
+
+/** A metric reads as one thing: the number, then what it counts. */
+function Kpi({
+  label,
+  value,
+  note,
+  href,
+  tone,
+  testId,
+}: {
+  label: string;
+  value: number | string;
+  note: string;
+  href: string;
+  tone?: "danger" | "warn";
+  testId: string;
+}) {
+  return (
+    <Link href={href} className="kpi" data-testid={testId}>
+      <span className="t-eyebrow">{label}</span>
+      <span
+        className="t-number mt-2 block"
+        style={
+          tone === "danger"
+            ? { color: "var(--danger)" }
+            : tone === "warn"
+              ? { color: "var(--warn)" }
+              : undefined
+        }
+      >
+        {value}
+      </span>
+      <span className="t-caption mt-1 block">{note}</span>
+    </Link>
+  );
+}
+
 export default async function Home() {
   const { rows, docs, toCheck, disagreements, error } = await loadAll();
   const progress = progressOf(rows, docs);
@@ -162,130 +218,224 @@ export default async function Home() {
   // While the checklist is up it *is* the next step; two cards competing to say
   // what to do next is worse than either alone.
   const step = onboarding || error ? null : nextStep(rows, docs.length, toCheck, disagreements);
+  const totals = summarise(rows, toCheck, disagreements);
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="home">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="t-large-title">Your products</h1>
-          <p className="t-body t-secondary prose-measure mt-2">
-            Each product is checked against the rules of every market you sell into.
-            When a new rule arrives, the answer here updates by itself.
-          </p>
-        </div>
-        <Link href="/products/new" className="btn btn-primary" data-testid="new-product-link">
-          Add a product
-        </Link>
+    <main className="page" data-testid="home">
+      <header>
+        <h1 className="t-large-title">Overview</h1>
+        <p className="t-footnote t-secondary prose-measure mt-1.5">
+          Every product, checked against the rules of every market you sell into. When a new
+          rule arrives, the answer here updates by itself.
+        </p>
       </header>
 
-      {step ? (
-        <section
-          className="card mt-6 p-6"
-          style={{ borderLeft: `4px solid ${step.tone === "act" ? "var(--accent)" : "var(--good)"}` }}
-          data-testid="next-step"
-        >
-          <p className="t-footnote t-secondary">What to do next</p>
-          <h2 className="t-section mt-1">{step.title}</h2>
-          <p className="t-footnote t-secondary prose-measure mt-2">{step.body}</p>
-          <Link href={step.href} className="btn btn-primary btn-small mt-4" data-testid="next-step-cta">
-            {step.cta}
-          </Link>
-        </section>
-      ) : null}
-
-      <AlertsBanner />
-
       {error ? (
-        <div className="card mt-8 p-5" data-testid="products-error">
+        <div className="card mt-5 p-5" data-testid="products-error">
           <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
           <p className="t-footnote t-secondary mt-1">{error}</p>
         </div>
-      ) : null}
+      ) : (
+        <section className="kpi-strip rise mt-5" data-testid="kpi-strip">
+          <Kpi
+            label="Products"
+            value={totals.products}
+            note="being tracked"
+            href="/"
+            testId="kpi-products"
+          />
+          <Kpi
+            label="Markets"
+            value={totals.markets}
+            note="with a verdict"
+            href="/rules"
+            testId="kpi-markets"
+          />
+          <Kpi
+            label="Breaking a rule"
+            value={totals.breaking}
+            note={totals.breaking === 0 ? "nothing over a limit" : "product / market pairs"}
+            href="/conflicts"
+            tone={totals.breaking > 0 ? "danger" : undefined}
+            testId="kpi-breaking"
+          />
+          <Kpi
+            label="Waiting on you"
+            value={totals.queue}
+            note={`${toCheck} to check · ${disagreements} disagree`}
+            href="/review"
+            tone={totals.queue > 0 ? "warn" : undefined}
+            testId="kpi-queue"
+          />
+        </section>
+      )}
 
-      {onboarding ? <GetStarted progress={progress} /> : null}
+      {/* Asymmetric on purpose: the verdict table is the work, the right-hand
+          column is everything that is only worth a glance. */}
+      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+        <div className="grid gap-5">
+          {onboarding ? <GetStarted progress={progress} /> : null}
 
-      {rows.length > 0 ? (
-        <section className="mt-8">
-          <h2 className="t-section">Products</h2>
-          <ul className="mt-4 grid gap-4">
-            {rows.map(({ product, compliance }) => (
-              <li key={product.id} className="card p-5" data-testid={`product-${product.id}`}>
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <Link href={`/products/${product.id}`} className="t-headline">
-                      {product.name}
-                    </Link>
-                    <p className="t-footnote t-secondary mt-1">
-                      {plain(product.product_type)} · {product.ingredients.length}{" "}
-                      {product.ingredients.length === 1 ? "ingredient" : "ingredients"}
-                    </p>
-                  </div>
-                  <Link
-                    href={`/products/${product.id}`}
-                    className="btn btn-secondary btn-small"
-                    data-testid={`open-${product.id}`}
-                  >
-                    See the details
-                  </Link>
-                </div>
+          {rows.length > 0 ? (
+            <section
+              className="panel rise overflow-hidden"
+              style={{ "--i": 1 } as React.CSSProperties}
+              data-testid="products-panel"
+            >
+              <div className="panel-head">
+                <h2 className="t-section">Verdict by market</h2>
+                <span className="t-caption">
+                  {rows.length} {rows.length === 1 ? "product" : "products"}
+                </span>
+              </div>
+              <ul>
+                {rows.map(({ product, compliance }, index) => {
+                  const statuses = Object.entries(compliance?.statuses ?? {});
+                  const worst = statuses.some(([, s]) => s === "non_compliant")
+                    ? "var(--danger)"
+                    : statuses.some(([, s]) => s === "attention_required")
+                      ? "var(--warn)"
+                      : statuses.some(([, s]) => s === "compliant")
+                        ? "var(--good)"
+                        : "var(--separator-strong)";
+                  return (
+                    <li
+                      key={product.id}
+                      className="row row-hover rise"
+                      style={{ "--i": index + 2 } as React.CSSProperties}
+                      data-testid={`product-${product.id}`}
+                    >
+                      <div className="grid items-center gap-x-4 gap-y-2 px-4 py-3.5 sm:px-5 md:grid-cols-[3px_minmax(240px,1fr)_auto_auto]">
+                        {/* A 3px bar carries the worst verdict for the row, so a
+                            long list can be triaged before reading a word. */}
+                        <span
+                          aria-hidden="true"
+                          className="hidden h-8 w-[3px] rounded-full md:block"
+                          style={{ background: worst }}
+                        />
+                        <div className="min-w-0">
+                          <Link href={`/products/${product.id}`} className="t-headline block truncate">
+                            {product.name}
+                          </Link>
+                          <p className="t-caption mt-0.5 truncate">
+                            {plain(product.product_type)} ·{" "}
+                            <span className="mono">{product.ingredients.length}</span>{" "}
+                            {product.ingredients.length === 1 ? "ingredient" : "ingredients"}
+                          </p>
+                        </div>
 
-                <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                  {compliance && Object.keys(compliance.statuses).length > 0 ? (
-                    Object.entries(compliance.statuses).map(([marketId, status]) => (
-                      <div key={marketId} className="inset flex items-center justify-between gap-3 p-4">
-                        <span className="t-body">{marketName(marketId)}</span>
-                        <StatusBadge status={status} testId={`status-${marketId}-${status}`} />
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 md:justify-end">
+                          {statuses.length > 0 ? (
+                            statuses.map(([marketId, status]) => (
+                              <span key={marketId} className="flex items-center gap-1.5">
+                                <span className="t-caption whitespace-nowrap" title={marketName(marketId)}>
+                                  {marketShortName(marketId)}
+                                </span>
+                                <StatusBadge status={status} testId={`status-${marketId}-${status}`} />
+                              </span>
+                            ))
+                          ) : (
+                            <span className="t-caption">Not checked yet — add a regulation to start.</span>
+                          )}
+                        </div>
+
+                        <Link
+                          href={`/products/${product.id}`}
+                          className="btn btn-quiet btn-small justify-self-start md:justify-self-end"
+                          data-testid={`open-${product.id}`}
+                        >
+                          Details
+                          <Icon name="arrow" size={15} />
+                        </Link>
                       </div>
-                    ))
-                  ) : (
-                    <p className="t-footnote t-secondary">
-                      Not checked yet — add a regulation to start.
-                    </p>
-                  )}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </section>
+          ) : null}
 
-      {docs.length > 0 ? (
-        <section className="mt-10">
-          <div className="flex items-baseline justify-between">
-            <h2 className="t-section">Rules ReguLens has read</h2>
-            <div className="flex gap-2">
-              <Link href="/rules" className="btn btn-quiet btn-small" data-testid="see-all-rules">
-                See every rule
+          {docs.length > 0 ? (
+            <section className="panel rise overflow-hidden" style={{ "--i": 2 } as React.CSSProperties}>
+              <div className="panel-head">
+                <h2 className="t-section">Rules ReguLens has read</h2>
+                <div className="flex gap-1">
+                  <Link href="/rules" className="btn btn-quiet btn-small" data-testid="see-all-rules">
+                    See every rule
+                  </Link>
+                  <Link href="/documents/new" className="btn btn-quiet btn-small">Add another</Link>
+                </div>
+              </div>
+              <ul>
+                {docs.slice(0, 6).map((doc) => (
+                  <li key={doc.id} className="row row-hover">
+                    <Link
+                      href={`/documents/${doc.id}`}
+                      className="flex items-center justify-between gap-3 px-4 py-3 sm:px-5"
+                    >
+                      <span className="min-w-0">
+                        <span className="t-subhead block truncate">{doc.source_name}</span>
+                        <span className="t-caption">
+                          {jurisdictionName(doc.jurisdiction)}
+                          {/* Pasted text gets a generated `doc_x.txt` name that means
+                              nothing to anyone; only a real uploaded file is worth
+                              naming. A rulebook entry was not pasted by anybody, and
+                              saying so would make the reader wonder who did. */}
+                          {doc.origin === "library"
+                            ? " · from the built-in rules"
+                            : doc.filename && !/^doc_[a-z0-9]+\.txt$/.test(doc.filename)
+                              ? ` · ${doc.filename}`
+                              : " · pasted text"}
+                        </span>
+                      </span>
+                      <span className="t-caption whitespace-nowrap">{plain(doc.status)}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
+
+        {/* Right column: what to do, and what happened while you were away. */}
+        <div className="grid gap-5">
+          {step ? (
+            <section
+              className="panel rise p-5"
+              style={
+                {
+                  "--i": 1,
+                  borderTop: `3px solid ${step.tone === "act" ? "var(--accent)" : "var(--good)"}`,
+                } as React.CSSProperties
+              }
+              data-testid="next-step"
+            >
+              <p className="t-eyebrow">What to do next</p>
+              <h2 className="t-title mt-2">{step.title}</h2>
+              <p className="t-footnote t-secondary mt-2">{step.body}</p>
+              <Link href={step.href} className="btn btn-primary btn-small mt-4" data-testid="next-step-cta">
+                {step.cta}
               </Link>
-              <Link href="/documents/new" className="btn btn-quiet btn-small">Add another</Link>
-            </div>
-          </div>
-          <ul className="card mt-4 overflow-hidden">
-            {docs.slice(0, 5).map((doc) => (
-              <li key={doc.id} className="row">
-                <Link href={`/documents/${doc.id}`} className="flex items-center justify-between gap-3 px-5 py-4">
-                  <span className="min-w-0">
-                    <span className="t-body block truncate">{doc.source_name}</span>
-                    <span className="t-footnote t-secondary">
-                      {jurisdictionName(doc.jurisdiction)}
-                      {/* Pasted text gets a generated `doc_x.txt` name that means
-                          nothing to anyone; only a real uploaded file is worth
-                          naming. A rulebook entry was not pasted by anybody, and
-                          saying so would make the reader wonder who did. */}
-                      {doc.origin === "library"
-                        ? " · from the built-in rules"
-                        : doc.filename && !/^doc_[a-z0-9]+\.txt$/.test(doc.filename)
-                          ? ` · ${doc.filename}`
-                          : " · pasted text"}
-                    </span>
-                  </span>
-                  <span className="t-footnote t-secondary whitespace-nowrap">{plain(doc.status)}</span>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
+            </section>
+          ) : null}
+
+          <AlertsBanner />
+
+          {!error && rows.length > 0 ? (
+            <section className="panel rise p-5" style={{ "--i": 3 } as React.CSSProperties}>
+              <p className="t-eyebrow">How a verdict is read</p>
+              <ul className="mt-3 grid gap-2.5">
+                {(["compliant", "non_compliant", "attention_required", "unknown"] as const).map((status) => (
+                  <li key={status} className="flex items-start gap-2.5">
+                    <StatusBadge status={status} testId={`legend-${status}`} />
+                    <span className="t-caption pt-1">{statusCopy(status).meaning}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </div>
+      </div>
     </main>
   );
 }

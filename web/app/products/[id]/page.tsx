@@ -105,7 +105,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
   const sourceById = Object.fromEntries(documents.map((doc) => [doc.id, doc]));
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="product-detail">
+    <main className="page" data-testid="product-detail">
       <Link href="/" className="btn btn-quiet btn-small -ml-2">← All products</Link>
 
       <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
@@ -121,7 +121,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       </div>
 
       {/* --- The answer, first. Everything else explains it. ---------------- */}
-      <section className="mt-8 space-y-4" data-testid="readiness-panel">
+      <section className="mt-6 space-y-4" data-testid="readiness-panel">
         <h2 className="t-section">Can you sell it?</h2>
         {compliance && Object.keys(compliance.statuses).length > 0 ? (
           Object.entries(compliance.statuses).map(([marketId, status]) => {
@@ -361,7 +361,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       />
 
       {/* --- What we know about the product --------------------------------- */}
-      <section className="card mt-10 p-6" data-testid="compliance-twin">
+      <section className="card mt-6 p-6" data-testid="compliance-twin">
         <h2 className="t-section">What we know about this product</h2>
         <dl className="mt-4 grid gap-4 sm:grid-cols-2">
           <Fact label="Kind of product" testId="twin-product-type" value={plain(product.product_type)} />
@@ -374,7 +374,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
           />
         </dl>
 
-        <h3 className="t-headline mt-8">Ingredients</h3>
+        <h3 className="t-headline mt-6">Ingredients</h3>
         <ul className="mt-3" data-testid="twin-ingredients">
           {product.ingredients.map((ingredient, index) => (
             <li key={`${ingredient.name}-${index}`} className="row flex items-baseline justify-between gap-3 py-3">
@@ -403,7 +403,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       </section>
 
       {/* --- History: available, but folded away for a first-time reader ---- */}
-      <section className="mt-8" data-testid="event-log">
+      <section className="mt-6" data-testid="event-log">
         <details className="card p-5">
           <summary className="t-headline cursor-pointer">
             Full history

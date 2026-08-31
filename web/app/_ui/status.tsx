@@ -66,6 +66,18 @@ export function marketName(id: string): string {
   return MARKET_NAMES[id] ?? id.replace("market_", "").toUpperCase();
 }
 
+// The country on its own, for tables where the regulator's name costs a column
+// and adds nothing: two markets are told apart by country, not by regulator.
+// The full name stays one hover — and one click — away.
+export const MARKET_SHORT_NAMES: Record<string, string> = {
+  market_de: "Germany",
+  market_id: "Indonesia",
+};
+
+export function marketShortName(id: string): string {
+  return MARKET_SHORT_NAMES[id] ?? marketName(id);
+}
+
 export const JURISDICTION_NAMES: Record<string, string> = {
   EU: "European Union",
   ID_BPOM: "Indonesia (BPOM)",

@@ -65,20 +65,20 @@ export default function GetStarted({ progress }: { progress: Progress }) {
   }
 
   return (
-    <section className="card mt-8 p-6" data-testid="get-started">
-      <h2 className="t-title">{empty ? "Start here" : "Getting started"}</h2>
-      <p className="t-body t-secondary mt-2">
+    <section className="panel p-5" data-testid="get-started">
+      <h2 className="t-section">{empty ? "Start here" : "Getting started"}</h2>
+      <p className="t-footnote t-secondary mt-1">
         Three steps. You only do the first two.
       </p>
 
-      <ol className="mt-6 space-y-5">
+      <ol className="mt-5 space-y-4">
         {STEPS.map((step, index) => {
           const done = progress[step.key];
           const active = index === current;
           return (
             <li key={step.key} className="flex gap-4" data-testid={`step-${step.key}-${done ? "done" : "todo"}`}>
               <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full t-footnote"
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full t-caption"
                 style={{
                   background: done ? "var(--good)" : active ? "var(--accent)" : "var(--fill)",
                   color: done || active ? "var(--accent-ink)" : "var(--secondary)",
@@ -93,7 +93,7 @@ export default function GetStarted({ progress }: { progress: Progress }) {
                   {step.title}
                   {done ? <span className="t-footnote t-secondary"> · done</span> : null}
                 </p>
-                <p className="t-footnote t-secondary prose-measure mt-1">{step.body}</p>
+                <p className="t-caption prose-measure mt-1">{step.body}</p>
                 {step.href && !done ? (
                   <div className="mt-3 flex flex-wrap items-center gap-3">
                     {/* Step two is the one that used to send people hunting for a
@@ -117,7 +117,7 @@ export default function GetStarted({ progress }: { progress: Progress }) {
       {empty ? (
         // Someone judging the app in five minutes has no regulation PDF on
         // their desk. Without this, step two is a wall.
-        <div className="inset mt-6 p-5">
+        <div className="inset mt-5 p-4">
           <p className="t-headline">No product of your own to hand?</p>
           <p className="t-footnote t-secondary prose-measure mt-1">
             Load a demo drink powder and one real Indonesian rule for it, then add the EU rule

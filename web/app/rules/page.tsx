@@ -68,7 +68,7 @@ export default async function RulesPage() {
   });
 
   return (
-    <main className="mx-auto max-w-5xl px-5 py-8 sm:px-6 sm:py-12" data-testid="rules-page">
+    <main className="page page-mid" data-testid="rules-page">
       <h1 className="t-large-title">What ReguLens knows</h1>
       <p className="t-body t-secondary prose-measure mt-2">
         Every rule pulled out of the documents you added. {inUse} of {clauses.length}{" "}
@@ -77,14 +77,14 @@ export default async function RulesPage() {
       </p>
 
       {error ? (
-        <div className="card mt-8 p-5" data-testid="rules-error">
+        <div className="card mt-6 p-5" data-testid="rules-error">
           <p className="t-headline" style={{ color: "var(--danger)" }}>Service unavailable</p>
           <p className="t-footnote t-secondary mt-1">{error}</p>
         </div>
       ) : null}
 
       {!error && clauses.length === 0 ? (
-        <div className="card mt-8 p-8 text-center" data-testid="rules-empty">
+        <div className="card mt-6 p-8 text-center" data-testid="rules-empty">
           <p className="t-headline">No rules yet</p>
           <p className="t-footnote t-secondary mt-1">
             Add a regulation and everything read out of it appears here.
@@ -93,7 +93,7 @@ export default async function RulesPage() {
         </div>
       ) : null}
 
-      <ul className="mt-8 space-y-3">
+      <ul className="mt-6 space-y-3">
         {ordered.map((clause) => {
           const status = STATUS_COPY[clause.status] ?? {
             label: plain(clause.status),

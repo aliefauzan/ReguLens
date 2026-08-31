@@ -3,7 +3,7 @@ import ProductForm from "../ProductForm";
 
 export default function NewProductPage() {
   return (
-    <main className="mx-auto max-w-3xl px-5 py-8 sm:px-6 sm:py-12" data-testid="new-product">
+    <main className="page page-narrow" data-testid="new-product">
       <Link href="/" className="btn btn-quiet btn-small -ml-2">← Back</Link>
       <h1 className="t-large-title mt-3">Add a product</h1>
       <p className="t-body t-secondary prose-measure mt-2">

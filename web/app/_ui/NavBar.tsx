@@ -4,33 +4,40 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { COUNTS_CHANGED, listClauses, listConflicts } from "@/lib/api";
+import Icon, { type IconName } from "./Icon";
 
-// HIG: a tab bar on small screens, a translucent navigation bar on large ones.
+// A console has a rail, not a header: the destinations stay on screen while
+// the work scrolls, and a queue that is filling up is visible from every page
+// instead of only from the page it belongs to.
+//
+// Below the rail's breakpoint the same destinations become a bottom tab bar,
+// because a phone has no left margin to spare.
+//
 // Labels are tasks, not nouns from the data model — "Add rules", not "Ingest".
 type Counted = "conflicts" | "review";
 
 const TABS: {
   href: string;
   label: string;
-  glyph: string;
+  icon: IconName;
   testId: string;
   count?: Counted;
   // Five labels do not fit across a phone. The reference page is the one that
   // can be reached from the pages that mention it instead of costing a tab.
   onPhone: boolean;
 }[] = [
-  { href: "/", label: "Products", glyph: "▤", testId: "nav-products", onPhone: true },
-  { href: "/rules", label: "Rules", glyph: "▦", testId: "nav-rules", onPhone: false },
-  { href: "/documents/new", label: "Add rules", glyph: "＋", testId: "nav-add-rules", onPhone: true },
+  { href: "/", label: "Products", icon: "products", testId: "nav-products", onPhone: true },
+  { href: "/rules", label: "Rules", icon: "rules", testId: "nav-rules", onPhone: false },
+  { href: "/documents/new", label: "Add rules", icon: "add", testId: "nav-add-rules", onPhone: true },
   {
     href: "/conflicts",
     label: "Disagreements",
-    glyph: "⚖",
+    icon: "conflicts",
     testId: "nav-conflicts",
     count: "conflicts",
     onPhone: true,
   },
-  { href: "/review", label: "To check", glyph: "☑", testId: "nav-review", count: "review", onPhone: true },
+  { href: "/review", label: "To check", icon: "review", testId: "nav-review", count: "review", onPhone: true },
 ];
 
 export default function NavBar() {
@@ -38,19 +45,24 @@ export default function NavBar() {
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
-  // Work waiting behind a tab is invisible until someone clicks it, which
-  // means nobody clicks it. Re-read on navigation, because accepting a clause
-  // or resolving a conflict changes these numbers.
+  // Work waiting behind a destination is invisible until someone clicks it,
+  // which means nobody clicks it. Re-read on navigation, because accepting a
+  // clause or resolving a conflict changes these numbers.
   const [counts, setCounts] = useState<Record<Counted, number>>({ conflicts: 0, review: 0 });
+
   useEffect(() => {
     let cancelled = false;
     function read() {
       Promise.all([
-        listClauses({ status: "needs_review" }).then((r) => r.clauses.length).catch(() => 0),
-        listConflicts().then((r) => r.conflicts.length).catch(() => 0),
-      ]).then(([review, conflicts]) => {
-        if (!cancelled) setCounts({ review, conflicts });
-      });
+        listClauses({ status: "needs_review" }).then((r) => r.clauses.length),
+        listConflicts().then((r) => r.conflicts.length),
+      ])
+        .then(([review, conflicts]) => {
+          if (!cancelled) setCounts({ review, conflicts });
+        })
+        // A queue we cannot read is not a queue of zero, but the rail is not
+        // where that gets reported: the top bar says the service is down.
+        .catch(() => {});
     }
     read();
     // Accepting or ignoring a clause happens without leaving the page.
@@ -66,39 +78,41 @@ export default function NavBar() {
 
   return (
     <>
-      {/* Desktop / tablet */}
-      <header className="material hairline sticky top-0 z-30 hidden sm:block">
-        <nav className="mx-auto flex h-14 max-w-5xl items-center gap-6 px-6">
-          <Link href="/" className="t-headline tracking-tight">
-            ReguLens
+      {/* Rail — desktop and large tablet */}
+      <aside className="rail z-30 hidden flex-col lg:flex" data-testid="nav-rail">
+        <div className="flex h-14 items-center gap-2 px-4" style={{ borderBottom: "1px solid var(--separator)" }}>
+          <Link href="/" className="flex items-center gap-2.5">
+            <span
+              className="flex h-7 w-7 items-center justify-center rounded-[7px]"
+              style={{ background: "var(--accent)", color: "var(--accent-ink)" }}
+              aria-hidden="true"
+            >
+              <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="8.5" cy="8.5" r="4.8" />
+                <path d="m12.2 12.2 4 4M6.4 8.5h4.2" />
+              </svg>
+            </span>
+            <span className="t-headline tracking-tight">ReguLens</span>
           </Link>
-          <div className="flex items-center gap-1">
+        </div>
+
+        <nav className="flex-1 overflow-y-auto p-3">
+          <p className="t-eyebrow px-2 pb-2 pt-1">Workspace</p>
+          <div className="grid gap-0.5">
             {TABS.map((tab) => (
               <Link
                 key={tab.href}
                 href={tab.href}
                 data-testid={tab.testId}
                 aria-current={isActive(tab.href) ? "page" : undefined}
-                className="rounded-[10px] px-3 py-1.5 t-subhead"
-                style={
-                  isActive(tab.href)
-                    ? { background: "var(--fill)", fontWeight: 600 }
-                    : { color: "var(--secondary)" }
-                }
+                className="nav-item"
               >
-                {tab.label}
+                <span className="nav-glyph">
+                  <Icon name={tab.icon} size={17} />
+                </span>
+                <span className="truncate">{tab.label}</span>
                 {badge(tab) !== null ? (
-                  <span
-                    className="ml-1.5 t-caption"
-                    style={{
-                      background: "var(--accent)",
-                      color: "var(--accent-ink)",
-                      borderRadius: 999,
-                      padding: "1px 7px",
-                      fontWeight: 600,
-                    }}
-                    data-testid={`${tab.testId}-count`}
-                  >
+                  <span className="nav-count" data-testid={`${tab.testId}-count`}>
                     {badge(tab)}
                   </span>
                 ) : null}
@@ -106,31 +120,35 @@ export default function NavBar() {
             ))}
           </div>
         </nav>
-      </header>
 
-      {/* Mobile tab bar */}
-      <nav className="material fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t sm:hidden"
-           style={{ borderColor: "var(--separator)" }}>
+      </aside>
+
+      {/* Tab bar — phone and small tablet */}
+      <nav
+        className="material fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t lg:hidden"
+        style={{ borderColor: "var(--separator)" }}
+      >
         {TABS.filter((tab) => tab.onPhone).map((tab) => (
           <Link
             key={tab.href}
             href={tab.href}
             data-testid={`${tab.testId}-mobile`}
             aria-current={isActive(tab.href) ? "page" : undefined}
-            className="flex flex-col items-center justify-center gap-1 py-2 t-caption"
+            className="flex flex-col items-center justify-center gap-1 py-2"
             style={{ color: isActive(tab.href) ? "var(--accent)" : "var(--secondary)", minHeight: "var(--tap)" }}
           >
-            <span aria-hidden="true" className="relative text-lg leading-none">
-              {tab.glyph}
+            <span className="relative inline-flex leading-none">
+              <Icon name={tab.icon} size={20} />
               {badge(tab) !== null ? (
                 <span
-                  className="absolute -right-3 -top-1 t-caption"
+                  className="absolute -right-2.5 -top-1.5"
                   style={{
                     background: "var(--accent)",
                     color: "var(--accent-ink)",
                     borderRadius: 999,
                     padding: "0 5px",
-                    fontWeight: 600,
+                    fontSize: 10,
+                    fontWeight: 650,
                   }}
                   data-testid={`${tab.testId}-count-mobile`}
                 >

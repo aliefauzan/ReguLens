@@ -190,7 +190,7 @@ export default function UploadForm() {
   }
 
   return (
-    <form className="mt-8 space-y-6" onSubmit={submit} data-testid="upload-form">
+    <form className="mt-6 space-y-6" onSubmit={submit} data-testid="upload-form">
       <section className="card p-6">
         <h2 className="t-headline">The document</h2>
         <p className="help">
