@@ -15,6 +15,7 @@ import {
 } from "@/lib/api";
 import { jurisdictionName, plain } from "../_ui/status";
 import AutonomyPanel from "./AutonomyPanel";
+import DiscoverPanel from "./DiscoverPanel";
 
 /**
  * The addresses ReguLens re-reads on its own.
@@ -248,6 +249,8 @@ export default function SourcesPage() {
       </p>
 
       <AutonomyPanel />
+
+      <DiscoverPanel onCommitted={load} />
 
       {loading ? <p className="t-body t-secondary mt-6">Loading…</p> : null}
 
