@@ -119,7 +119,10 @@ def explain(
         "market_country": market.get("country"),
         "from_status": (event.get("before") or {}).get("status"),
         "to_status": (event.get("after") or {}).get("status"),
-        "document_id": cause.get("document_id"),
+        # The resolved one, not the stated one: this is what the reader
+        # follows to see the passage, and an alert that names a regulation and
+        # then links to nothing is worse than one that stays quiet.
+        "document_id": document_id,
         "clause_id": cause.get("clause_id"),
         # The headline fact. True means the regulation reached the graph without
         # anybody uploading it — which is the difference between a checker and a

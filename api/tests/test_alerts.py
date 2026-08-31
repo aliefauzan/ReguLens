@@ -210,3 +210,25 @@ class TestCauseDocument:
         monkeypatch.setattr(alerts, "_clause", lambda cid: None)
         assert alerts.cause_document_id({"cause": {"clause_id": "gone"}}) is None
         assert alerts.cause_document_id({}) is None
+
+    def test_the_context_carries_the_document_the_reader_can_follow(self, monkeypatch):
+        """The alert names a regulation; the link under it has to reach the
+        same one. Echoing the null the event stored names it and links nowhere."""
+        from app.core import alerts
+
+        monkeypatch.setattr(alerts, "_clause", lambda cid: {"document_id": "doc_found"})
+        monkeypatch.setattr(
+            alerts, "_document", lambda did: {"origin": "watched_source", "source_name": "X"}
+        )
+        context = alerts.explain(
+            {
+                "entity_id": "prod_1",
+                "cause": {"clause_id": "clause_1", "document_id": None},
+                "after": {"market": "market_de", "status": "non_compliant"},
+                "before": {"status": "attention_required"},
+            },
+            products_by_id={},
+            markets_by_id={},
+        )
+        assert context["document_id"] == "doc_found"
+        assert context["unprompted"] is True
