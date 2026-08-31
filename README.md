@@ -243,7 +243,7 @@ web/                   Next.js app
 data/regulations/      the real source PDFs, with provenance in SOURCES.md
 scripts/setup.sh       idempotent GCP provisioning
 scripts/quickstart.sh  clone → running stack, one command
-docs/architecture.py   generates docs/architecture.png
+docs/architecture.py   generates docs/architecture.svg + .png
 plan/                  build plan and per-phase evidence
 ```
 
