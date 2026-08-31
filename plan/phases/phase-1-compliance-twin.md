@@ -3,7 +3,7 @@
 **Estimate:** 1 day (Aug 21)
 **Demo sentence:** "This is my product, these are its ingredients and amounts, and I want to ship it to Germany."
 
-**Status:** `IN PROGRESS` · **Started:** 19 Aug 2026 · **Completed:** —
+**Status:** `COMPLETE` · **Started:** 19 Aug 2026 · **Completed:** 31 Aug 2026
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion

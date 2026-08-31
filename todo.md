@@ -35,9 +35,10 @@ tell you what it costs to leave open.
       Indonesia not excluded, age requirement met. Unblocks everything.
 - [x] **BLOCKING (submission): Register on Devpost** and join the hackathon.
       — confirmed by you on 31 Aug. Registered and joined.
-- [ ] **Confirm you can commit the time.** The plan is 13 working days in a 13-day
+- [x] **Confirm you can commit the time.** The plan is 13 working days in a 13-day
       window with zero float. If you have other commitments between 19–31 Aug, say
       so now and we cut scope up front instead of at 2am on the 30th.
+      — settled: the 13 days were worked; phases 0-9 are in the repo.
 
 ---
 
@@ -108,16 +109,18 @@ tell you what it costs to leave open.
 - [x] **GitHub repository** — `aliefauzan/ReguLens`, verified 19 Aug via the GitHub
       API: exists, **public**, default branch `master`. Judges can see it; no access
       grant needed.
-- [ ] **Vercel account** connected to that repo. — TODO: you said later. Not needed
+- [~] **Vercel account** connected to that repo. — TODO: you said later. Not needed
       until the frontend deploys in Phase 1; flag if it slips past Aug 21.
+      — SKIPPED: no Vercel. The web app is a Cloud Run service, `regulens-web`.
 - [x] `gcloud` CLI installed and authenticated locally — verified 19 Aug: logged in
       as `afindo.mi01@gmail.com`, ADC file present. Note the active project is
       `tugasakhiraf`, not `regulens-506014`; scripts must pass `--project`
       explicitly rather than rely on the default.
-- [ ] Docker Desktop installed and running (the local stack is Compose-based).
+- [x] Docker Desktop installed and running (the local stack is Compose-based).
       — Docker 29.2.1 installed, daemon not running. **Deferred by you on 19 Aug**
       ("docker can do later"). Start Docker Desktop before the Phase 0 local-stack
       task; nothing before that needs it.
+      — Docker Desktop present; `make test-local` runs green against the emulators.
 - [~] Node 20+ and Python 3.12 locally. — Node v24.14.0 ✓. Python is **3.14.3**.
       SKIPPED: you judged 3.14 fine on 19 Aug, so no local downgrade. I still pin
       the **containers** to Python 3.12 — that costs you nothing and keeps the
@@ -146,19 +149,24 @@ undermining the whole submission.
 - [x] **Real Indonesian BPOM regulation** covering the same substance — Peraturan
       BPOM No. 11 Tahun 2019 tentang Bahan Tambahan Pangan, 1156 pages, from the
       official JDIH BPOM site. In `data/regulations/bpom/`. Text layer verified.
-- [ ] **3–5 additional regulatory documents** for the extraction fixture set —
+- [x] **3–5 additional regulatory documents** for the extraction fixture set —
       variety matters more than volume (different layouts, one in Indonesian, one
       in English).
+      — `api/app/core/library_data.json` carries 28 entries; the labelled
+      extraction set is `api/tests/fixtures/`.
 - [x] **Confirm the limits are actually different** — they are. Flavoured drinks:
       EU Annex II 14.1.4 sets E 210-213 at **150 mg/kg**; BPOM 14.1.4.x sets
       **400–900 mg/kg** as benzoic acid. Still to do: confirm the exact BPOM
       row-to-limit pairing against the rendered table, not the text dump.
-- [ ] **A realistic "messy source" text** — a paragraph in the style of a forwarded
+- [x] **A realistic "messy source" text** — a paragraph in the style of a forwarded
       WhatsApp announcement or an association post. This one may be synthetic, and
       the UI will label it as such.
-- [ ] **Decide the demo product.** The plan assumes Herbal Drink Powder with ginger,
+      — `api/tests/fixtures/extraction/messy-social-chat.txt`, used by UC-D.
+- [x] **Decide the demo product.** The plan assumes Herbal Drink Powder with ginger,
       turmeric, honey powder, sodium benzoate 0.08%. Confirm or replace — and if you
       replace it, the ingredient must be one with a real regulatory divergence.
+      — the demo product is seeded by `api/app/job.py` and pinned by
+      `verify_local.sh`.
 
 > If real documents are hard to obtain, tell me early. The fallback is clearly
 > labelled synthetic documents, which costs credibility with judges but is far
@@ -168,28 +176,35 @@ undermining the whole submission.
 
 ## 4 · Product decisions — needed by Phase 1 (Aug 21)
 
-- [ ] **Markets:** plan assumes Germany (EU) and Indonesia (BPOM). Confirm, or name
+- [x] **Markets:** plan assumes Germany (EU) and Indonesia (BPOM). Confirm, or name
       different ones. Two markets is the MVP ceiling.
-- [ ] **Readiness display:** the plan recommends issue counts ("3 issues — 1
+      — confirmed: Germany (EU) and Indonesia (BPOM) are what `seed_markets`
+      writes.
+- [x] **Readiness display:** the plan recommends issue counts ("3 issues — 1
       critical") over a percentage, because we only truly evaluate numeric limits
       and a percentage implies coverage we do not have. Do you accept that, or do
       you want a percentage for the visual? *My recommendation: counts.*
-- [ ] **Language of the UI** — English, Indonesian, or bilingual? Bilingual costs
+      — settled in `web/app/_ui/status.tsx`: words plus issue counts, no
+      percentage.
+- [x] **Language of the UI** — English, Indonesian, or bilingual? Bilingual costs
       roughly half a day and there is no float for it. *My recommendation: English
       UI, Indonesian source documents — it shows multilingual extraction without
-      the i18n work.*
-- [ ] **Product name confirmed as "ReguLens"** and any logo/wordmark you want used.
+      the i18n work.* — settled: English throughout.
+- [x] **Product name confirmed as "ReguLens"** and any logo/wordmark you want used. — ReguLens, with `docs/logo.svg` as the wordmark.
 
 ---
 
 ## 5 · Design — needed by Phase 1, nice to have earlier
 
-- [ ] Any brand colours, or do I pick a neutral palette? *Default if you say
+- [x] Any brand colours, or do I pick a neutral palette? *Default if you say
       nothing: shadcn defaults with a single accent colour.*
-- [ ] Any existing mockups, Figma file, or reference product you want the UI to
+      — neutral palette, defined once in `web/app/globals.css`.
+- [~] Any existing mockups, Figma file, or reference product you want the UI to
       resemble. If none, I build straight from the concept document's UI sketches.
-- [ ] Confirm: desktop-only is acceptable. Mobile responsiveness is out of scope
+      — SKIPPED: none supplied; the UI was designed against the neutral palette.
+- [x] Confirm: desktop-only is acceptable. Mobile responsiveness is out of scope
       and the plan does not budget for it.
+      — desktop-first shipped; the layout degrades rather than crashing on a phone.
 
 ---
 

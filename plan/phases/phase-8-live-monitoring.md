@@ -177,10 +177,12 @@ Deliberately **not** seeded, and each for a stated reason:
       stable PDF URLs (`/download/rule/<id>/<no>/<year>/<title>`), but Perka
       34/2019 Kategori Pangan is 308 pages, past `MAX_DOCUMENT_PAGES`. Verified
       by downloading it. Left to the user with a specific annex.
-- [~] A crawler that works out on its own which page a regulator publishes on —
-      SKIPPED: `listing` follows an index a human named, with a pattern a human
-      wrote. Guessing that from a hostname is a different feature with a
-      different failure mode.
+- [x] A crawler that works out on its own which page a regulator publishes on —
+      **built in phase 9 after all**, once the failure mode had a safe shape. It is
+      not guessing from a hostname: the model names the regulator and its root, and
+      every address below that is read off a page that was actually fetched, so a
+      URL it invents cannot be committed. `link_pattern` is still derived in code,
+      from real paths. See `plan/phases/phase-9-country-discovery.md`.
 
 ## Exit criteria
 

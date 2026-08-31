@@ -13,7 +13,7 @@ products just stopped being compliant — before anyone thinks to look.
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776ab)](api/requirements.txt)
 [![Next.js 16](https://img.shields.io/badge/next.js-16-000000)](web/package.json)
 [![Cloud Run](https://img.shields.io/badge/google_cloud-run-4285f4)](cloudbuild.yaml)
-[![Tests](https://img.shields.io/badge/tests-612-2ea043)](api/tests)
+[![Tests](https://img.shields.io/badge/tests-615-2ea043)](api/tests)
 
 [Quick start](#quick-start) ·
 [Architecture](#architecture) ·

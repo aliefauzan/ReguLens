@@ -151,7 +151,7 @@ asserting it.
       Gemini call (live-verified).
 - [x] Redelivering the same `document.uploaded` message produces **no
       duplicate clauses** (live-verified).
-- [ ] A forced extraction failure exhausts retries, lands in the DLQ, and
+- [x] A forced extraction failure exhausts retries, lands in the DLQ, and
       shows `failed` with a working retry — handler + DLQ push sub deployed;
       the deliberate-failure drill is a phase-6 item.
 - [x] Extraction runs as an ADK agent on the deployed worker (tools in

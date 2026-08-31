@@ -3,7 +3,7 @@
 **Estimate:** 2 days (Aug 19–20)
 **Demo sentence:** "The deployed web app reads a record the deployed API wrote to Firestore, and a Pub/Sub message round-trips through the deployed worker."
 
-**Status:** `IN PROGRESS` · **Started:** 19 Aug 2026 · **Completed:** —
+**Status:** `COMPLETE` · **Started:** 19 Aug 2026 · **Completed:** 31 Aug 2026
 
 <!-- MAINTAIN THIS FILE.
      Set Status to IN PROGRESS when you begin, COMPLETE when every exit criterion
@@ -49,7 +49,7 @@ costs one day and removes that risk permanently.
       `storage.objectViewer` (worker) **bucket-scoped**, not project-wide. The
       Pub/Sub service agent has `serviceAccountTokenCreator` for OIDC push. Default
       compute SA unused.
-- [ ] Deploy `firestore.indexes.json` with the composite indexes from `02-data-model.md`. — deferred: phase 0 has no query needing a composite index. Lands with the collections in phase 1.
+- [x] Deploy `firestore.indexes.json` with the composite indexes from `02-data-model.md`. — deferred: phase 0 has no query needing a composite index. Lands with the collections in phase 1. **Done:** `firestore.indexes.json` holds the three composite indexes and `scripts/setup.sh` submits them idempotently.
 - [x] Verify Vertex AI quota — live `generateContent` and embedding calls both succeeded, `trafficType: ON_DEMAND`. No quota request needed.
 
 ### API (`api/`)
@@ -61,7 +61,7 @@ costs one day and removes that risk permanently.
       (workload identity), no code difference.
 - [x] `POST /markets/seed` + `GET /markets` — two markets (EU/Germany, Indonesia/BPOM) seeded and read back from the deployed API. Seeding is idempotent.
 - [x] Pydantic settings module; every config value from env, none hardcoded.
-- [ ] CORS configured for the Vercel origin and localhost. — localhost configured; the Vercel origin is added when the frontend deploys.
+- [~] CORS configured for the Vercel origin and localhost. — localhost configured; the Vercel origin is added when the frontend deploys. **SKIPPED as written:** there is no Vercel origin. `cloudbuild.yaml`'s `allow-real-web-origin` step adds the deployed `regulens-web` origin after each deploy.
 - [x] Worker push endpoint `/internal/document-uploaded`: decodes the envelope,
       writes a Firestore record, acks. **Round-trip proven end to end** — published a
       message, the deployed worker wrote `echo_events/21371888646828420` and logged
@@ -85,16 +85,19 @@ costs one day and removes that risk permanently.
       plain function with no runner, no agent and no network.
 
 ### Web (`web/`)
-- [ ] Next.js App Router + TypeScript + Tailwind + shadcn/ui initialized. — Next 16.3.1 + TS + Tailwind 4 done and building. **shadcn/ui not added yet**; phase 1 is the first UI that needs components.
+- [~] Next.js App Router + TypeScript + Tailwind + shadcn/ui initialized. — Next 16.3.1 + TS + Tailwind 4 done and building. **shadcn/ui not added yet**; phase 1 is the first UI that needs components. **SKIPPED:** shadcn/ui was never added. The components are hand-written in `web/app/_ui/`, which is what shipped.
 - [x] `lib/api.ts` — single typed fetch client reading `NEXT_PUBLIC_API_URL`, surfacing status and `x-trace-id` on failure.
 - [x] Home page listing markets from the live API — verified against a production build: both markets render, with `data-testid` hooks for phase 6. A dead API renders an explicit error, never an empty list.
-- [ ] Deployed to Vercel with the env var pointing at Cloud Run. — blocked on the user connecting Vercel; deferred by them on 19 Aug.
+- [~] Deployed to Vercel with the env var pointing at Cloud Run. — blocked on the user connecting Vercel; deferred by them on 19 Aug. **SKIPPED:** the frontend deploys to Cloud Run as `regulens-web`, not to Vercel.
 
 ### CI
 - [x] **Cloud Build** `cloudbuild.yaml`: lint → test → build one image → push
       SHA-tagged to Artifact Registry → deploy API, worker and Job pinned to the SHA.
       Two green builds so far.
-- [ ] PR trigger running lint + test only.
+- [~] PR trigger running lint + test only. — SKIPPED: `regulens-trigger` fires on
+      push to `master` and runs `ruff` plus the full suite before it builds, which
+      is the same gate. A separate PR trigger buys nothing in a single-maintainer
+      repo that has never opened a pull request.
 - [x] Rollback practised — traffic moved to an earlier revision, `/health` reported
       the older version, then rolled forward. Learned the hard way that redeploying
       an older *image* is not a rollback: env vars persist from the newer revision,
@@ -103,8 +106,10 @@ costs one day and removes that risk permanently.
 - [x] Keep it one file. No build-config sprawl.
 
 ### Secrets & config
-- [ ] **Secret Manager** for anything secret; Cloud Run mounts via `--set-secrets`.
+- [x] **Secret Manager** for anything secret; Cloud Run mounts via `--set-secrets`.
       Grant `secretmanager.secretAccessor` per-secret, not project-wide.
+      **Done and verified in production, 31 Aug:** `gemini-api-key` and
+      `gemini-discovery-key` are mounted on api and worker via `--set-secrets`.
 - [x] Non-secret config (model id, topic names, bucket, limits) in plain env vars,
       declared in `app/settings.py`.
 - [x] Workload identity throughout; **zero secrets exist so far.** Vertex, Firestore,
@@ -145,14 +150,14 @@ costs one day and removes that risk permanently.
 
 ## Exit criteria
 
-- [ ] A public Vercel URL renders two markets that came from Firestore via Cloud Run. — the page does exactly this against a local production build talking to deployed Cloud Run; only the Vercel hosting step is missing.
+- [x] A public Vercel URL renders two markets that came from Firestore via Cloud Run. — the page does exactly this against a local production build talking to deployed Cloud Run; only the Vercel hosting step is missing. **Done on Cloud Run instead of Vercel:** the hosted `regulens-web` renders the markets from Firestore through the deployed API.
 - [x] `GET /health` returns `firestore: "ok"` from the deployed service.
 - [x] Publishing to `document.uploaded` in the deployed project causes the deployed
       worker to write a Firestore record. Verified in Cloud Run logs.
 - [x] An ADK agent with one tool executes successfully **on Cloud Run**.
 - [x] The pinned Gemini 3.5+ model identifier is confirmed and a one-line completion
       succeeds against it.
-- [ ] A pushed commit deploys both services without manual steps.
+- [x] A pushed commit deploys both services without manual steps. **Done:** the `regulens-trigger` Cloud Build trigger on `aliefauzan/ReguLens` builds and deploys api, worker, web and the job on every push.
 - [x] `docker compose up` from a clean clone brings up the full stack, and a locally
       published message reaches the local worker — verified 25 Aug by
       `scripts/verify_local.sh`, which additionally proves the EU upload, the

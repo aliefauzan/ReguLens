@@ -79,12 +79,23 @@ form Devpost.
 Satu post LinkedIn atau X. Sisipkan klip 30 detik momen flip. Tag hackathon.
 Simpan URL-nya.
 
-### P1.3 · Model Google tambahan — +0.2, **tidak direkomendasikan sekarang**
+### P1.3 · Model Google tambahan — +0.2, **SUDAH DIKERJAKAN 31 Agu**
 
-Gemma/Veo/Lyria masing-masing +0.2. Slot `prefilter_sections` memang sengaja
-dikosongkan (keputusan 22 Agu) dan Gemma cocok mengisinya — bonus **dan**
-memotong 125 detik ekstraksi. Tapi dua hari sebelum deadline ini berisiko
-merusak jalur yang sudah stabil. **Ambil hanya jika P0–P3 sudah beres.**
+Gemma/Veo/Lyria masing-masing +0.2. Rencana awal menaruh Gemma di slot
+`prefilter_sections` untuk memotong 125 detik ekstraksi, dan alasan untuk menunda
+juga benar: menyentuh jalur ekstraksi dua hari sebelum deadline berisiko merusak
+yang sudah stabil.
+
+Jadi Gemma dipasang di tempat lain. `gemma-4-31b-it` lewat Gemini Developer API
+(gratis, tanpa tier berbayar) menjalankan **country discovery**: pengguna mengetik
+nama negara, model menyebut regulatornya dan alamat root-nya, lalu setiap alamat
+di bawah itu dibaca dari halaman yang benar-benar diambil — model tidak pernah
+mengarang URL. Fitur baru, jalur terpisah; kalau discovery gagal, pipeline lama
+tidak tersentuh sama sekali.
+
+Bukti untuk juri: `plan/phases/phase-9-country-discovery.md`, dan C1–C6 di
+`plan/PROD-VERIFICATION.md` (Singapura dan Jepang commit sumber watched yang
+kemudian dibaca sweep harian; Malaysia ditolak jujur dengan alasannya).
 
 ---
 
@@ -149,7 +160,8 @@ ditunjukkan di video. Ambil hanya jika waktu tinggal 2 jam dan Opsi A tak muat.
 
 ### Opsi C — Gemma prefilter
 
-Lihat P1.3. Terakhir dalam antrean.
+Tidak dikerjakan sebagai prefilter. Lihat P1.3: Gemma masuk lewat country
+discovery, yang memberi bonus +0,2 yang sama tanpa menyentuh jalur ekstraksi.
 
 ---
 
@@ -160,5 +172,5 @@ Lihat P1.3. Terakhir dalam antrean.
 | Track | **Tetap Collaborative Partner** | Rubrik identik di semua track; pindah = 0 poin, tambah risiko |
 | Video | Satu aturan di-paste untuk live shot | 25,5s muat di 4 menit; aneks 174s tidak |
 | P3 | **Opsi A** | Risiko nol, menjawab kritik terbesar, pas dengan track |
-| Gemma | Tunda | +0,2 lebih murah didapat dari blog post |
+| Gemma | **Dikerjakan 31 Agu** | Bukan sebagai prefilter ekstraksi, tapi sebagai country discovery — jalur terpisah, risiko nol untuk pipeline lama, +0,2 tetap didapat |
 | Auth | Tidak dikerjakan | Tidak dinilai di track ini |

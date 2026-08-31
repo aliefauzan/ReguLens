@@ -28,22 +28,24 @@ Murah, cepat, langsung menaikkan Kategori 2. Kerjakan malam ini juga.
 
 ### S0.1 · Perbaiki kotak yang bertentangan dengan kode
 
-- [ ] `plan/PROGRESS.md:43` — ubah `- [ ]` jadi `- [x]` pada
+- [x] `plan/PROGRESS.md:43` — ubah `- [ ]` jadi `- [x]` pada
       *Secret Manager wired, no secrets in image or repo*.
       Tambahkan bukti di baris yang sama:
       `— gemini-api-key di Secret Manager, dipasang lewat --set-secrets di cloudbuild.yaml; .gitignore diaudit 29 Agu`
-- [ ] `plan/PROGRESS.md:47` — lima alert. Pilih **satu**:
+- [x] `plan/PROGRESS.md:47` — lima alert. Pilih **satu**:
       - kerjakan sungguhan (lihat S0.4), atau
       - ubah jadi `- [~] ... — SKIPPED: <alasan jujur>`
-      **Jangan tinggalkan kosong.**
-- [ ] `plan/phases/phase-6-e2e-testing.md:6` — Status `NOT STARTED` → `IN PROGRESS`,
+      **Jangan tinggalkan kosong.** Dipilih yang kedua: barisnya sekarang `[~]`
+      dengan alasan — budget alert dan uptime check hidup, lima policy dengan
+      pemicu sengaja tidak muat sebelum deadline.
+- [x] `plan/phases/phase-6-e2e-testing.md:6` — Status `NOT STARTED` → `IN PROGRESS`,
       isi `**Started:** 23 Aug 2026`. Centang butir UC-A..F, redelivery,
       konkurensi, DLQ, walker, grounding yang sudah live-green.
       Sisakan Playwright sebagai `[~] — SKIPPED: verify_e2e.sh sudah menjadi bukti eksekusi yang setara`
 
 ### S0.2 · Samakan metadata submission
 
-- [ ] `regulens-session-summary.md:7` — tulis persis:
+- [x] `regulens-session-summary.md:7` — tulis persis:
       `**Category:** Collaborative Partner`
       (nama konsep "Evolving Knowledge Engine" pindah ke baris tagline)
 
@@ -83,8 +85,8 @@ menyentuh pipeline, guardrail, atau mutasi apa pun. **Baca-saja. Risiko nol.**
 
 ### S1.1 · Backend — satu endpoint baca-saja
 
-- [ ] `GET /products/{id}/remediation` di `api/app/` (ikuti pola router yang ada).
-- [ ] Kumpulkan dari Firestore, **tanpa panggilan model**:
+- [x] `GET /products/{id}/remediation` di `api/app/` (ikuti pola router yang ada).
+- [x] Kumpulkan dari Firestore, **tanpa panggilan model**:
       - tiap requirement yang gagal, per pasar
       - batas tiap pasar untuk substansi yang sama, dalam satu satuan
       - **angka target lintas pasar** = batas paling ketat di antara pasar produk
@@ -93,40 +95,40 @@ menyentuh pipeline, guardrail, atau mutasi apa pun. **Baca-saja. Risiko nol.**
       - tanggal berlaku tiap klausa
       - bahan yang **tidak dicek** dan alasannya (nama tak dikenal / tanpa jumlah /
         tanpa satuan) — pakai `GET /substances/resolve` yang sudah ada
-- [ ] Model respons Pydantic. Tak ada field yang dikarang: kalau tak ada angka
+- [x] Model respons Pydantic. Tak ada field yang dikarang: kalau tak ada angka
       target karena satu pasar belum punya aturan, katakan itu, jangan diam.
-- [ ] Test: produk dengan 2 pasar berbeda batas → target = yang paling ketat;
+- [x] Test: produk dengan 2 pasar berbeda batas → target = yang paling ketat;
       produk tanpa pelanggaran → respons kosong yang eksplisit, bukan 404.
 
 ### S1.2 · Frontend — satu halaman
 
-- [ ] `web/app/products/[id]/remediation/page.tsx`
-- [ ] Tombol **"Siapkan rencana perbaikan"** di kartu alert pada halaman produk
+- [x] `web/app/products/[id]/remediation/page.tsx`
+- [x] Tombol **"Siapkan rencana perbaikan"** di kartu alert pada halaman produk
       dan di banner "What changed on its own".
-- [ ] Isi halaman, urutan ini:
+- [x] Isi halaman, urutan ini:
       1. Satu kalimat besar: *"Turunkan natrium benzoat ke ≤150 mg/kg dan produk ini diterima di Jerman dan Indonesia."*
       2. Tabel per pasar: batas · sumber · tanggal berlaku · penanda paling ketat
       3. Kutipan verbatim tiap klausa, tiap satu tertaut ke passage-nya
       4. Blok "Yang tidak kami cek" — jujur, jangan disembunyikan
       5. Tombol **Print / Save as PDF** (`window.print()` + `@media print`) —
          cukup, tak perlu generator PDF
-- [ ] `data-testid` di tiap blok utama.
+- [x] `data-testid` di tiap blok utama.
 
 ### S1.3 · Pembingkaian Collaborative Partner — **jangan dilewat**
 
-- [ ] Halaman harus berkata di bagian atas, dengan kalimat sejenis:
+- [x] Halaman harus berkata di bagian atas, dengan kalimat sejenis:
       *"This is a draft for you to check, not an action we took."*
-- [ ] **JANGAN** kirim email, **JANGAN** ubah state produk, **JANGAN** aksi otonom
+- [x] **JANGAN** kirim email, **JANGAN** ubah state produk, **JANGAN** aksi otonom
       keluar sistem. Menambah risiko, tidak menambah nilai di track ini.
 
 ### Kriteria selesai S1
 
-- [ ] `pytest -q` hijau, `ruff` bersih, `tsc` bersih, `next build` hijau
-- [ ] `bash scripts/verify_local.sh` masih hijau dari stack yang diwipe
-- [ ] Terlihat benar di browser untuk produk demo, light dan dark, lebar HP
-- [ ] Deploy ke Cloud Run dan **dicek di URL live** — video merekam yang live
-- [ ] Update `plan/PROGRESS.md`: baris Session log + centang di phase 7
-- [ ] Commit: `feat: draft a remediation plan the user can approve`
+- [x] `pytest -q` hijau, `ruff` bersih, `tsc` bersih, `next build` hijau
+- [x] `bash scripts/verify_local.sh` masih hijau dari stack yang diwipe
+- [x] Terlihat benar di browser untuk produk demo, light dan dark, lebar HP
+- [x] Deploy ke Cloud Run dan **dicek di URL live** — video merekam yang live
+- [x] Update `plan/PROGRESS.md`: baris Session log + centang di phase 7
+- [x] Commit: `feat: draft a remediation plan the user can approve`
 
 ---
 
@@ -289,6 +291,9 @@ Return tertinggi per jam di seluruh rencana. 0,4 dari skala 6 ≈ 7% skor total.
 - [~] Mengejar target latensi 90 detik — **SKIPPED**: sudah dijelaskan dengan
       angka terukur dan reproducible; kejujuran terukur menang atas angka bagus
       tanpa bukti
-- [~] Integrasi Gemma — **SKIPPED kecuali S0–S5 selesai lebih awal**: +0,2 lebih
-      murah didapat dari artikel, dan menyentuh jalur ekstraksi dua hari sebelum
-      deadline berisiko merusak yang stabil
+- [x] Integrasi Gemma — **dikerjakan 31 Agu, dan bukan di jalur ekstraksi.**
+      Kekhawatiran di atas benar, jadi Gemma dipasang di tempat yang tidak bisa
+      merusak yang stabil: fitur baru `country discovery` (`gemma-4-31b-it` lewat
+      Gemini Developer API, gratis). Kalau discovery gagal, pipeline lama tidak
+      tersentuh. Terverifikasi di produksi — lihat `plan/PROD-VERIFICATION.md` C1–C6
+      dan `plan/phases/phase-9-country-discovery.md`.
