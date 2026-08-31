@@ -300,6 +300,7 @@ a diary.
 
 | Date | Who | What changed |
 |---|---|---|
+| 31 Aug 2026 | test fix | `test_a_source_that_is_not_due_is_left_alone` anchored its `last_checked_at` to a hardcoded `NOW` (29 Aug) while `check_source()` reads the wall clock — the source went stale on 30 Aug and the test started failing in Cloud Build. Anchored to `datetime.now(UTC)` instead |
 | 29 Aug 2026 | web UI | Rebuilt the frontend as an operations console: fixed left rail with live queue counts, sticky top bar carrying the service-reachability indicator and the two global actions, and a metric strip over an asymmetric two-column overview (verdict table left, next step / activity feed / verdict legend right). Design system retuned for density — 15px base, hairline panels, monospace figures, one accent. No new dependencies: inline SVG icon set, CSS-only motion. Every `data-testid` preserved; component CSS moved into Tailwind's `components` layer so utilities keep winning |
 | 19 Aug 2026 | planning | Plan folder created; ADK + Pub/Sub + Cloud Build + observability + E2E phase incorporated |
 | 19 Aug 2026 | corpus | Downloaded 5 real regulation PDFs (EU 1333/2008 original + two consolidated versions, EU 1129/2011 Annex II, BPOM 11/2019) into `data/regulations/`; text layers verified; divergence confirmed |

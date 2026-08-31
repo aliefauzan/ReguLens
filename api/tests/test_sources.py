@@ -483,7 +483,9 @@ def test_a_locked_source_reports_busy_and_does_nothing(monkeypatch):
 
 
 def test_a_source_that_is_not_due_is_left_alone(monkeypatch):
-    recorder = _Recorder(_source(last_checked_at=NOW))
+    # Anchored to the wall clock, not NOW: check_source() reads the real clock,
+    # so a fixed timestamp turns this into a test that expires.
+    recorder = _Recorder(_source(last_checked_at=datetime.now(UTC)))
     recorder.install(monkeypatch, fetches={})
 
     result = sources.check_source("src_test", force=False)
