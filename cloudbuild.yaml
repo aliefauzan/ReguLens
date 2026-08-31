@@ -90,12 +90,15 @@ steps:
       # instances as across 3 — they simply stop queueing. The api and web
       # services stay at 3; only the fan-out consumer needed room.
       - --max-instances=10
-      # 512Mi is the Cloud Run default and it is not enough here. Observed on
-      # 31 Aug: an instance running an ADK extraction while the source sweep
-      # held a check lock crossed 526 MiB and was killed mid-sweep. The kill
-      # took the lock with it, so the source it was reading kept reporting the
-      # previous run's error for hours — a working source that reads as broken.
-      # The peak is extraction, not the sweep; both fit in 1Gi.
+      # Headroom, not the fix. Two OOM kills on 31 Aug — at 526 MiB against the
+      # 512Mi default, then at 1039 MiB after this was first raised — both landed
+      # while the sweep held a source's check lock, so the kill took the lock and
+      # the result with it and a working source read as broken for hours. Raising
+      # memory would never have caught up: the cause was `extract_pdf` holding
+      # every parsed page of a PDF at once, and the BPOM annex in `data/` peaks at
+      # **5612 MB** that way. Flushing each page as it is read brings the same
+      # document to **119 MB** (`api/app/core/extraction/text.py`). 1Gi is what is
+      # left over for ADK and the Gemini client on top of that.
       - --memory=1Gi
       - --set-env-vars=VERSION=${SHORT_SHA},SERVICE_NAME=regulens-worker,PROJECT_ID=${PROJECT_ID},GOOGLE_GENAI_USE_VERTEXAI=true,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},GOOGLE_CLOUD_LOCATION=global
       - --set-secrets=GEMINI_API_KEY=gemini-api-key:latest,DISCOVERY_API_KEY=gemini-discovery-key:latest

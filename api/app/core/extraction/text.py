@@ -24,11 +24,31 @@ class TextExtraction:
 def extract_pdf(data: bytes) -> TextExtraction:
     """pdfplumber over the text layer. OCR is deliberately cut from the MVP —
     documents without a usable text layer fail loudly here rather than quietly
-    producing garbage downstream."""
+    producing garbage downstream.
+
+    Each page is flushed as soon as its text is out. pdfplumber caches every
+    character object it parses on the page, and the cache belongs to the page,
+    which belongs to the document, which is held open for the whole loop — so
+    without the flush the peak is the *entire* PDF parsed into objects, not the
+    one page being read. That is not a theoretical ceiling: a BPOM annex found
+    by the nightly sweep took the container past 512 MiB, and again past 1 GiB
+    once it was raised, killing the process mid-check both times. The fetch cap
+    bounds the download at 20 MB; nothing bounded what parsing it cost.
+    """
     import pdfplumber
 
+    pages: list[str] = []
     with pdfplumber.open(io.BytesIO(data)) as pdf:
-        pages = [page.extract_text() or "" for page in pdf.pages]
+        for page in pdf.pages:
+            pages.append(page.extract_text() or "")
+            page.flush_cache()
+            # The text map is a separate per-instance cache and only exists once
+            # something has asked for it. Guarded because it is not part of the
+            # documented surface and a future release may drop it — losing the
+            # clear costs memory, raising here would cost the document.
+            textmap = getattr(page, "get_textmap", None)
+            if hasattr(textmap, "cache_clear"):
+                textmap.cache_clear()
     text = "\n\n".join(pages)
     return TextExtraction(
         text=text,
