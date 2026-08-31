@@ -1,16 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  discoverCountry,
+  discoveryEventsUrl,
   ensureMarket,
   listCountries,
   listMarkets,
   listSources,
   type Country,
+  type DiscoveryJob,
   type Market,
 } from "@/lib/api";
-import { jurisdictionShortName, marketName } from "../_ui/status";
+import { JURISDICTION_SHORT_NAMES, jurisdictionShortName, marketName } from "../_ui/status";
 
 /**
  * Which countries this product is sold into.
@@ -22,15 +25,21 @@ import { jurisdictionShortName, marketName } from "../_ui/status";
  *
  * So the tiles are the markets that exist — the two we seed plus every country
  * anybody has started watching — and every remaining country is one dropdown
- * away. Picking one from the dropdown creates its market first (`ensureMarket`)
- * and only then ticks it, because `impact.evaluate` keeps only target markets
- * that have a document: a product pointed at a market that does not exist loses
- * that country with no verdict and no error, which is the failure this whole
- * file exists to avoid.
+ * away. Picking one does two things, in this order:
  *
- * A country with no watched source says so on its tile. Its verdict will read
- * "No rules added yet" until somebody watches it, and promising otherwise here
- * would be the same lie as a monitor that reports nothing when it is broken.
+ * 1. Creates its market. `impact.evaluate` keeps only target markets that have
+ *    a document, so a product pointed at a market that does not exist loses
+ *    that country with no verdict and no error.
+ * 2. Starts watching it — the same discovery run the Sources page offers, from
+ *    here, so a country is not selected before anything is being read for it.
+ *    A country is only worth naming as a market if something is looking at its
+ *    regulations.
+ *
+ * Discovery finds a usable catalogue for roughly one country in three, and the
+ * tile says which happened. A country whose regulator could not be found stays
+ * selectable and reads "not watched yet": the product still records where it is
+ * sold, and the verdict for that market says "No rules added yet" rather than
+ * implying a check that never ran.
  */
 export default function MarketsField({
   value,
@@ -41,10 +50,14 @@ export default function MarketsField({
 }) {
   const [markets, setMarkets] = useState<Market[] | null>(null);
   const [countries, setCountries] = useState<Country[]>([]);
+  const [discoveryAvailable, setDiscoveryAvailable] = useState(false);
   const [watchedJurisdictions, setWatchedJurisdictions] = useState<Set<string> | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
+  /** The watch attempt for each market, while it runs and after it ends. */
+  const [jobs, setJobs] = useState<Record<string, DiscoveryJob>>({});
+  const streams = useRef<Record<string, EventSource>>({});
 
   useEffect(() => {
     listMarkets()
@@ -57,16 +70,25 @@ export default function MarketsField({
     // Additive: without these two the tiles still work, they just cannot say
     // which countries are being watched or offer the rest.
     listCountries()
-      .then((body) => setCountries(body.countries))
+      .then((body) => {
+        setCountries(body.countries);
+        setDiscoveryAvailable(body.available);
+      })
       .catch(() => undefined);
-    listSources()
+    refreshWatched();
+    const open = streams.current;
+    return () => Object.values(open).forEach((stream) => stream.close());
+  }, []);
+
+  function refreshWatched() {
+    return listSources()
       .then((body) =>
         setWatchedJurisdictions(
           new Set(body.sources.filter((s) => s.enabled).map((s) => s.jurisdiction.toUpperCase())),
         ),
       )
       .catch(() => undefined);
-  }, []);
+  }
 
   /**
    * Every tile: the markets that exist, plus any this product already names.
@@ -106,10 +128,60 @@ export default function MarketsField({
         return [...rest, market].sort((a, b) => a.id.localeCompare(b.id));
       });
       if (!value.includes(market.id)) onChange([...value, market.id]);
+      if (discoveryAvailable) startWatching(market.id, code);
     } catch {
       setAddError("That country could not be added. Nothing changed.");
     } finally {
       setAdding(false);
+    }
+  }
+
+  /**
+   * Go and find where this country publishes its regulations.
+   *
+   * The same run the Sources page starts, watched through the same stream. The
+   * market already exists by the time this is called, so a failure here costs
+   * the user nothing they selected — it only means nothing is being read yet,
+   * which the tile then says.
+   */
+  async function startWatching(marketId: string, code: string) {
+    try {
+      const started = await discoverCountry(code);
+      setJobs((current) => ({ ...current, [marketId]: started.job }));
+      streams.current[marketId]?.close();
+      const stream = new EventSource(discoveryEventsUrl(started.job_id));
+      streams.current[marketId] = stream;
+      stream.onmessage = (event) => {
+        const next = JSON.parse(event.data) as DiscoveryJob;
+        setJobs((current) => ({ ...current, [marketId]: next }));
+        if (["done", "partial"].includes(next.status)) {
+          // A source landed, so this market is watched now. Both lists move.
+          refreshWatched();
+          listMarkets()
+            .then((body) => setMarkets(body.markets))
+            .catch(() => undefined);
+        }
+        if (["done", "partial", "failed"].includes(next.status)) stream.close();
+      };
+      // The run continues on the worker whether or not this page is listening,
+      // so a dropped stream is not a failed search. The tile keeps its last
+      // known state instead of claiming the search died.
+      stream.onerror = () => stream.close();
+    } catch {
+      setJobs((current) => ({
+        ...current,
+        [marketId]: {
+          country_code: code,
+          country_name: code,
+          status: "failed",
+          regulator: null,
+          root_url: null,
+          candidates: [],
+          error: "The search could not be started.",
+          model: "",
+          trace_id: null,
+        },
+      }));
     }
   }
 
@@ -136,6 +208,8 @@ export default function MarketsField({
           const label = market?.country || marketName(tile.id);
           const checked = value.includes(tile.id);
           const watched = isWatched(market, watchedJurisdictions);
+          const job = jobs[tile.id];
+          const state = tileState(job, watched);
           return (
             <label
               key={tile.id}
@@ -154,15 +228,22 @@ export default function MarketsField({
                 <span className="t-subhead block" style={{ fontWeight: 600 }}>
                   {label}
                 </span>
-                <span className="t-footnote t-secondary" data-testid={`market-sub-${tile.id}`}>
-                  {regimeLine(market)}
-                  {watched === false ? (
-                    <>
-                      {" · "}
-                      <span style={{ color: "var(--warn)" }}>not watched yet</span>
-                    </>
-                  ) : null}
+                <span
+                  className="t-footnote t-secondary"
+                  style={state.tone ? { color: state.tone } : undefined}
+                  data-testid={`market-sub-${tile.id}`}
+                >
+                  {state.line ?? regimeLine(market)}
                 </span>
+                {job?.error && job.status === "failed" ? (
+                  <span
+                    className="t-caption block"
+                    data-testid={`market-why-${tile.id}`}
+                    style={{ color: "var(--secondary)" }}
+                  >
+                    {job.error}
+                  </span>
+                ) : null}
               </span>
             </label>
           );
@@ -189,12 +270,27 @@ export default function MarketsField({
             </select>
           </label>
           <p className="t-caption t-secondary" style={{ maxWidth: "28rem" }}>
-            Adding a country here does not fetch its rules. Until one of its regulations has been
-            read, its verdict says so.{" "}
-            <Link href="/sources" className="underline">
-              Watch a country
-            </Link>
-            .
+            {discoveryAvailable ? (
+              <>
+                Picking a country also starts watching it: we look up its food regulator and the
+                page where it publishes. That works for roughly one country in three, and a country
+                we cannot read says so — you can still sell there, and still add its address by
+                hand on{" "}
+                <Link href="/sources" className="underline">
+                  Watching
+                </Link>
+                .
+              </>
+            ) : (
+              <>
+                Adding a country here does not fetch its rules. Until one of its regulations has
+                been read, its verdict says so.{" "}
+                <Link href="/sources" className="underline">
+                  Watch a country
+                </Link>
+                .
+              </>
+            )}
           </p>
         </div>
       ) : null}
@@ -220,9 +316,48 @@ function isWatched(market: Market | null, watched: Set<string> | null): boolean 
   return (market.jurisdictions ?? []).some((j) => watched.has(String(j).toUpperCase()));
 }
 
-/** "European Union rules", "BPOM rules", "National rules". */
+/**
+ * What the tile says under the country's name, when that is not simply whose
+ * rules apply: a search in flight, a search that found nothing, or a country
+ * nobody has watched.
+ */
+function tileState(
+  job: DiscoveryJob | undefined,
+  watched: boolean | null,
+): { line: string | null; tone?: string } {
+  switch (job?.status) {
+    case "queued":
+      return { line: "Starting to watch it…" };
+    case "proposing":
+      return { line: "Looking up its regulator…" };
+    case "reading":
+      return { line: "Reading the regulator's site…" };
+    case "failed":
+      return { line: "Could not find where it publishes", tone: "var(--warn)" };
+    default:
+      break;
+  }
+  if (watched === false) return { line: "Not watched yet", tone: "var(--warn)" };
+  return { line: null };
+}
+
+/**
+ * Whose rules are read for this market: "European Union rules", "BPOM rules",
+ * "MHLW rules".
+ *
+ * One market legitimately carries two jurisdictions for the same country, and
+ * the tile must not read them out as two regimes. Indonesia ships as
+ * `["ID_BPOM"]`, and discovering Indonesia appends the bare country code its
+ * watched sources are registered under, giving `["ID_BPOM", "ID"]` — one
+ * country, one regulator, two storage keys. Rendering both said "BPOM,
+ * National rules", which describes a country with two separate rulebooks.
+ * Nothing has two rulebooks here, so a named regime always wins over the bare
+ * country code, and the regulator's own name is used before falling back to
+ * the word "national".
+ */
 function regimeLine(market: Market | null): string {
-  const regimes = (market?.jurisdictions ?? []).map(jurisdictionShortName).filter(Boolean);
-  if (regimes.length === 0) return "National rules";
-  return `${regimes.join(", ")} rules`;
+  const named = (market?.jurisdictions ?? []).filter((j) => JURISDICTION_SHORT_NAMES[j]);
+  if (named.length > 0) return `${named.map(jurisdictionShortName).join(", ")} rules`;
+  if (market?.regulator) return `${market.regulator} rules`;
+  return "National rules";
 }

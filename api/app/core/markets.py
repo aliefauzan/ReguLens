@@ -93,8 +93,10 @@ def ensure_market(
         "regulator": existing.get("regulator") or regulator,
         # "Discovered" means a model went and found this country's regulator.
         # A market created from the product form because somebody sells there
-        # has found nothing, and must not claim it did.
-        "discovered": existing.get("discovered", created and regulator is not None),
+        # has found nothing yet, and must not claim it did — but the same market
+        # is passed through here again when discovery later succeeds for that
+        # country, and that run does name a regulator.
+        "discovered": bool(existing.get("discovered")) or regulator is not None,
     }
     ref.set(record, merge=True)
     log(
