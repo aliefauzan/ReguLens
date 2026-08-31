@@ -222,6 +222,17 @@ class SourceCheckStatus(StrEnum):
     ERROR = "error"
 
 
+class CountryDiscoverIn(BaseModel):
+    """A request to find a country's regulator catalogue.
+
+    Only the code: the country name and everything about the regulator comes
+    from the bundled ISO list and the model, so a caller cannot smuggle a
+    label — or a URL — into the source list through this endpoint.
+    """
+
+    country_code: str = Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
+
+
 class WatchedSourceIn(BaseModel):
     """An address ReguLens re-reads on a schedule."""
 

@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -17,6 +18,7 @@ from app.core import detection, markets, products, query
 from app.core import documents as documents_core
 from app.db import get_db, health_check
 from app.models import (
+    CountryDiscoverIn,
     DocumentIn,
     LibraryLoadIn,
     ProductIn,
@@ -217,6 +219,130 @@ def get_autonomy() -> dict:
     from app.core import autonomy
 
     return autonomy.summary() | {"trace_id": get_trace_id()}
+
+
+@app.get("/countries")
+def get_countries() -> dict:
+    """Every ISO 3166-1 country, and whether discovery can run at all.
+
+    `available` is false when no Gemini API key is configured: Gemma is served
+    by the Developer API and not by Vertex, so a deployment that falls back to
+    Vertex has no model for this flow. The UI hides the panel rather than
+    offering a button that always fails.
+    """
+    from app.core import discovery
+
+    return {
+        "countries": discovery.list_supported_countries(),
+        "available": settings.discovery_available,
+        "model": settings.discovery_model,
+        "trace_id": get_trace_id(),
+    }
+
+
+@app.post("/countries/discover", status_code=202)
+def post_country_discover(payload: CountryDiscoverIn) -> JSONResponse:
+    """Queue a search for a country's regulator catalogue.
+
+    202 and a job id, like every other slow thing here. Pressing Discover twice
+    joins the run already in flight instead of starting a second — two runs
+    would fetch the same regulator twice and spend twice the model budget to
+    reach the same source.
+    """
+    from app.core import discovery
+    from app.core.repository import new_id
+    from app.messaging.publisher import publish
+
+    if not settings.discovery_available:
+        raise HTTPException(status_code=503, detail="country discovery is not configured")
+
+    country = discovery.find_country(payload.country_code)
+    if country is None:
+        raise HTTPException(status_code=404, detail="no such country code")
+
+    running = discovery.active_job_for(country.code)
+    if running is not None:
+        return JSONResponse(
+            {"job_id": running["id"], "job": running, "joined": True,
+             "trace_id": get_trace_id()},
+            status_code=200,
+        )
+
+    job_id = new_id("job")
+    job = discovery.new_job(country, get_trace_id())
+    discovery.save_job(job_id, job)
+    publish(
+        settings.topic_country_requested,
+        {"job_id": job_id, "country_code": country.code, "trace_id": get_trace_id()},
+    )
+    return JSONResponse(
+        {"job_id": job_id, "job": job | {"id": job_id}, "joined": False,
+         "trace_id": get_trace_id()},
+        status_code=202,
+    )
+
+
+@app.get("/discovery/{job_id}")
+def get_discovery_job(job_id: str) -> dict:
+    from app.core import discovery
+
+    job = discovery.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="no such job")
+    return {"job": job, "trace_id": get_trace_id()}
+
+
+@app.get("/discovery/{job_id}/events")
+async def get_discovery_events(job_id: str):
+    """The job's progress as it happens, over Server-Sent Events.
+
+    The events come off the job document rather than off Pub/Sub. An earlier
+    design gave each job its own topic and had the API subscribe to it, which
+    needs a subscriber role the API service does not have, a topic and
+    subscription created per job at runtime, and something to reap them
+    afterwards. The job row already holds every state the worker passes through,
+    it is written by the same code that does the work, and re-reading it costs
+    one document read — so it is the source of truth for the stream too.
+
+    The stream closes itself on a terminal status or after `discovery_stream_seconds`,
+    whichever comes first. A client that reconnects gets the current state
+    immediately, because the first thing the stream emits is a snapshot.
+    """
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+
+    from app.core import discovery
+
+    terminal = {"done", "partial", "failed"}
+
+    async def stream():
+        last = None
+        deadline = asyncio.get_running_loop().time() + settings.discovery_stream_seconds
+        while True:
+            job = await run_in_threadpool(discovery.get_job, job_id)
+            if job is None:
+                yield f"event: error\ndata: {_json.dumps({'error': 'no such job'})}\n\n"
+                return
+            current = _json.dumps(job, default=str, sort_keys=True)
+            if current != last:
+                last = current
+                yield f"data: {current}\n\n"
+            if str(job.get("status")) in terminal:
+                return
+            if asyncio.get_running_loop().time() >= deadline:
+                # Say so rather than dropping the connection silently: a stream
+                # that ends without a word is indistinguishable from a crash.
+                yield f"event: timeout\ndata: {_json.dumps({'job_id': job_id})}\n\n"
+                return
+            await asyncio.sleep(settings.discovery_poll_seconds)
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/sources")

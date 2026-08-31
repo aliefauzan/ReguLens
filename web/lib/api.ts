@@ -914,3 +914,57 @@ export function listClauses(params: {
   const suffix = search.toString() ? `?${search.toString()}` : "";
   return get(`/clauses${suffix}`);
 }
+
+// ---------------------------------------------------------------------------
+// Country discovery
+// ---------------------------------------------------------------------------
+
+export type Country = { code: string; name: string };
+
+export type DiscoveryCandidate = {
+  url: string;
+  label: string;
+  reason: string;
+  status: "validating" | "committed" | "rejected";
+  source_id: string | null;
+  link_pattern: string | null;
+  match_count: number;
+  error: string | null;
+};
+
+export type DiscoveryJob = {
+  id?: string;
+  country_code: string;
+  country_name: string;
+  status: "queued" | "proposing" | "reading" | "done" | "partial" | "failed";
+  regulator: string | null;
+  root_url: string | null;
+  candidates: DiscoveryCandidate[];
+  committed?: number;
+  error: string | null;
+  model: string;
+  trace_id: string | null;
+};
+
+export function listCountries(): Promise<{
+  countries: Country[];
+  available: boolean;
+  model: string;
+}> {
+  return get("/countries");
+}
+
+export function discoverCountry(
+  code: string,
+): Promise<{ job_id: string; job: DiscoveryJob; joined: boolean }> {
+  return post("/countries/discover", { country_code: code });
+}
+
+export function getDiscoveryJob(jobId: string): Promise<{ job: DiscoveryJob }> {
+  return get(`/discovery/${jobId}`);
+}
+
+/** The URL an `EventSource` opens. Not fetched here — the browser owns the stream. */
+export function discoveryEventsUrl(jobId: string): string {
+  return `${BASE}/discovery/${jobId}/events`;
+}

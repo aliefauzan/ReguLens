@@ -46,6 +46,7 @@ services:
       CORS_ORIGINS: http://localhost:3000
       LOCAL_STORAGE_DIR: /srv/uploads
       FAKE_LLM: "1"
+      FAKE_DISCOVERY: "1"
       DEBUG_VIEW: "1"
       VERSION: local
     ports: ["8080:8080"]
@@ -64,6 +65,7 @@ services:
       PUBSUB_EMULATOR_HOST: pubsub:8085
       LOCAL_STORAGE_DIR: /srv/uploads
       FAKE_LLM: "1"
+      FAKE_DISCOVERY: "1"
       DEBUG_VIEW: "1"
       VERSION: local
     ports: ["8081:8080"]

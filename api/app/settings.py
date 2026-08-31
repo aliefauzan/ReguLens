@@ -58,6 +58,30 @@ class Settings(BaseSettings):
     # request no matter how the work is arranged, and raising the size refusal
     # without this would turn a named refusal into an unexplained timeout.
     topic_document_chunk: str = "document.chunk"
+    # A user asked for a country nobody seeded. Slow — two model calls and up to
+    # three fetches of a regulator's site — so it goes behind the queue like
+    # everything else slow.
+    topic_country_requested: str = "country.requested"
+
+    # Country discovery. Gemma rather than Gemini, and free rather than cheap:
+    # the Gemini API serves Gemma at no charge and offers no paid tier for it at
+    # all, so this flow cannot generate a bill. What it can do is run out —
+    # measured free-tier ceiling is 16,000 input tokens per minute per model —
+    # which is why the link inventory handed to it is capped.
+    discovery_model: str = "gemma-4-31b-it"
+    # A prompt is a country name or a list of links. Anything larger means a
+    # regulator's index page got inlined by accident.
+    discovery_prompt_chars: int = 60_000
+    # Stands in for the model, not the fetch. The local drill still reads a real
+    # page, so the pattern derivation is exercised rather than mocked.
+    fake_discovery: bool = False
+    allow_country_discovery: bool = True
+    # How long one SSE connection stays open, and how often it re-reads the job
+    # row. A discovery run is two model calls and up to three fetches of a
+    # government site; three minutes covers a slow one, and a client that is
+    # still interested reconnects.
+    discovery_stream_seconds: float = 180.0
+    discovery_poll_seconds: float = 1.5
 
     # Behaviour switches
     fake_llm: bool = False
@@ -146,6 +170,19 @@ class Settings(BaseSettings):
         if len(key) < 20:
             return False
         return not key.lower().startswith(("your", "todo", "changeme", "placeholder", "xxx"))
+
+    @property
+    def discovery_available(self) -> bool:
+        """Whether the Discover panel can do anything.
+
+        Gemma is served by the Gemini Developer API and not by Vertex, so a
+        deployment that falls back to Vertex has no model for this flow. Saying
+        so here keeps the UI honest: the panel is hidden rather than offering a
+        button that always fails.
+        """
+        if not self.allow_country_discovery:
+            return False
+        return self.fake_discovery or self.use_gemini_api
 
     @property
     def uploads_bucket_name(self) -> str:
