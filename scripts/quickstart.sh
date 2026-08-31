@@ -40,6 +40,7 @@ done < "$CONFIG"
 PROJECT_ID="${PROJECT_ID:-}"
 REGION="${REGION:-asia-southeast1}"
 GEMINI_API_KEY="${GEMINI_API_KEY:-}"
+DISCOVERY_API_KEY="${DISCOVERY_API_KEY:-}"
 
 say() { printf '\n\033[1m=== %s\033[0m\n' "$1"; }
 die() { printf '\n%s\n' "$1" >&2; exit 1; }
@@ -87,6 +88,33 @@ else
 fi
 for sa in regulens-api regulens-worker; do
   gcloud secrets add-iam-policy-binding gemini-api-key --project "$PROJECT_ID" \
+    --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
+    --role roles/secretmanager.secretAccessor >/dev/null
+done
+
+say "discovery key"
+# Country discovery calls Gemma, which the Gemini Developer API serves and
+# Vertex does not. It therefore needs a key even where the rest of the stack is
+# deliberately on Vertex — and it must not be GEMINI_API_KEY, because setting
+# that one moves *every* call over, embeddings included. Developer API vectors
+# are not comparable with Vertex vectors, so the clauses already stored would
+# quietly stop matching. Hence a second secret, defaulting to the same key when
+# you are on the Developer API anyway.
+DISCOVERY_KEY="${DISCOVERY_API_KEY:-$GEMINI_API_KEY}"
+if gcloud secrets describe gemini-discovery-key --project "$PROJECT_ID" >/dev/null 2>&1; then
+  printf %s "$DISCOVERY_KEY" | gcloud secrets versions add gemini-discovery-key \
+    --project "$PROJECT_ID" --data-file=- >/dev/null
+  echo "  updated gemini-discovery-key"
+else
+  # cloudbuild.yaml mounts it unconditionally, so it has to exist even empty —
+  # an empty value reads as "not configured" and the panel stays hidden.
+  printf %s "$DISCOVERY_KEY" | gcloud secrets create gemini-discovery-key \
+    --project "$PROJECT_ID" --data-file=- >/dev/null
+  echo "  created gemini-discovery-key"
+fi
+[[ -n "$DISCOVERY_KEY" ]] || echo "  no key set — country discovery will report itself unconfigured"
+for sa in regulens-api regulens-worker; do
+  gcloud secrets add-iam-policy-binding gemini-discovery-key --project "$PROJECT_ID" \
     --member "serviceAccount:${sa}@${PROJECT_ID}.iam.gserviceaccount.com" \
     --role roles/secretmanager.secretAccessor >/dev/null
 done

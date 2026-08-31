@@ -179,16 +179,22 @@ else
               --time-zone="Asia/Jakarta"
               --uri="${WORKER_URL}/internal/check-sources"
               --http-method=POST
-              --headers="Content-Type=application/json"
               --message-body='{"force":false}'
               --oidc-service-account-email="${SA_INVOKER}@${PROJECT_ID}.iam.gserviceaccount.com"
               --oidc-token-audience="${WORKER_URL}"
               --attempt-deadline=1800s
               --location="$REGION")
+  # `create` takes --headers; `update` only accepts --update-headers. Passing
+  # --headers to update is an unrecognised-argument error, and with `set -e`
+  # that aborts this script — and quickstart.sh with it — on every re-run after
+  # the first. Which is exactly when this block matters, because the whole
+  # reason to run setup.sh twice is to let the scheduler learn the worker's URL.
   if g scheduler jobs describe "$JOB" --location "$REGION" >/dev/null 2>&1; then
-    g scheduler jobs update http "$JOB" "${sched_args[@]}"
+    g scheduler jobs update http "$JOB" "${sched_args[@]}" \
+      --update-headers="Content-Type=application/json"
   else
-    g scheduler jobs create http "$JOB" "${sched_args[@]}"
+    g scheduler jobs create http "$JOB" "${sched_args[@]}" \
+      --headers="Content-Type=application/json"
   fi
   echo "scheduler job $JOB -> ${WORKER_URL}/internal/check-sources (daily 06:00 Asia/Jakarta)"
 fi
