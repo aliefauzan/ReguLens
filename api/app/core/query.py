@@ -52,6 +52,18 @@ def _retrieve(
     except Exception as exc:  # noqa: BLE001 - retrieval degrades, never crashes
         log(logger, logging.WARNING, "query_retrieval_degraded", error=str(exc)[:200])
 
+    # 1b. What the question asked for by name. A question naming a market got
+    # nothing but embedding rank, and refused while the graph held the clause
+    # the product page cites — the worst refusal there is, because it is wrong
+    # and it looks careful.
+    jurisdictions = _jurisdictions_of(question)
+    if jurisdictions:
+        seen_ids = {c["id"] for c in bundle["clauses"]}
+        for clause in _clauses_in(jurisdictions, question, k=5):
+            if clause["id"] not in seen_ids:
+                bundle["clauses"].append(clause)
+                seen_ids.add(clause["id"])
+
     # 2. Product-scoped requirements — and the clauses behind them, so the
     # answer can cite a real clause id for every evaluation it mentions.
     from google.cloud import firestore
@@ -122,14 +134,84 @@ def _retrieve(
 
 
 def _substance_of(question: str) -> str | None:
-    """Best-effort substance hint for retrieval filtering."""
+    """Best-effort substance hint for retrieval filtering.
+
+    Word by word, then two words at a time, because the dictionary holds both
+    ("stevia", "sodium benzoate"). The previous version matched runs of letters
+    and spaces, which handed the strict matcher an entire sentence — "what is
+    the nitrite limit for cured meat in germany" is not a substance, so the hint
+    never fired and every question fell back to embedding rank alone.
+    """
     from app.core.normalization import normalize_substance
 
-    for token in re.findall(r"[a-zA-Z][a-zA-Z ]{3,}", question):
-        normalized, unmatched = normalize_substance(token.strip())
+    words = re.findall(r"[a-zA-Z][a-zA-Z0-9-]*", question.lower())
+    grams = [" ".join(words[i : i + 2]) for i in range(len(words) - 1)] + words
+    for gram in grams:
+        normalized, unmatched = normalize_substance(gram)
         if not unmatched:
             return normalized
     return None
+
+
+def _jurisdictions_of(question: str) -> list[str]:
+    """The jurisdictions a question names, by market label, country or code.
+
+    Read from the stored markets rather than a table in this file: a market
+    added by country discovery has to be answerable the day it is added, and a
+    list here would go stale the first time one is.
+    """
+    from app.core import markets as markets_core
+
+    lowered = f" {question.lower()} "
+    found: list[str] = []
+    for market in markets_core.list_markets():
+        names = [
+            str(market.get("country") or ""),
+            str(market.get("country_name") or ""),
+            str(market.get("label") or "").split("—")[-1],
+            str(market.get("regulator") or ""),
+        ]
+        if not any(n and f" {n.strip().lower()} " in lowered for n in names):
+            continue
+        jurisdictions = market.get("jurisdictions") or [market.get("jurisdiction")]
+        found.extend(str(j) for j in jurisdictions if j)
+    return sorted(set(found))
+
+
+def _clauses_in(jurisdictions: list[str], question: str, k: int) -> list[dict]:
+    """Top active clauses of the named jurisdictions, ranked against the question.
+
+    A question that names a market and no substance — "the nitrite limit for
+    cured meat in Germany" — retrieves on wording alone, and the wording of a
+    question rarely resembles the wording of an annex row. Asking the graph for
+    the jurisdiction it just named is the cheap half of the answer, and it is
+    the half the reader thought they were asking for.
+    """
+    from google.cloud import firestore
+
+    from app.core.reconciliation import _ranked, embed_text
+
+    if not jurisdictions:
+        return []
+    rows = [
+        d.to_dict() | {"id": d.id}
+        for d in (
+            get_db()
+            .collection("clauses")
+            .where(filter=firestore.FieldFilter("status", "in", ["active", "conflicted"]))
+            .where(filter=firestore.FieldFilter("jurisdiction", "in", jurisdictions[:10]))
+            .limit(200)
+            .stream()
+        )
+    ]
+    if not rows:
+        return []
+    try:
+        vector = embed_text(question)
+    except Exception as exc:  # noqa: BLE001 - ranking degrades, retrieval does not
+        log(logger, logging.WARNING, "query_rank_degraded", error=str(exc)[:200])
+        return rows[:k]
+    return _ranked(rows, {"id": None, "embedding": vector}, k)
 
 
 def _synthesis_prompt(question: str, bundle: dict[str, Any]) -> str:

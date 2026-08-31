@@ -77,3 +77,80 @@ def test_agent_failure_falls_through_rather_than_answering(monkeypatch):
     monkeypatch.setattr(query_agent, "run_query_agent", boom)
 
     assert query._synthesize_via_agent("why?", _bundle("clause_aaa"), None) == ("", [])
+
+
+# ---------------------------------------------------------------------------
+# Retrieval hints: what the question named
+
+
+class TestSubstanceHint:
+    """The hint decides whether retrieval filters by substance family at all.
+
+    The previous matcher fed whole runs of letters and spaces to the strict
+    normalizer, so "what is the nitrite limit for cured meat in germany" was
+    offered as a substance name, matched nothing, and every question fell back
+    to embedding rank alone.
+    """
+
+    def test_a_substance_inside_a_sentence_is_found(self):
+        from app.core.query import _substance_of
+
+        assert _substance_of("What is the nitrite limit for cured meat in Germany?") == (
+            "nitrites"
+        )
+
+    def test_a_two_word_name_is_found(self):
+        """The dictionary holds both shapes; the scan has to try both."""
+        from app.core.query import _substance_of
+
+        assert _substance_of("how much sodium benzoate may I use") == "sodium_benzoate"
+
+    def test_a_question_naming_no_substance_says_so(self):
+        from app.core.query import _substance_of
+
+        assert _substance_of("what changed last week") is None
+
+
+class TestJurisdictionHint:
+    """A question that names a market retrieves that market's rules."""
+
+    def _markets(self, monkeypatch, rows):
+        from app.core import markets as markets_core
+
+        monkeypatch.setattr(markets_core, "list_markets", lambda: rows)
+
+    def test_a_country_name_resolves_to_its_jurisdiction(self, monkeypatch):
+        from app.core.query import _jurisdictions_of
+
+        self._markets(monkeypatch, [
+            {"id": "market_de", "country": "Germany", "jurisdictions": ["EU"]},
+            {"id": "market_id", "country": "Indonesia", "jurisdictions": ["ID_BPOM"]},
+        ])
+        assert _jurisdictions_of("nitrite limit for cured meat in Germany") == ["EU"]
+
+    def test_a_regulator_name_resolves_too(self, monkeypatch):
+        from app.core.query import _jurisdictions_of
+
+        self._markets(monkeypatch, [
+            {"id": "market_id", "country": "Indonesia", "regulator": "BPOM",
+             "jurisdictions": ["ID_BPOM"]},
+        ])
+        assert _jurisdictions_of("what does BPOM allow") == ["ID_BPOM"]
+
+    def test_a_question_naming_no_market_names_no_jurisdiction(self, monkeypatch):
+        from app.core.query import _jurisdictions_of
+
+        self._markets(monkeypatch, [
+            {"id": "market_de", "country": "Germany", "jurisdictions": ["EU"]},
+        ])
+        assert _jurisdictions_of("how much sodium benzoate is allowed") == []
+
+    def test_the_list_comes_from_stored_markets_not_a_table_here(self, monkeypatch):
+        """A market added by country discovery has to be answerable the day it
+        is added."""
+        from app.core.query import _jurisdictions_of
+
+        self._markets(monkeypatch, [
+            {"id": "market_jp", "country": "Japan", "jurisdictions": ["JP_MHLW"]},
+        ])
+        assert _jurisdictions_of("additive rules in Japan") == ["JP_MHLW"]

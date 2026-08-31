@@ -162,8 +162,11 @@ SYNONYMS: dict[str, list[str]] = {
     # limit rows themselves ("E 249-250 Nitrites", "E 251-252 Nitrates"). An
     # extractor reading those rows normalizes to the group, so the group has to
     # be a name the dictionary knows or the row binds nothing.
-    "nitrites": ["nitrites", "nitrit", "e249-250", "e 249-250"],
-    "nitrates": ["nitrates", "nitrat", "e251-252", "e 251-252"],
+    # The singular is here because a person writes it. The annex prints the
+    # group plural on the limit row, and a question asking about "nitrite" is
+    # asking about that row.
+    "nitrites": ["nitrites", "nitrite", "nitrit", "e249-250", "e 249-250"],
+    "nitrates": ["nitrates", "nitrate", "nitrat", "e251-252", "e 251-252"],
     "sodium_metabisulphite": [
         "sodium metabisulphite",
         "sodium metabisulfite",

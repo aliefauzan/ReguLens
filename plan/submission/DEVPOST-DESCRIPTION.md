@@ -226,9 +226,10 @@ rewritten.
 - **Idempotency proven, not assumed.** Extract, reconcile and impact were each
   redelivery-tested against the deployed stack; a concurrency probe caught and closed a
   double-write race we would otherwise have shipped.
-- **Every limitation is written down** in the README, including the two we found last:
-  the query agent has no UI, and it refuses questions phrased around a market even
-  while holding the clause the product page cites.
+- **Every limitation is written down** in the README, including the one we found last:
+  the query agent refused questions phrased around a market while holding the clause
+  the product page cites — retrieval never asked the graph for the jurisdiction the
+  question had just named.
 
 ## What we learned
 
@@ -253,8 +254,6 @@ compliance product, that is the whole product.
 
 ## What's next
 
-- Wire the query agent into the UI, and enforce in code what the README already
-  promises: an answer with no validated citation is a refusal, not an answer.
 - OCR, so a scanned gazette is ingestible.
 - Non-numeric clauses — labelling, certification, documentation — currently extracted
   and surfaced as `needs_review` but never auto-evaluated.

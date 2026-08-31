@@ -65,12 +65,10 @@ continuously, without being asked.
   of silently moving a limit.
 - **Flips verdicts on its own.** When a rule changes, affected products change status
   and an alert names the regulation that caused it — and whether anybody uploaded it.
-- **Answers questions with citations** — over the API. `POST /query` runs the ADK
+- **Answers questions with citations.** The Ask box on a product page runs the ADK
   Query agent, which picks its own retrieval tools, and every clause id it returns is
-  validated in code against what retrieval actually served, so an invented id cites
-  nothing. **Not wired into the web app**: there is no Ask box on any page yet, and the
-  agent is strict enough that a question phrased around a market rather than a substance
-  comes back as a refusal. Both are listed under [Limitations](#limitations).
+  validated in code against what retrieval actually served. An invented id cites
+  nothing, and an answer that cites nothing is refused rather than shown.
 
 ## Quick start
 
@@ -279,12 +277,11 @@ Things this does not do. The list is here so nobody discovers them in a demo.
   commits a `listing` to watch, and the ordinary sweep is what reads anything from it.
   It also fails openly — a regulator publishing through a JavaScript application
   returns "the index has no links we can follow" rather than an empty success.
-- **The query agent has no UI and refuses more than it should.** Asked about a market
-  ("the nitrite limit for cured meat in Germany") it answers `INSUFFICIENT_EVIDENCE`
-  even while holding the clause the product page cites; asked about a substance it
-  answers, but the model does not always emit the bracketed ids the validator counts,
-  so an answer can arrive with zero citations. The refusal path is the safe one and it
-  is the one that fires; the wiring and the citation enforcement are unfinished.
+- **The query agent answers from what retrieval hands it, and no further.** It
+  retrieves on the substance and the market a question names, plus embedding rank;
+  a question that names neither gets whatever the embedding is nearest to, and if
+  nothing it can cite comes back, it refuses. A refusal here means "retrieval found
+  nothing to stand on", not "no such rule exists".
 - **The EU catalogue query is scoped to one subject** (*food additive*). A regulation
   about contaminants or packaging falls outside it. Deliberate — unscoped, the query
   returns everything the EU publishes.
