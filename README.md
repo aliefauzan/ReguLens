@@ -13,7 +13,7 @@ products just stopped being compliant — before anyone thinks to look.
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776ab)](api/requirements.txt)
 [![Next.js 16](https://img.shields.io/badge/next.js-16-000000)](web/package.json)
 [![Cloud Run](https://img.shields.io/badge/google_cloud-run-4285f4)](cloudbuild.yaml)
-[![Tests](https://img.shields.io/badge/tests-601-2ea043)](api/tests)
+[![Tests](https://img.shields.io/badge/tests-612-2ea043)](api/tests)
 
 [Quick start](#quick-start) ·
 [Architecture](#architecture) ·
@@ -252,7 +252,7 @@ api/app/main.py        API: upload, products, clauses, conflicts, query, sources
 api/app/worker.py      Pub/Sub consumers + the scheduled source sweep
 api/app/core/          the engine — framework-free, no FastAPI, no ADK
 api/app/adk/           the four agents; tool bodies live in core/
-api/tests/             601 tests + fixture corpus
+api/tests/             612 tests + fixture corpus
 web/                   Next.js app
 data/regulations/      the real source PDFs, with provenance in SOURCES.md
 scripts/setup.sh       idempotent GCP provisioning
