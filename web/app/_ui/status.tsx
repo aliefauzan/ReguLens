@@ -150,6 +150,11 @@ export const PLAIN: Record<string, string> = {
   product_amount_unknown: "We do not know how much your product contains",
   unit_unconvertible: "The units do not convert",
   non_numeric_clause: "This rule has no number in it",
+  clause_unit_unreadable: "We could not read the unit this limit is written in",
+  no_maximum: "This rule sets no upper limit",
+  prohibited: "This rule forbids the ingredient outright",
+  conditional_permission: "This rule only applies in a case we cannot check for you",
+  clause_confidence_below_0_5: "We are not sure we read this rule correctly",
 };
 
 export function plain(value: string | null | undefined): string {

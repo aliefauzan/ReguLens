@@ -12,6 +12,7 @@ from typing import Any
 
 from google.cloud import firestore
 
+from app.core.paging import SCAN_CAP, record_overflow
 from app.core.repository import delete_with_event, events_for, new_id, write_with_event
 from app.db import get_db
 from app.models import (
@@ -189,12 +190,22 @@ def delete_document(document_id: str) -> dict[str, int] | None:
         return None
 
     db = get_db()
+    # Every clause, not the first five hundred. A clause left behind by a
+    # capped delete keeps its `active` status and keeps binding products, while
+    # the document it quotes is gone — a verdict resting on a rule no reader can
+    # open, and it never expires.
     clause_snapshots = list(
         db.collection("clauses")
         .where(filter=firestore.FieldFilter("document_id", "==", document_id))
-        .limit(500)
+        .limit(SCAN_CAP + 1)
         .stream()
     )
+    if len(clause_snapshots) > SCAN_CAP:
+        record_overflow("clauses", cap=SCAN_CAP, seen=len(clause_snapshots))
+        raise ValueError(
+            f"document {document_id} holds more than {SCAN_CAP} clauses; deleting it "
+            "would leave orphans behind, so nothing was deleted"
+        )
     clause_ids = [s.id for s in clause_snapshots]
     refs = [s.reference for s in clause_snapshots]
 

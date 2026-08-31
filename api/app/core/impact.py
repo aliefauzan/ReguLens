@@ -12,8 +12,11 @@ from datetime import date
 
 from google.cloud import firestore
 
+from app.core.clause_kind import NO_MAXIMUM, PROHIBITION, is_basis_note, kind_of
 from app.core.guardrail import product_types_comparable, substances_comparable, to_mg_per_kg
+from app.core.paging import read_capped
 from app.core.repository import write_with_event
+from app.core.scope import stated_scope
 from app.db import get_db
 from app.models import EventType
 from app.observability import log
@@ -22,28 +25,27 @@ logger = logging.getLogger(__name__)
 
 
 def clauses_active() -> list[dict]:
-    docs = (
+    """Every rule in force. Capped, and the cap reports itself.
+
+    This used to stop at an arbitrary two hundred. Nothing ordered the query and
+    nothing counted what it left behind, so a workspace with a full rulebook —
+    the bundled starter set alone is around 406 rule rows — had its verdicts
+    computed against roughly half of it, and the half was chosen by document id.
+    """
+    return read_capped(
         get_db()
         .collection("clauses")
-        .where(filter=firestore.FieldFilter("status", "in", ["active", "conflicted"]))
-        .limit(200)
-        .stream()
+        .where(filter=firestore.FieldFilter("status", "in", ["active", "conflicted"])),
+        what="clauses",
     )
-    return [d.to_dict() | {"id": d.id} for d in docs]
 
 
 def markets_all() -> list[dict]:
-    return [
-        d.to_dict() | {"id": d.id}
-        for d in get_db().collection("markets").limit(20).stream()
-    ]
+    return read_capped(get_db().collection("markets"), what="markets")
 
 
 def products_all() -> list[dict]:
-    return [
-        d.to_dict() | {"id": d.id}
-        for d in get_db().collection("products").limit(50).stream()
-    ]
+    return read_capped(get_db().collection("products"), what="products")
 
 
 # ---------------------------------------------------------------------------
@@ -67,6 +69,7 @@ REPORTED_FIELDS = frozenset(
         "evaluation",
         "severity",
         "reason",
+        "reason_detail",
         "product_value",
         "product_unit",
         "comparable_value",
@@ -94,20 +97,33 @@ def clause_binds(product: dict, clause: dict, market: dict) -> bool:
     jurisdictions = {str(j).upper() for j in market.get("jurisdictions", [])}
     if str(clause.get("jurisdiction") or "").upper() not in jurisdictions:
         return False
-    numeric = clause.get("clause_type") == "numeric_limit"
+    # A footnote explains how another row's number is expressed. It imposes
+    # nothing, so binding it to a product invents a requirement the regulator
+    # never wrote — and it arrived on the product page as "this rule has no
+    # number in it, so a person has to read it", which is the motto backwards.
+    if is_basis_note(clause):
+        return False
+
     # Family-aware bind: a clause limiting "benzoic acid — benzoates" binds a
     # product containing sodium benzoate (same documented basis).
+    names_substance = bool(clause.get("substance_normalized"))
     matches = any(
         substances_comparable(clause.get("substance_normalized"), i.get("normalized"))
         for i in product.get("ingredients", [])
     )
-    if numeric and not matches:
-        return False  # numeric limits bind only via a matching ingredient
-    # ...and only when the rule was written for this kind of product. The
-    # bundled library carries limits for every food category, so a benzoate
-    # limit for dairy desserts would otherwise be applied to a drink powder and
-    # fail it on a rule that does not cover it.
-    if numeric and not product_types_comparable(
+    # A rule about a substance binds only via a matching ingredient, and only
+    # when it was written for this kind of food. Both gates used to apply to
+    # numeric rules alone, so every *non*-numeric row in the jurisdiction bound
+    # every product: a nectar footnote about acesulfame K landed on a drink
+    # powder, under a heading naming the ingredient, asking a person to read it.
+    #
+    # A clause naming no substance still binds. Those are the genuine
+    # document-level obligations — labelling, notification, record-keeping — and
+    # dropping them would be this same defect pointing the other way: silence
+    # where there is a requirement.
+    if names_substance and not matches:
+        return False
+    if not product_types_comparable(
         clause.get("product_type"), product.get("product_type")
     ):
         return False
@@ -172,6 +188,7 @@ def materialize_for_product(product_id: str) -> list[dict]:
                 "evaluation": evaluation["evaluation"],
                 "severity": evaluation["severity"],
                 "reason": evaluation["reason"],
+                "reason_detail": evaluation["reason_detail"],
                 "status": "active",
                 "evaluated_at": firestore.SERVER_TIMESTAMP,
             }
@@ -277,16 +294,14 @@ def _in_force(effective_date: object, as_of: date) -> bool:
 
 
 def _requirements_for(product_id: str) -> list[dict]:
-    return [
-        d.to_dict() | {"id": d.id}
-        for d in (
-            get_db()
-            .collection("requirements")
-            .where(filter=firestore.FieldFilter("product_id", "==", product_id))
-            .limit(200)
-            .stream()
-        )
-    ]
+    """Every requirement this product carries. The rollup status is a count over
+    these rows, so a cap that silently dropped some would move the verdict."""
+    return read_capped(
+        get_db()
+        .collection("requirements")
+        .where(filter=firestore.FieldFilter("product_id", "==", product_id)),
+        what="requirements",
+    )
 
 
 def _status_from(requirements: list[dict]) -> str:
@@ -602,6 +617,52 @@ def run_impact_for_product(product_id: str) -> dict:
 # Evaluation — deterministic, no model
 
 
+# The phrases that turn a prohibition into a question rather than a verdict. A
+# row that forbids something *except* in a case it names has not decided
+# anything about a product until somebody says whether the case applies.
+_CARVE_OUT = ("except", "unless", "other than", "kecuali", "selain")
+
+
+def _verdict_without_a_number(clause: dict, ingredient: dict | None) -> tuple[str, str, str | None]:
+    """What a clause carrying no comparable limit still says about a product.
+
+    Everything here used to collapse into one answer — `non_numeric_clause`,
+    printed as *"This rule has no number in it, so a person has to read it."*
+    Four of the five cases below are decidable without reading anything, and the
+    fifth is a single question rather than a page of annex:
+
+      * the number is there and its unit was not readable — say *that*, because
+        "no number in it" over a row reading `350` is a false statement
+      * "quantum satis" is a stated absence of a maximum, which is an answer
+      * "may not be used" is a limit of zero written in words
+      * a rule that forbids something *except* in a named case, or that applies
+        *only* to a named food, is one yes/no away from an answer
+      * anything else, honestly unrecognised, and only this waits for a person
+    """
+    if clause.get("limit_value") is not None:
+        return "needs_review", "clause_unit_unreadable", str(clause.get("unit_raw") or "") or None
+
+    kind = kind_of(clause)
+    if kind is None or ingredient is None:
+        # No recognised shape, or nothing of this product's for it to be about.
+        return "needs_review", "non_numeric_clause", None
+    label, matched = kind
+
+    text = " ".join(str(clause.get("text") or "").split())
+    condition = stated_scope(text)
+    if condition is not None:
+        return "needs_review", "conditional_permission", f"{condition[0]} {condition[1]}"
+
+    if label == PROHIBITION:
+        carve_out = next((w for w in _CARVE_OUT if w in text.lower()), None)
+        if carve_out:
+            return "needs_review", "conditional_permission", matched
+        return "fail", "prohibited", matched
+    if label == NO_MAXIMUM:
+        return "pass", "no_maximum", matched
+    return "needs_review", "non_numeric_clause", None
+
+
 def evaluate(product: dict, requirement_clause: dict) -> dict:
     """Evaluate one clause against one product.
 
@@ -622,9 +683,10 @@ def evaluate(product: dict, requirement_clause: dict) -> dict:
     comparable_value: float | None = None
     comparable_limit: float | None = None
 
+    reason_detail: str | None = None
+
     if requirement_clause.get("clause_type") != "numeric_limit":
-        result = "needs_review"
-        reason = "non_numeric_clause"
+        result, reason, reason_detail = _verdict_without_a_number(requirement_clause, ingredient)
     elif amount is None:
         result = "needs_review"
         reason = "product_amount_unknown"
@@ -656,4 +718,7 @@ def evaluate(product: dict, requirement_clause: dict) -> dict:
         "comparable_limit": comparable_limit,
         "comparable_unit": "mg_per_kg" if comparable_value is not None else None,
         "reason": reason,
+        # The words the reason was read from. A verdict a reader cannot check is
+        # the same trust-me as the bare "a person has to read it" it replaces.
+        "reason_detail": reason_detail,
     }

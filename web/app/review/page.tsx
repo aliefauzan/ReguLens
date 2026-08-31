@@ -26,6 +26,8 @@ const REASONS: Record<string, string> = {
   unnormalized_substance: "We do not recognise the ingredient name.",
   unnormalized_unit: "We do not recognise the unit of measurement.",
   non_numeric_clause: "This rule has no number in it, so it cannot be checked automatically.",
+  clause_unit_unreadable:
+    "This rule states a number, but not in a unit we could read. Confirm the unit and it becomes a check.",
   ambiguous_relationship: "It is unclear whether this replaces an existing rule.",
   // Written by reconciliation when the judge could not settle a pair. It read
   // as "judge ambiguous" on screen, which is the pipeline talking, not the app.

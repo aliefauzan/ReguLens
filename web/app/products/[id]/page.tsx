@@ -22,6 +22,39 @@ export const dynamic = "force-dynamic";
 // A requirement the reader can see but that does not count toward today's
 // verdict. Without this the page shows a red row under a green badge and
 // explains nothing, which is the one thing this project promised not to do.
+/** One sentence per verdict, and never a sentence about a different verdict.
+ *
+ * This used to be a three-branch ternary whose last branch read "We do not know
+ * how much your product contains" — printed over a rule whose *unit* could not
+ * be read, and over a rule we were not confident we had read at all, in both
+ * cases while the amount sat filled in on the same card.
+ */
+function verdictSentence(req: ComplianceRequirement): string {
+  if (req.evaluation === "fail" && req.reason === "prohibited") {
+    return `This rule forbids it outright — it says “${req.reason_detail ?? "may not be used"}”, so no amount is allowed here.`;
+  }
+  if (req.evaluation === "fail") return "Over the limit — you cannot sell it here as it is.";
+  if (req.evaluation === "pass" && req.reason === "no_maximum") {
+    return "This rule sets no upper limit — it says “quantum satis”, meaning as much as the job needs and no more. Nothing here blocks you.";
+  }
+  if (req.evaluation === "pass") return "Under the limit — this one is fine.";
+
+  switch (req.reason) {
+    case "conditional_permission":
+      return `This rule applies in one case only — “${req.reason_detail}”. If that describes your product it binds you; if not, it does not. That is the whole of what is left to decide.`;
+    case "clause_unit_unreadable":
+      return `This rule does state a number. The unit it is written in${req.reason_detail ? ` (“${req.reason_detail}”)` : ""} was not one we could read, so nothing was compared rather than a guess being made.`;
+    case "clause_confidence_below_0_5":
+      return "We are not confident enough that we read this rule correctly to judge your product against it. It is waiting in the review queue.";
+    case "unit_unconvertible":
+      return "This rule is written in a unit that does not convert to yours, so no comparison was made. Your amount is not the problem.";
+    case "non_numeric_clause":
+      return "This rule states no number, and none of the wordings we can decide from. This one does need a person.";
+    default:
+      return "We do not know how much your product contains, so this was not checked.";
+  }
+}
+
 function startsLater(req: ComplianceRequirement, today: string): boolean {
   const when = req.effective_date?.slice(0, 10);
   return Boolean(when && /^\d{4}-\d{2}-\d{2}$/.test(when) && when > today);
@@ -148,6 +181,21 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
       {/* --- The answer, first. Everything else explains it. ---------------- */}
       <section className="mt-6 space-y-4" data-testid="readiness-panel">
         <h2 className="t-section">Can you sell it?</h2>
+        {/* A verdict computed against part of the rulebook looks exactly like
+            one computed against all of it. When a read hit its ceiling the page
+            says which one and by how much, rather than printing a tick that
+            nothing behind it supports. */}
+        {compliance?.incomplete?.length ? (
+          <p className="inset p-4 t-footnote" data-testid="answer-incomplete">
+            <strong>This answer is incomplete.</strong> There is more here than one
+            read can see —{" "}
+            {compliance.incomplete
+              .map((o) => `${o.seen > o.cap ? `over ${o.cap}` : o.seen} ${o.what.replaceAll("_", " ")}`)
+              .join(", ")}
+            . Everything below was worked out from what fitted, so treat none of it
+            as a clean bill of health until the rulebook is split up.
+          </p>
+        ) : null}
         {compliance && Object.keys(compliance.statuses).length > 0 ? (
           Object.entries(compliance.statuses).map(([marketId, status]) => {
             const copy = statusCopy(status);
@@ -280,15 +328,15 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                           </>
                         ) : null}
 
-                        <p className="t-footnote mt-3">
-                          {req.evaluation === "fail"
-                            ? "Over the limit — you cannot sell it here as it is."
-                            : req.evaluation === "pass"
-                              ? "Under the limit — this one is fine."
-                              : req.reason === "non_numeric_clause"
-                                ? "This rule has no number in it, so a person has to read it."
-                                : "We do not know how much your product contains, so this was not checked."}
-                          {req.evaluation === "needs_review" && req.reason !== "non_numeric_clause" ? (
+                        <p className="t-footnote mt-3" data-testid={`verdict-${req.id}`}>
+                          {verdictSentence(req)}
+                          {/* The one reason a reader can clear from the edit
+                              page. It used to be offered under every verdict
+                              except "no number in it" — including the two where
+                              the amount is already filled in, which sent them
+                              off to re-enter a number that was never the
+                              problem. */}
+                          {req.reason === "product_amount_unknown" ? (
                             <>
                               {" "}
                               <Link href={`/products/${id}/edit`} data-testid={`fill-amount-${req.id}`}>

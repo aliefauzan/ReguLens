@@ -13,6 +13,7 @@ import re
 import time
 from typing import Any
 
+from app.core.paging import read_capped
 from app.core.reconciliation import find_similar
 from app.db import get_db
 from app.observability import get_trace_id, log
@@ -216,17 +217,17 @@ def _clauses_in(jurisdictions: list[str], question: str, k: int) -> list[dict]:
 
     if not jurisdictions:
         return []
-    rows = [
-        d.to_dict() | {"id": d.id}
-        for d in (
-            get_db()
-            .collection("clauses")
-            .where(filter=firestore.FieldFilter("status", "in", ["active", "conflicted"]))
-            .where(filter=firestore.FieldFilter("jurisdiction", "in", jurisdictions[:10]))
-            .limit(200)
-            .stream()
-        )
-    ]
+    # The candidate set the answer is ranked out of. Capped at two hundred it
+    # could exclude the governing rule and then refuse with "no regulation
+    # covers this" while the app held the regulation — the exact false negative
+    # the grounding rule exists to prevent.
+    rows = read_capped(
+        get_db()
+        .collection("clauses")
+        .where(filter=firestore.FieldFilter("status", "in", ["active", "conflicted"]))
+        .where(filter=firestore.FieldFilter("jurisdiction", "in", jurisdictions[:10])),
+        what="clauses",
+    )
     if not rows:
         return []
     try:
