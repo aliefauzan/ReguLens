@@ -778,6 +778,11 @@ def dismiss_review_clause(clause_id: str) -> dict:
 
     With only a confirm button, a clause the reader judged wrong sat in the
     queue forever and the count stopped meaning anything.
+
+    It also withdraws a rule that is already active, which until now could only
+    be taken out by deleting the whole document it arrived in. The requirements
+    it wrote and the conflicts it opened go with it and every product it
+    touched is re-evaluated, so nothing it decided is left on screen after it.
     """
     from app.core.reconciliation import dismiss_clause
 

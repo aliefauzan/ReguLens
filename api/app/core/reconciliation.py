@@ -482,14 +482,30 @@ def confirm_clause(clause_id: str) -> dict | None:
     return result
 
 
+DISMISSABLE_STATUSES = frozenset({"needs_review", "active", "conflicted"})
+
+
 def dismiss_clause(clause_id: str) -> dict | None:
-    """Human reject on a needs_review clause: park it, never delete it.
+    """Human reject on a clause: park it, never delete it.
 
     The queue previously had one button. A clause the reader judged wrong could
     only be left sitting there, so the count never fell and the queue stopped
     meaning anything. `dismissed` is terminal and inert — nothing promotes it,
     nothing evaluates against it — but the record and its event survive, which
     is the point of an audit trail.
+
+    An **active** clause can be withdrawn too, and has to be. A rule that
+    reached the graph before the code learned to refuse it could otherwise only
+    be taken out by deleting the whole document it came from — which would take
+    the eighty-seven correct rules of that annex with it. Seen in production:
+    "Loss on drying — not more than 0,25 %", a laboratory method stored as a
+    2 500 mg/kg ceiling and reported on a product page as the limit binding a
+    cured sausage.
+
+    Withdrawing an active clause carries the same duty a document delete does:
+    the requirements it produced and the conflicts it opened go with it, and
+    every product it touched is re-evaluated. A withdrawal that leaves a stale
+    verdict on screen is worse than no withdrawal.
     """
     db = get_db()
 
@@ -500,24 +516,71 @@ def dismiss_clause(clause_id: str) -> dict | None:
         if not fresh.exists:
             return {"status": "missing"}
         data = fresh.to_dict()
-        if data.get("status") != "needs_review":
+        was = str(data.get("status") or "")
+        if was not in DISMISSABLE_STATUSES:
             return {"status": "unchanged"}
         event_id = new_id("evt")
         transaction.set(
             db.collection("graph_events").document(event_id),
             _event_payload(EventType.CLAUSE_DISMISSED, clause_id,
-                           {"status": "needs_review"}, {"status": "dismissed"},
+                           {"status": was}, {"status": "dismissed"},
                            {"dismissed_by": "human"}, "human", data.get("confidence")),
         )
         transaction.set(ref, {"status": "dismissed", "review_reason": None}, merge=True)
-        return {"status": "dismissed"}
+        return {"status": "dismissed", "was": was}
 
     result = txn(db.transaction())
     if result["status"] == "missing":
         return None
     if result["status"] == "dismissed":
-        log(logger, logging.INFO, "clause dismissed", clause_id=clause_id)
+        log(logger, logging.INFO, "clause dismissed", clause_id=clause_id, was=result.get("was"))
+        if result.get("was") != "needs_review":
+            result |= _withdraw_derived_state(clause_id)
     return result
+
+
+def _withdraw_derived_state(clause_id: str) -> dict:
+    """Remove what an active clause produced, then re-evaluate what it touched.
+
+    Same four kinds of derived state a document delete removes, scoped to one
+    clause: the requirements it wrote on every product, and the conflicts it
+    opened on either side of the pair. The clause record and its events stay —
+    the audit trail is the one thing a withdrawal must not erase.
+    """
+    db = get_db()
+    refs, product_ids = [], set()
+    for snapshot in (
+        db.collection("requirements")
+        .where(filter=firestore.FieldFilter("clause_id", "==", clause_id))
+        .stream()
+    ):
+        refs.append(snapshot.reference)
+        product = (snapshot.to_dict() or {}).get("product_id")
+        if product:
+            product_ids.add(str(product))
+    for field in ("clause_a", "clause_b"):
+        for snapshot in (
+            db.collection("conflicts")
+            .where(filter=firestore.FieldFilter(field, "==", clause_id))
+            .stream()
+        ):
+            refs.append(snapshot.reference)
+    for ref in {r.path: r for r in refs}.values():
+        ref.delete()
+
+    for product_id in sorted(product_ids):
+        try:
+            from app.core.impact import run_impact_for_product
+
+            run_impact_for_product(product_id)
+        except Exception as exc:  # noqa: BLE001 - the withdrawal already happened
+            log(
+                logger, logging.WARNING, "reevaluate_after_dismiss_failed",
+                product_id=product_id, error=str(exc)[:200],
+            )
+    summary = {"derived_removed": len(refs), "products_reevaluated": len(product_ids)}
+    log(logger, logging.INFO, "clause_withdrawn", clause_id=clause_id, **summary)
+    return summary
 
 
 # ---------------------------------------------------------------------------
