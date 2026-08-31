@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.core.scope import categories_comparable, category_of
+
 
 @dataclass(frozen=True)
 class ComparablePair:
@@ -114,6 +116,12 @@ def comparability(a: dict, b: dict) -> ComparableOrNot:
         return IncomparablePair(reason="unit_mismatch")
     if not product_types_comparable(a.get("product_type"), b.get("product_type")):
         return IncomparablePair(reason="product_type_mismatch")
+    # The food category the regulator printed at the head of the row. Two
+    # limits from different branches of the GSFA tree are two different foods,
+    # so they are not a supersede question, not a conflict, and not something
+    # to ask a person about. Silence on either side blocks nothing.
+    if not categories_comparable(category_of(a), category_of(b)):
+        return IncomparablePair(reason="food_category_mismatch")
 
     value_a = to_mg_per_kg(a.get("limit_value"), a.get("unit"))
     value_b = to_mg_per_kg(b.get("limit_value"), b.get("unit"))

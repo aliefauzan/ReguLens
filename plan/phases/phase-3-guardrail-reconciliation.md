@@ -145,6 +145,40 @@ input. Enforce that with types, not with prompt instructions.
       conflict verdict no longer silently drops valid supersede findings
       (both now apply).
 - [x] Deployed.
+- [x] **The food category is part of comparability, 31 Aug.** An additive table
+      is one limit per food, not competing limits for the same food. A clause
+      carried a substance, a limit, a jurisdiction and a date but nothing that
+      said *what food*, so every pair of rows in one BPOM table looked like a
+      supersede question with no date to settle it — the one case that goes to
+      the judge, which answered `ambiguous`, which parked the row. Thirty-six
+      rows of BPOM 11/2019 sat in the queue asking a person to confirm that a
+      regulation does not contradict itself. `core/scope.py` reads the GSFA code
+      the regulator prints at the head of the row (`14.1.4.2`, `04.1.2.8`) and
+      the guardrail refuses the pair as `food_category_mismatch`. Not inferred,
+      not a model call, and silence on either side blocks nothing.
+- [x] **`POST /clauses/recheck` re-decides what the queue is holding, 31 Aug.**
+      Only clauses parked `judge_ambiguous` are reopened — the reason that means
+      "typed code had nothing to go on", which is exactly what changed. Low
+      confidence and low authority are never touched: no recheck makes an
+      unreadable number readable. Each clause goes back through
+      `reconcile_clause`, so one that is still ambiguous returns to the queue,
+      and the response names what it could not settle rather than reporting only
+      its successes. Proven against the emulator: a fresh pair from one table
+      reconciles `active` with no judge call; a backlogged `judge_ambiguous`
+      clause rechecks to `active` carrying `clause_rechecked` + `clause_created`;
+      a `low_confidence_or_flagged` clause is skipped as `needs_a_person`; the
+      audit-integrity walker stays green.
+
+### Known follow-up, not done
+
+- [ ] The category is read for comparability but **not** for binding.
+      `clause_binds` still matches on jurisdiction, substance and
+      `product_type`, so a drink is bound by every food category's benzoate row
+      and strictest-wins takes the lowest of them. This was already true of any
+      clause a person confirmed by hand; automatic resolution makes it reachable
+      at scale. Fixing it needs a category on the *product*, which is a new
+      input from the user, not a code change.
+
 ## Out of scope
 
 Conflict resolution/adjudication, human-in-the-loop assignment, clause merging,

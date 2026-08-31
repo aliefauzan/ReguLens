@@ -76,6 +76,20 @@ Tracked here because it spans phases and is easy to lose.
 
 Recorded so they are not reopened. Change one only with a reason written here.
 
+- [x] **A queue may empty itself, but only where typed code can answer, 31 Aug**
+  — thirty-six rows of one BPOM table sat waiting for a person to confirm that a
+  regulation does not contradict itself, which is not a judgement call, it is a
+  missing field. Two answers were available: a bulk-accept button, or the fact
+  the rows already state. The button would have been a person clicking through
+  thirty-six decisions they had no way to check; the fact is the food category
+  the regulator prints at the head of every row, and it settles the question
+  deterministically. So the guardrail learned to read it, and `/clauses/recheck`
+  re-decides the backlog through the ordinary reconciliation path. The line that
+  must not move: only `judge_ambiguous` is ever reopened. That reason means
+  "typed code had nothing to go on", which is exactly what changed. Low
+  confidence and low authority stay a person's job forever — no recheck makes an
+  unreadable number readable, and an app that cleared those would be claiming a
+  confidence it does not have
 - [x] **The word "monitoring" now describes behaviour, 29 Aug** — until this
   point nothing entered the graph unless a person uploaded it, which made the
   honest word "checker". `/sources` re-reads a regulator's own address on a
@@ -300,6 +314,7 @@ a diary.
 
 | Date | Who | What changed |
 |---|---|---|
+| 31 Aug 2026 | queue self-resolution | The review queue held 36 rows of one BPOM additive table, every one of them `judge_ambiguous`, every one of them asking a person to confirm that a regulation does not contradict itself. Cause: a clause carries a substance, a limit, a jurisdiction and a date but nothing that says *what food*, so two rows of one table read as a supersede question with no date to settle it — the single case that reaches the judge. New `core/scope.py` reads the GSFA category code the regulator prints at the head of the row (`14.1.4.2`, `04.1.2.8`); the guardrail refuses cross-branch pairs as `food_category_mismatch`, so they never reach a model and never reach a person. `POST /clauses/recheck` re-decides the backlog through the ordinary `reconcile_clause` path — `judge_ambiguous` only, never low confidence or low authority, and a clause that is still ambiguous goes back in the queue. Review page gained the button, a plain-language line for `judge_ambiguous` (it read "judge ambiguous" on screen), and a result that names what it could not settle. Proven against the Firestore emulator: fresh pair → `active` with no judge call; parked clause → `active` with `clause_rechecked` + `clause_created`; low-confidence clause untouched; integrity walker green. 503 tests green (21 new), ruff clean, tsc clean, next build green. Not deployed yet |
 | 31 Aug 2026 | test fix | `test_a_source_that_is_not_due_is_left_alone` anchored its `last_checked_at` to a hardcoded `NOW` (29 Aug) while `check_source()` reads the wall clock — the source went stale on 30 Aug and the test started failing in Cloud Build. Anchored to `datetime.now(UTC)` instead |
 | 29 Aug 2026 | web UI | Rebuilt the frontend as an operations console: fixed left rail with live queue counts, sticky top bar carrying the service-reachability indicator and the two global actions, and a metric strip over an asymmetric two-column overview (verdict table left, next step / activity feed / verdict legend right). Design system retuned for density — 15px base, hairline panels, monospace figures, one accent. No new dependencies: inline SVG icon set, CSS-only motion. Every `data-testid` preserved; component CSS moved into Tailwind's `components` layer so utilities keep winning |
 | 19 Aug 2026 | planning | Plan folder created; ADK + Pub/Sub + Cloud Build + observability + E2E phase incorporated |

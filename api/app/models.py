@@ -38,6 +38,9 @@ class EventType(StrEnum):
     CLAUSE_SUPERSEDED = "clause_superseded"
     CLAUSE_FLAGGED_REVIEW = "clause_flagged_review"
     CLAUSE_DISMISSED = "clause_dismissed"
+    # A clause left the review queue without a person answering it: new
+    # deterministic evidence settled the question that parked it there.
+    CLAUSE_RECHECKED = "clause_rechecked"
     CONFLICT_OPENED = "conflict_opened"
     REQUIREMENT_CREATED = "requirement_created"
     REQUIREMENT_CHANGED = "requirement_changed"

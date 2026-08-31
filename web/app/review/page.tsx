@@ -6,7 +6,9 @@ import {
   dismissClause,
   listClauses,
   listDocuments,
+  recheckReviewQueue,
   type Clause,
+  type RecheckResult,
   type RegulatoryDocument,
 } from "@/lib/api";
 import Provenance from "../_ui/Provenance";
@@ -25,6 +27,10 @@ const REASONS: Record<string, string> = {
   unnormalized_unit: "We do not recognise the unit of measurement.",
   non_numeric_clause: "This rule has no number in it, so it cannot be checked automatically.",
   ambiguous_relationship: "It is unclear whether this replaces an existing rule.",
+  // Written by reconciliation when the judge could not settle a pair. It read
+  // as "judge ambiguous" on screen, which is the pipeline talking, not the app.
+  judge_ambiguous:
+    "We could not tell whether this replaces a rule we already hold, or sits alongside it.",
 };
 
 /** Both shapes of "why is this here", in one list, never empty. */
@@ -56,6 +62,11 @@ export default function ReviewQueuePage() {
   const [showAll, setShowAll] = useState(false);
   const [hidden, setHidden] = useState(0);
   const [hiddenReasons, setHiddenReasons] = useState<Record<string, number>>({});
+  // What the last automatic pass did. Kept on screen afterwards, because a
+  // queue that empties itself with no account of what it decided is indistinguishable
+  // from a queue that quietly deleted its contents.
+  const [recheck, setRecheck] = useState<RecheckResult | null>(null);
+  const [rechecking, setRechecking] = useState(false);
 
   async function load(all = showAll) {
     try {
@@ -84,6 +95,24 @@ export default function ReviewQueuePage() {
     setShowAll(next);
     setLoading(true);
     await load(next);
+  }
+
+  // The queue filled with rows of one additive table, each asking a person to
+  // confirm that a regulation does not contradict itself. That question has a
+  // deterministic answer — the food category the row states — so this re-runs
+  // the decision instead of asking for thirty-six clicks. Rules parked because
+  // we could not read them are untouched: only a person clears those.
+  async function runRecheck() {
+    setRechecking(true);
+    try {
+      const result = await recheckReviewQueue();
+      setRecheck(result);
+      await load();
+    } catch {
+      setError("The re-check could not run. The service may be unavailable — reload and try again.");
+    } finally {
+      setRechecking(false);
+    }
   }
 
   async function confirm(id: string) {
@@ -122,6 +151,45 @@ export default function ReviewQueuePage() {
         <Term word="authority">authority</Term>. Read each one. Accept it and it starts counting; ignore it and it is parked
         for good, though the record of it stays.
       </p>
+
+      {!loading && !error && (clauses.length > 0 || recheck) ? (
+        <div className="card mt-6 p-4" data-testid="review-recheck">
+          <p className="t-footnote t-secondary">
+            Some of these are only waiting because we could not tell two rules apart. We can
+            re-run those checks now. Nothing is accepted on trust — each rule goes back through
+            the same checks an upload runs, and anything still unclear stays here for you.
+          </p>
+          <button
+            className="btn btn-secondary btn-small mt-3"
+            onClick={runRecheck}
+            disabled={rechecking}
+            data-testid="run-recheck"
+          >
+            {rechecking ? "Re-checking…" : "Re-check these for me"}
+          </button>
+          {recheck ? (
+            <p className="t-footnote mt-3" data-testid="recheck-result">
+              Settled {recheck.resolved} of {recheck.examined}.{" "}
+              {recheck.still_waiting > 0 ? (
+                <>
+                  {recheck.still_waiting} still {recheck.still_waiting === 1 ? "needs" : "need"} you
+                  {Object.keys(recheck.needs_a_person).length > 0 ? (
+                    <>
+                      {" "}—{" "}
+                      {Object.entries(recheck.needs_a_person)
+                        .map(([reason, count]) => `${count} because ${(REASONS[reason] ?? plain(reason)).toLowerCase().replace(/\.$/, "")}`)
+                        .join(", ")}
+                    </>
+                  ) : null}
+                  .
+                </>
+              ) : (
+                <>Nothing is left waiting.</>
+              )}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       {!loading && !error && (hidden > 0 || showAll) ? (
         <div className="card mt-6 p-4" data-testid="review-scope">

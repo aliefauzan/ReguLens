@@ -852,6 +852,27 @@ export async function confirmClause(id: string): Promise<void> {
   announceCountsChanged();
 }
 
+export type RecheckResult = {
+  examined: number;
+  eligible: number;
+  resolved: number;
+  still_waiting: number;
+  needs_a_person: Record<string, number>;
+  outcomes: Record<string, number>;
+};
+
+/** Re-run the rules on everything the queue is holding for a reason typed code
+ * can now settle. Nothing is accepted on trust: each clause goes back through
+ * the same reconciliation an upload runs, and one that is still ambiguous
+ * returns to the queue. */
+export async function recheckReviewQueue(): Promise<RecheckResult> {
+  const response = await fetch(`${BASE}/clauses/recheck`, { method: "POST" });
+  if (!response.ok) throw new Error(`Re-check failed (${response.status}).`);
+  const body = await response.json();
+  announceCountsChanged();
+  return body.result as RecheckResult;
+}
+
 async function post(path: string, body: unknown): Promise<any> {
   const response = await fetch(`${BASE}${path}`, {
     method: "POST",

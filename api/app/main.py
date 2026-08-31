@@ -877,3 +877,25 @@ def confirm_review_clause(clause_id: str) -> dict:
     if result is None:
         raise HTTPException(status_code=404, detail="clause not found")
     return {"result": result, "trace_id": get_trace_id()}
+
+
+@app.post("/clauses/recheck", status_code=200)
+def recheck_review_queue_endpoint() -> dict:
+    """Settle every queued clause that deterministic code can now settle.
+
+    The queue filled up with rows of one additive table asking a person to
+    confirm that a regulation does not contradict itself — the reconciler had
+    no way to see that 14.1.4.2 and 04.1.2.8 are two different foods, so each
+    pair went to the judge and came back ambiguous. The guardrail can see it
+    now, and this re-runs the decision rather than asking for thirty-six clicks.
+
+    Nothing is accepted on trust: a clause is re-decided by the same
+    reconciliation path an upload uses, and one that is still genuinely
+    ambiguous goes straight back into the queue. Clauses parked for low
+    confidence or low authority are never touched — no recheck makes an
+    unreadable number readable.
+    """
+    from app.core.reconciliation import recheck_review_queue
+
+    summary = recheck_review_queue()
+    return {"result": summary, "trace_id": get_trace_id()}

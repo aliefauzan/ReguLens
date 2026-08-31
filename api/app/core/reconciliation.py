@@ -521,6 +521,131 @@ def dismiss_clause(clause_id: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# Re-check: the queue answers itself where deterministic code now can
+
+
+# A parked clause is only re-opened when the reason it was parked for is one
+# that deterministic code can now settle. `judge_ambiguous` is exactly that: the
+# model was asked because typed code had nothing to go on, and the guardrail has
+# since been given something — the food category the row states. Low confidence
+# and low authority are NOT here and must not be added: no amount of rechecking
+# makes an unreadable number readable, and a person is the only thing that
+# clears them.
+AUTO_RECHECKABLE_REASONS = frozenset({"judge_ambiguous"})
+
+
+def recheck_clause(clause_id: str) -> dict:
+    """Put one parked clause back through reconciliation.
+
+    Returns `{"status": ...}` — `skipped` when the clause is not parked for a
+    reason a recheck can settle, otherwise whatever reconciliation decided,
+    which may be `needs_review` again. Landing back in the queue is a real
+    outcome, not a failure: it means the question genuinely still needs a
+    person.
+
+    Idempotent. The reset is transactional and guarded on both the status and
+    the reason, so a redelivered or double-clicked recheck reopens nothing that
+    a previous pass already decided.
+    """
+    db = get_db()
+
+    @firestore.transactional
+    def txn(transaction):
+        ref = db.collection("clauses").document(clause_id)
+        fresh = ref.get(transaction=transaction)
+        if not fresh.exists:
+            return {"status": "missing"}
+        data = fresh.to_dict()
+        if data.get("status") != "needs_review":
+            return {"status": "skipped", "reason": "not_in_review"}
+        reason = data.get("review_reason")
+        if reason not in AUTO_RECHECKABLE_REASONS:
+            return {"status": "skipped", "reason": "needs_a_person", "review_reason": reason}
+        event_id = new_id("evt")
+        transaction.set(
+            db.collection("graph_events").document(event_id),
+            _event_payload(
+                EventType.CLAUSE_RECHECKED, clause_id,
+                {"status": "needs_review", "review_reason": reason},
+                {"status": "pending_reconciliation"},
+                {"rechecked_by": "guardrail"}, "recheck", data.get("confidence"),
+            ),
+        )
+        transaction.set(
+            ref,
+            {"status": "pending_reconciliation", "review_reason": None},
+            merge=True,
+        )
+        return {"status": "reopened", "review_reason": reason}
+
+    reset = txn(db.transaction())
+    if reset["status"] != "reopened":
+        return reset
+    outcome = reconcile_clause(clause_id)
+    log(
+        logger, logging.INFO, "clause_rechecked",
+        clause_id=clause_id, was=reset.get("review_reason"), now=outcome.get("status"),
+    )
+    return outcome
+
+
+def recheck_review_queue(limit: int = 500) -> dict:
+    """Re-run every clause the queue is holding for a reason code can settle.
+
+    This is the whole point of the guardrail change: thirty-six rows of one
+    additive table were parked asking a person to confirm that a regulation
+    does not contradict itself, and the category each row states answers that
+    without a model and without a click.
+
+    The return says what happened to all of them, including what it could not
+    settle — a recheck that reported only its successes would be the same lie
+    as a filter that hides its own count.
+    """
+    db = get_db()
+    parked = [
+        d.to_dict() | {"id": d.id}
+        for d in db.collection("clauses")
+        .where(filter=firestore.FieldFilter("status", "==", "needs_review"))
+        .limit(limit)
+        .stream()
+    ]
+    eligible = [c for c in parked if c.get("review_reason") in AUTO_RECHECKABLE_REASONS]
+    outcomes: dict[str, int] = {}
+    resolved = 0
+    for clause in eligible:
+        result = recheck_clause(clause["id"])
+        status = str(result.get("status"))
+        outcomes[status] = outcomes.get(status, 0) + 1
+        if status not in {"ambiguous_needs_review", "needs_review", "skipped", "missing"}:
+            resolved += 1
+    summary = {
+        "examined": len(parked),
+        "eligible": len(eligible),
+        "resolved": resolved,
+        "still_waiting": len(parked) - resolved,
+        # Named, not just counted: a reason nothing can settle automatically is
+        # the reader's next piece of work, and hiding it behind a total makes
+        # the queue look shorter than it is.
+        "needs_a_person": _reason_counts(
+            c for c in parked if c.get("review_reason") not in AUTO_RECHECKABLE_REASONS
+        ),
+        "outcomes": outcomes,
+    }
+    log(logger, logging.INFO, "review_queue_rechecked", **{
+        k: v for k, v in summary.items() if isinstance(v, int)
+    })
+    return summary
+
+
+def _reason_counts(clauses) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for clause in clauses:
+        key = str(clause.get("review_reason") or "unstated")
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------------------
 # Transactional verdict application
 
 
