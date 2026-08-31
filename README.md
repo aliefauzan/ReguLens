@@ -13,7 +13,7 @@ products just stopped being compliant — before anyone thinks to look.
 [![Python 3.12](https://img.shields.io/badge/python-3.12-3776ab)](api/requirements.txt)
 [![Next.js 16](https://img.shields.io/badge/next.js-16-000000)](web/package.json)
 [![Cloud Run](https://img.shields.io/badge/google_cloud-run-4285f4)](cloudbuild.yaml)
-[![Tests](https://img.shields.io/badge/tests-393-2ea043)](api/tests)
+[![Tests](https://img.shields.io/badge/tests-601-2ea043)](api/tests)
 
 [Quick start](#quick-start) ·
 [Architecture](#architecture) ·
@@ -22,7 +22,7 @@ products just stopped being compliant — before anyone thinks to look.
 [Limitations](#limitations)
 
 
-> **Demo video (4 min):** _TODO — diisi di fase S3_
+> **Demo video (4 min):** _link goes here_
 > **Track:** Collaborative Partner · All Things Agentic Hackathon
 
 </div>
@@ -48,7 +48,16 @@ continuously, without being asked.
 - **Finds regulations nobody uploaded.** A daily sweep re-reads four regulator
   addresses — the EU Publications Office catalogue, one specific EU act, the
   Commission's food-safety feed, and BPOM's legal portal. Three of the four *discover*:
-  they surface acts at addresses the system has never seen.
+  they surface acts at addresses the system has never seen. On the deployed stack this
+  has moved a real verdict: Commission Regulation (EU) 2023/2108 was found at CELLAR,
+  read into 88 verbatim limits, and failed a cured sausage on the 30 mg/kg nitrite row
+  that entered into force on 9 October 2025. Nobody uploaded it.
+- **Finds the addresses too, for a country nobody seeded.** `POST /countries/discover`
+  asks **Gemma** for the two things a model gets right — the regulator's name and its
+  root domain — and reads every path off pages actually fetched. The model picks an
+  index from a link inventory we hand it; a pick that is not in the list is dropped.
+  Measured on 31 Aug over six countries: regulator names 6/6, root domains 6/6, and
+  every model-written *path* wrong, which is why it is never asked for one.
 - **Extracts rules, not summaries.** Clauses come out verbatim with a substance, a
   limit, a unit and a citation, then get a computed confidence score.
 - **Refuses to guess.** A deterministic guardrail decides whether two clauses may even
@@ -56,8 +65,12 @@ continuously, without being asked.
   of silently moving a limit.
 - **Flips verdicts on its own.** When a rule changes, affected products change status
   and an alert names the regulation that caused it — and whether anybody uploaded it.
-- **Answers questions with citations.** Every clause id in an answer is validated in
-  code against what retrieval actually served. An invented id cites nothing.
+- **Answers questions with citations** — over the API. `POST /query` runs the ADK
+  Query agent, which picks its own retrieval tools, and every clause id it returns is
+  validated in code against what retrieval actually served, so an invented id cites
+  nothing. **Not wired into the web app**: there is no Ask box on any page yet, and the
+  agent is strict enough that a question phrased around a market rather than a substance
+  comes back as a refusal. Both are listed under [Limitations](#limitations).
 
 ## Quick start
 
@@ -101,7 +114,8 @@ local e2e drill              PASS
 
 ![ReguLens on Google Cloud](docs/architecture.png)
 
-Two ways in, one pipeline:
+Two ways in, one pipeline — and a third way to acquire an *address*, which is not the
+same thing as a way into the graph:
 
 ```
 A. A person uploads a PDF or pastes text
@@ -118,7 +132,9 @@ B. Cloud Scheduler (06:00 daily) → worker re-reads every watched address
 ```
 
 There is no third way in. A regulation discovered by the scheduler is hashed, stored,
-extracted, guardrailed and reviewed exactly as an upload is.
+extracted, guardrailed and reviewed exactly as an upload is. Country discovery
+(`POST /countries/discover`, Gemma) does not touch this pipeline at all: it produces a
+watched *address*, which the 06:00 sweep then reads through path B like every other.
 
 The diagram is generated, not drawn — regenerate it with `make diagram`.
 
@@ -129,7 +145,7 @@ The diagram is generated, not drawn — regenerate it with `make diagram`.
 | API & worker | FastAPI on Cloud Run, one container image |
 | Web | Next.js 16 (App Router), React 19, TypeScript, Tailwind 4 |
 | Agents | Google ADK |
-| Models | Gemini 3.5 Flash + embeddings, via Vertex AI or the Gemini Developer API |
+| Models | Gemini 3.5 Flash + embeddings, via Vertex AI or the Gemini Developer API; **Gemma** (`gemma-4-31b-it`) for country discovery |
 | Events | Pub/Sub push subscriptions, OIDC-authenticated, dead-lettered |
 | Data | Firestore (native), Cloud Storage |
 | Scheduling | Cloud Scheduler → worker, daily |
@@ -238,7 +254,7 @@ api/app/main.py        API: upload, products, clauses, conflicts, query, sources
 api/app/worker.py      Pub/Sub consumers + the scheduled source sweep
 api/app/core/          the engine — framework-free, no FastAPI, no ADK
 api/app/adk/           the four agents; tool bodies live in core/
-api/tests/             393 tests + fixture corpus
+api/tests/             601 tests + fixture corpus
 web/                   Next.js app
 data/regulations/      the real source PDFs, with provenance in SOURCES.md
 scripts/setup.sh       idempotent GCP provisioning
@@ -258,8 +274,17 @@ Things this does not do. The list is here so nobody discovers them in a demo.
 - **Watching is a scheduled re-read, not a subscription.** The floor on noticing a
   change is the check interval — 24 hours by default — because no regulator in the
   corpus publishes a webhook.
-- **Sources are registered by hand.** No crawler works out on its own which page a
-  regulator publishes on.
+- **A discovered source is an index, not a rule.** `POST /countries/discover` finds a
+  regulator's regulations index for a country nobody seeded, and stops there: it
+  commits a `listing` to watch, and the ordinary sweep is what reads anything from it.
+  It also fails openly — a regulator publishing through a JavaScript application
+  returns "the index has no links we can follow" rather than an empty success.
+- **The query agent has no UI and refuses more than it should.** Asked about a market
+  ("the nitrite limit for cured meat in Germany") it answers `INSUFFICIENT_EVIDENCE`
+  even while holding the clause the product page cites; asked about a substance it
+  answers, but the model does not always emit the bracketed ids the validator counts,
+  so an answer can arrive with zero citations. The refusal path is the safe one and it
+  is the one that fires; the wiring and the citation enforcement are unfinished.
 - **The EU catalogue query is scoped to one subject** (*food additive*). A regulation
   about contaminants or packaging falls outside it. Deliberate — unscoped, the query
   returns everything the EU publishes.
@@ -279,8 +304,10 @@ Things this does not do. The list is here so nobody discovers them in a demo.
 
 ### Deliberate choices, not shortfalls
 
-- The substance-family table (benzoates, sorbates) is documented domain mapping, not
-  inferred equivalence. Both source regulations state the shared basis.
+- The substance-family table (benzoates, sorbates, and the curing salts — nitrites
+  E 249-250, nitrates E 251-252) is documented domain mapping, not inferred
+  equivalence. Every source regulation states the shared basis on the limit row
+  itself: the level applies to the group, so the row was written about the group.
 - Readiness shows issue counts, not a percentage. A percentage needs a denominator — the
   number of rules that *should* apply — which nobody has.
 
