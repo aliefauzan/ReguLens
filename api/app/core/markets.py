@@ -44,7 +44,9 @@ def list_markets() -> list[dict]:
     return [doc.to_dict() | {"id": doc.id} for doc in docs]
 
 
-def ensure_market(*, country_code: str, country_name: str, regulator: str) -> tuple[str, bool]:
+def ensure_market(
+    *, country_code: str, country_name: str, regulator: str | None = None
+) -> tuple[str, bool]:
     """Make sure a market speaks for this country. Returns `(market_id, created)`.
 
     Discovery calls this before it commits a source, and the reason is load
@@ -58,6 +60,12 @@ def ensure_market(*, country_code: str, country_name: str, regulator: str) -> tu
     with `jurisdictions: ["ID_BPOM"]`, so discovering ID must *add* to that list
     rather than replace it. A market's regimes accumulate; nothing here removes
     one.
+
+    `regulator` is optional because a market can exist before anybody has found
+    who writes its rules: a user selling into France says so on the product
+    long before discovery names ANSES. Such a market carries no source and no
+    clause, so every verdict for it reads `unknown` — which is the truth, and
+    is why it must exist rather than be dropped on the floor.
     """
     code = country_code.strip().upper()
     market_id = f"market_{code.lower()}"
@@ -80,9 +88,13 @@ def ensure_market(*, country_code: str, country_name: str, regulator: str) -> tu
         "country": existing.get("country") or country_name,
         "country_code": code,
         "jurisdictions": jurisdictions,
-        "label": existing.get("label") or f"{country_name} — {regulator}",
+        "label": existing.get("label")
+        or (f"{country_name} — {regulator}" if regulator else country_name),
         "regulator": existing.get("regulator") or regulator,
-        "discovered": existing.get("discovered", created),
+        # "Discovered" means a model went and found this country's regulator.
+        # A market created from the product form because somebody sells there
+        # has found nothing, and must not claim it did.
+        "discovered": existing.get("discovered", created and regulator is not None),
     }
     ref.set(record, merge=True)
     log(

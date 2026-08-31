@@ -77,8 +77,22 @@ export const MARKET_NAMES: Record<string, string> = {
   market_id: "Indonesia (BPOM)",
 };
 
+// A market id is `market_<iso country code>`. Seeded markets name their
+// regulator too; a market added from the product form or found by discovery
+// has no entry here, and "FR" is not a country a reader recognises at a
+// glance. Intl knows every code the country list can produce.
+function countryFromMarketId(id: string): string | null {
+  const code = id.replace("market_", "").toUpperCase();
+  if (!/^[A-Z]{2}$/.test(code)) return null;
+  try {
+    return new Intl.DisplayNames(["en"], { type: "region" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
 export function marketName(id: string): string {
-  return MARKET_NAMES[id] ?? id.replace("market_", "").toUpperCase();
+  return MARKET_NAMES[id] ?? countryFromMarketId(id) ?? id.replace("market_", "").toUpperCase();
 }
 
 // The country on its own, for tables where the regulator's name costs a column
@@ -90,7 +104,7 @@ export const MARKET_SHORT_NAMES: Record<string, string> = {
 };
 
 export function marketShortName(id: string): string {
-  return MARKET_SHORT_NAMES[id] ?? marketName(id);
+  return MARKET_SHORT_NAMES[id] ?? countryFromMarketId(id) ?? marketName(id);
 }
 
 export const JURISDICTION_NAMES: Record<string, string> = {
@@ -100,6 +114,21 @@ export const JURISDICTION_NAMES: Record<string, string> = {
 
 export function jurisdictionName(code: string | null | undefined): string {
   if (!code) return "—";
+  return JURISDICTION_NAMES[code] ?? code;
+}
+
+// The regime, said next to the country's own name, where repeating the country
+// would be noise: "Indonesia — Indonesia (BPOM) rules". Discovery registers a
+// source under the plain country code, and there is nothing to name in that
+// case beyond "national".
+export const JURISDICTION_SHORT_NAMES: Record<string, string> = {
+  EU: "European Union",
+  ID_BPOM: "BPOM",
+};
+
+export function jurisdictionShortName(code: string): string {
+  if (JURISDICTION_SHORT_NAMES[code]) return JURISDICTION_SHORT_NAMES[code];
+  if (/^[A-Z]{2}$/.test(code)) return "National";
   return JURISDICTION_NAMES[code] ?? code;
 }
 

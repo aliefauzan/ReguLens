@@ -233,6 +233,17 @@ class CountryDiscoverIn(BaseModel):
     country_code: str = Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
 
 
+class MarketIn(BaseModel):
+    """A request to make a market exist for a country the user sells into.
+
+    Only the code, for the same reason as `CountryDiscoverIn`: the country name
+    comes from the bundled ISO list, so a caller cannot write a label of their
+    choosing into the markets collection.
+    """
+
+    country_code: str = Field(min_length=2, max_length=2, pattern=r"^[A-Za-z]{2}$")
+
+
 class WatchedSourceIn(BaseModel):
     """An address ReguLens re-reads on a schedule."""
 
