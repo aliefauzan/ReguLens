@@ -1,9 +1,9 @@
 # Phase 9 — Country Discovery
 
-**Status:** `IN PROGRESS` — code complete and exercised against live regulator
-sites; **not deployed**, so nothing here is ticked `[x]` yet.
+**Status:** `COMPLETE` — deployed and verified against the live stack on
+31 Aug 2026. Evidence in `plan/PROD-VERIFICATION.md`.
 **Started:** 31 Aug 2026
-**Completed:** —
+**Completed:** 31 Aug 2026
 **Branch:** `feat/country-discovery`
 
 ## Why
@@ -44,25 +44,26 @@ writes rather than selects is dropped and logged.
 
 ## What landed
 
-- [ ] `api/app/core/discovery.py` — the four hops, all refusals named
-- [ ] `api/app/core/data/countries.json` — ISO 3166-1, 249 entries, code and name
+- [x] `api/app/core/discovery.py` — the four hops, all refusals named
+- [x] `api/app/core/data/countries.json` — ISO 3166-1, 249 entries, code and name
       only. No bundled regulator names: 249 hand-written facts is 249 chances to
       ship a wrong one, and the model names the regulator correctly anyway
-- [ ] `markets.ensure_market` — **the load-bearing half.** `impact.py:94` skips
+- [x] `markets.ensure_market` — **the load-bearing half.** `impact.py:94` skips
       any clause whose jurisdiction no market lists, so a source committed
       without its market ingests regulations that never reach a verdict. Adds to
       an existing market's `jurisdictions` rather than replacing (Indonesia
       keeps `ID_BPOM`)
-- [ ] `llm.generate_structured` — a JSON call against an arbitrary model, reusing
+- [x] `llm.generate_structured` — a JSON call against an arbitrary model, reusing
       `_generate` so the closed-transport workaround is not duplicated
-- [ ] `country.requested` topic, `/internal/country-discover` worker handler,
+- [x] `country.requested` topic, `/internal/country-discover` worker handler,
       idempotent via `processed_messages` like every other handler
-- [ ] `GET /countries`, `POST /countries/discover`, `GET /discovery/{id}`,
+- [x] `GET /countries`, `POST /countries/discover`, `GET /discovery/{id}`,
       `GET /discovery/{id}/events` (SSE)
-- [ ] `web/app/sources/DiscoverPanel.tsx` — typeahead, live progress, and every
+- [x] `web/app/sources/DiscoverPanel.tsx` — typeahead, live progress, and every
       rejection rendered with its reason
-- [ ] 39 tests across `test_discovery.py` and `test_discovery_routes.py`
-- [ ] Deployed and verified from Cloud Run
+- [x] 39 tests across `test_discovery.py` and `test_discovery_routes.py`
+- [x] Deployed and verified from Cloud Run — `sfa.gov.sg` and `mhlw.go.jp`
+      answered the datacentre, and both discovered sources are now swept nightly
 
 ## Decisions
 
@@ -78,12 +79,13 @@ writes rather than selects is dropped and logged.
 
 ## Known limits — state these, do not paper over them
 
-- **Yield is roughly one country in three.** Measured: Singapore and Japan commit
+- **Yield is roughly one country in three**, now confirmed on the deployed stack
+  rather than a laptop. Measured: Singapore and Japan commit
   a real source; Malaysia 403s, India and Vietnam time out, the Philippines
   serves a JavaScript application with no anchors in the HTML. Every one renders
   its reason.
-- Verified from a laptop. The standing rule says a URL that answers a laptop can
-  answer a datacentre with a challenge page, so the deployed yield may differ —
-  which is why the "deployed and verified" box above is unticked.
+- Verified from Cloud Run on 31 Aug: Singapore and Japan commit, Thailand and
+  Malaysia refuse with their reasons. The laptop and the datacentre agreed for
+  these four; that is not a guarantee for the other 245.
 - Discovery finds *where regulations are published*. Whether what it then ingests
   is on-topic is the extraction pipeline's job, unchanged by this phase.
