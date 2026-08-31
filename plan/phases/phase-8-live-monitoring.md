@@ -223,6 +223,21 @@ real regulator sites on 29 Aug.
       it is for on an unfamiliar annex.
 - [x] The next forced check in production returned `unchanged / not_modified`:
       CELLAR's `ETag` means the daily run transfers no body at all.
+- [x] **A verdict moved because of a regulation nobody uploaded, 31 Aug.** The
+      chain this phase exists for ran end to end in production: Commission
+      Regulation (EU) 2023/2108 was found by the scheduler at CELLAR, read into
+      88 verbatim limits, and — once the guardrail could tell its rows apart —
+      moved `Traditional Cured Beef Sausage` from `attention_required` to
+      `non_compliant` in Germany against the 30 mg/kg nitrite row that entered
+      into force on 9 October 2025. The alert names the regulation and says
+      `unprompted: true`; `/stats/autonomy` counts it, reading
+      `verdicts_changed: 2` where it had read `0` since the phase shipped. The
+      second is `diet lemon soda`, moved by a BPOM decision from the same sweep.
+- [x] The five things standing between "found" and "moved a verdict" are fixed
+      and recorded under **Decisions taken** in `../PROGRESS.md`: a name the
+      dictionary has since learned, one reason recorded twice, the scope a row
+      states in words, the period a row applies for, and a purity ceiling that
+      names no food.
 - [x] **Discovery proven in production, against the live BPOM portal.** The
       JDIH index baselined at 12 links from Cloud Run. With two of them
       forgotten — standing in for BPOM publishing two things overnight — the
