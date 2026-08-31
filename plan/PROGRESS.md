@@ -115,6 +115,25 @@ Recorded so they are not reopened. Change one only with a reason written here.
   delete carries — the requirements it wrote and the conflicts it opened go
   with it, and every product it touched is re-evaluated. `superseded` stays
   out: that is a decision reconciliation made, not a rule anybody is acting on
+- [x] **A requirement does not outlive the rule it came from, 31 Aug** —
+  materialization walks the *active* clauses, so a requirement whose clause was
+  superseded is never revisited and never corrected, and nothing removed it, so
+  the rollup kept counting it. A cured sausage reformulated to 20 mg/kg stayed
+  `non_compliant` against a nitrite limit superseded minutes earlier, recorded
+  against the 120 mg/kg it no longer contained. That is a verdict drawn from a
+  limit that is not the one in effect — the error `rollup_status` already
+  refuses to make when it filters by effective date, arriving through the
+  requirement instead of the clause. Requirements whose clause is no longer
+  active are retired on every materialization; the clause and its events stay
+- [x] **An alert names the rule the verdict rests on, 31 Aug** — impact was
+  given the clause whose change *started* the run and stamped that as the
+  cause, so an alert could read "it sets nitrates at 150 mg/kg" above a verdict
+  about 30 mg/kg of nitrites: same regulation, wrong row. The cause is now the
+  requirement the verdict rests on — worst first, in force only, which is
+  `_status_from`'s own rule asked for the row instead of the word — and the
+  product-edit path names it too, where it used to record none at all and the
+  UI said "the rule behind this has since been removed" about a rule nobody had
+  removed
 - [x] **The cause of a verdict is a document, not only a clause, 31 Aug** —
   `graph.changed` carried the clause alone, so `cause.document_id` was null on
   every verdict reconciliation ever moved, and `unprompted` — the single claim
