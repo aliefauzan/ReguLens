@@ -165,3 +165,43 @@ def scope_of(clause: dict) -> tuple[str, str] | None:
     """The stated scope of a clause dict, read from its own text every time for
     the same reason `category_of` is: a copied field goes stale."""
     return stated_scope(clause.get("text"))
+
+
+# ---------------------------------------------------------------------------
+# The window a row is in force for
+
+
+# Annex II states a row's validity as a period, and the two halves of an
+# amendment are written as a pair: "Period of application: until 9 October 2025"
+# on the text being replaced, "from 9 October 2025" on the text replacing it.
+# Extraction reads the `from` date into `effective_date`, because that is what
+# an effective date is. The `until` date has nowhere to go, so the row it
+# belongs to arrives dated `None` — and a pair of rows where only one carries a
+# date is exactly the pair no date can settle, which is how one amended limit
+# reaches the model as a question about which of two limits is current.
+_PERIOD = re.compile(
+    r"period of application:\s*(from|until)\s+(\d{1,2}\s+\w+\s+\d{4})", re.IGNORECASE
+)
+
+_MONTHS = {
+    "january": "01", "february": "02", "march": "03", "april": "04",
+    "may": "05", "june": "06", "july": "07", "august": "08",
+    "september": "09", "october": "10", "november": "11", "december": "12",
+}
+
+
+def applies_until(text: str | None) -> str | None:
+    """The ISO date this row stops applying on, or None.
+
+    None means the row states no end — most rows do not — and never "it ended".
+    """
+    if not text:
+        return None
+    match = _PERIOD.search(" ".join(text.split()))
+    if not match or match.group(1).lower() != "until":
+        return None
+    day, month, year = match.group(2).split()
+    key = _MONTHS.get(month.lower())
+    if not key:
+        return None
+    return f"{year}-{key}-{int(day):02d}"

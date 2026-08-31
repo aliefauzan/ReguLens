@@ -241,3 +241,23 @@ def test_a_sweep_reopens_a_learned_name_and_leaves_an_unlearned_one(monkeypatch)
     assert summary["eligible"] == 1
     assert summary["resolved"] == 1
     assert summary["needs_a_person"] == {"substance_not_recognized": 1}
+
+
+def test_a_recheck_is_not_a_way_in_that_an_upload_would_refuse():
+    """A purity criterion parked before `specification_not_food_limit` existed
+    carries no such reason. Releasing it on its substance alone would put "Loss
+    on drying — not more than 3 %" into the graph as a food limit, with no food
+    category, comparable to every cured meat in the annex."""
+    from app.core.reconciliation import _renormalized
+
+    assert (
+        _renormalized(
+            {
+                "substance": "potassium nitrite",
+                "clause_type": "numeric_limit",
+                "text": "Loss on drying Not more than 3 % (4 hours, over silica gel)",
+                "review_reasons": ["substance_not_recognized"],
+            }
+        )
+        is None
+    )

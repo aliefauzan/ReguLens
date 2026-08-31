@@ -56,9 +56,31 @@ _SPECIFICATION_MARKERS = (
 
 
 def _reads_as_specification(text: str) -> bool:
-    """Is this row about the purity of the additive rather than a food limit?"""
+    """Is this row about the purity of the additive rather than a food limit?
+
+    Two tests, because the specification tables have two shapes. The headings
+    above open the criteria that are only ever purity. The second test is how
+    the impurity rows read: "Nitrites — Not more than 20 mg/kg expressed as
+    KNO2" is a ceiling on what the *powder* may contain, and it names no food
+    at all. An Annex II food limit always says which food it is about, in the
+    GSFA code BPOM prints or the words the EU annex uses; a row that states a
+    ceiling and names no food is not a limit anybody can be measured against.
+
+    That distinction earns its place. Left in, the 20 mg/kg impurity row is the
+    strictest nitrite limit in the graph and, naming no food, binds every cured
+    meat in it — a wrong verdict on every one of them, drawn from a purity
+    table. Parked, it costs one review.
+    """
+    from app.core.scope import category_code, stated_scope
+
     lowered = " ".join((text or "").lower().split())
-    return any(marker in lowered for marker in _SPECIFICATION_MARKERS)
+    if any(marker in lowered for marker in _SPECIFICATION_MARKERS):
+        return True
+    return (
+        "not more than" in lowered
+        and category_code(text) is None
+        and stated_scope(text) is None
+    )
 
 
 def build_candidate(

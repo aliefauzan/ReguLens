@@ -577,6 +577,7 @@ def _renormalized(data: dict) -> dict | None:
     even once its substance resolves — settling one of two reasons settles
     nothing.
     """
+    from app.core.extraction.candidates import _reads_as_specification
     from app.core.normalization import normalize_substance
 
     if _park_reasons(data) != {CONDITIONAL_RECHECK_REASON}:
@@ -586,6 +587,17 @@ def _renormalized(data: dict) -> dict | None:
         return None
     normalized, unnormalized = normalize_substance(stated)
     if unnormalized:
+        return None
+    # Every gate the row would meet if it were read today, not only the one it
+    # was parked for. A clause stored before `specification_not_food_limit`
+    # existed carries no such reason, so releasing it on its substance alone
+    # would let "Loss on drying — not more than 3 %" — a purity criterion for
+    # the additive powder, with no food category and therefore comparable to
+    # anything — into the graph as a food limit. A recheck must not be a way
+    # into the graph that an upload today would refuse.
+    if data.get("clause_type") == "numeric_limit" and _reads_as_specification(
+        str(data.get("text") or "")
+    ):
         return None
     # `needs_review` is cleared with the same write, and has to be: the
     # authority gate at the top of `reconcile_clause` reads that flag, so a
@@ -743,13 +755,36 @@ def _reason_counts(clauses) -> dict[str, int]:
 # Transactional verdict application
 
 
+def _ends_where_the_other_starts(a: dict, b: dict) -> bool:
+    """True when `a` starts on the day `b` stops — `a` is `b`'s replacement.
+
+    The two halves of an amendment, as Annex II writes them: the replaced text
+    carries "Period of application: until 9 October 2025" and the replacing
+    text "from 9 October 2025". Only the `from` date is an effective date, so
+    the replaced row arrives dated None and the pair looks undecidable — which
+    sent one amended limit to the model as a question about which of two
+    numbers is current, when the rows say so themselves.
+
+    Read from the text, never stored, for the same reason the scope is.
+    """
+    from app.core.scope import applies_until
+
+    start = str(a.get("effective_date") or "")
+    ends = applies_until(b.get("text"))
+    return bool(start and ends and start >= ends)
+
+
 def _is_newer(a: dict, b: dict) -> bool:
     """True when `a` should replace `b` (same jurisdiction): effective_date
-    first, document recency second."""
+    first, the stated end of the other's period next, document recency last."""
     da = str(a.get("effective_date") or "")
     db_ = str(b.get("effective_date") or "")
     if da and db_ and da != db_:
         return da > db_
+    if _ends_where_the_other_starts(a, b):
+        return True
+    if _ends_where_the_other_starts(b, a):
+        return False
     return str(a.get("document_id") or "") > str(b.get("document_id")) or False
 
 
@@ -757,7 +792,9 @@ def _dates_decide(a: dict, b: dict) -> bool:
     """True when the supersede question can be settled by dates alone."""
     da = str(a.get("effective_date") or "")
     db_ = str(b.get("effective_date") or "")
-    return bool(da and db_ and da != db_)
+    if da and db_ and da != db_:
+        return True
+    return _ends_where_the_other_starts(a, b) or _ends_where_the_other_starts(b, a)
 
 
 def _dominant(outcome: str, current: str | None) -> str | None:
