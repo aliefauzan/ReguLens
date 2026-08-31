@@ -56,6 +56,16 @@ def to_mg_per_kg(value: float | None, unit: str | None) -> float | None:
 _SUBSTANCE_FAMILIES: dict[str, list[str]] = {
     "benzoic_acid": ["benzoic_acid", "sodium_benzoate", "potassium_benzoate", "calcium_benzoate"],
     "sorbic_acid": ["sorbic_acid", "potassium_sorbate"],
+    # Curing salts, on the same documented basis as the benzoates above. EU
+    # Annex II caps the pair as one group on the limit row — "E 249-250
+    # Nitrites", "E 251-252 Nitrates" — and states the level applies to the sum,
+    # so the row is written about the group and an ingredient naming one member
+    # of it is what the row was written for. Without this the whole nitrite
+    # table of Commission Regulation (EU) 2023/2108 reads into the graph and
+    # then binds nothing, because a label says "sodium nitrite" and the rule
+    # says "nitrites".
+    "nitrites": ["nitrites", "sodium_nitrite", "potassium_nitrite"],
+    "nitrates": ["nitrates", "sodium_nitrate", "potassium_nitrate"],
 }
 
 

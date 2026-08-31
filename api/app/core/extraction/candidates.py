@@ -27,6 +27,39 @@ logger = logging.getLogger(__name__)
 # Fields over which two independent samples must agree for self-consistency.
 _CONSISTENCY_FIELDS = ("substance", "limit_value", "unit_raw", "product_type")
 
+# An additive regulation carries two kinds of number that look identical to an
+# extractor and mean opposite things. A food limit says how much of a substance
+# may be in what you eat. A purity criterion says how pure the additive powder
+# itself has to be before anyone is allowed to put it in food, and it names no
+# food category at all — so it arrives with `product_type` unset, which the
+# guardrail reads as "any product type", and one drying specification then binds
+# every product in the workspace.
+#
+# Seen in production: "Loss on drying Not more than 0,25 % (4 hours, over silica
+# gel)" from Commission Regulation (EU) 2023/2108, stored active against
+# sodium nitrite, ready to answer a bacon recipe with a verdict drawn from a
+# laboratory method.
+#
+# These headings are the ones that only ever open a purity criterion. A row that
+# carries one goes to a person; nothing here approves anything, so a false match
+# costs one review and a miss costs a wrong verdict.
+_SPECIFICATION_MARKERS = (
+    "loss on drying",
+    "loss on ignition",
+    "residue on ignition",
+    "sulphated ash",
+    "sulfated ash",
+    "water insoluble matter",
+    "assay",
+    "solubility",
+)
+
+
+def _reads_as_specification(text: str) -> bool:
+    """Is this row about the purity of the additive rather than a food limit?"""
+    lowered = " ".join((text or "").lower().split())
+    return any(marker in lowered for marker in _SPECIFICATION_MARKERS)
+
 
 def build_candidate(
     raw: dict[str, Any],
@@ -83,6 +116,9 @@ def build_candidate(
     if unnormalized_substance:
         needs_review = True
         review_reasons.append("substance_not_recognized")
+    if parsed.clause_type == ClauseType.NUMERIC_LIMIT and _reads_as_specification(parsed.text):
+        needs_review = True
+        review_reasons.append("specification_not_food_limit")
 
     return (
         ClauseCandidate(

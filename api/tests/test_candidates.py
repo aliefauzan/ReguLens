@@ -157,3 +157,63 @@ def test_low_authority_source_caps_confidence():
     # official source at equal quality, and phase 3 routes < 0.5 to review only.
     assert scored.confidence_breakdown["authority_tier"] == 0.2
     assert abs(scored.confidence - 0.76) < 1e-9
+
+# --- Purity criteria are not food limits ------------------------------------
+# Seen in production: "Loss on drying Not more than 0,25 %" reached Firestore as
+# an active numeric limit on sodium nitrite with no product type, which the
+# guardrail reads as "any product type" — one laboratory method binding every
+# product in the workspace.
+
+
+def test_a_drying_specification_goes_to_a_person():
+    candidate, rejection = _build(
+        {
+            "text": "Loss on drying Not more than 0,25 % (4 hours, over silica gel)",
+            "clause_type": "numeric_limit",
+            "substance": "sodium nitrite",
+            "limit_value": 0.25,
+            "unit_raw": "%",
+            "product_type": None,
+        }
+    )
+    assert rejection == {}
+    assert candidate is not None
+    assert candidate.needs_review is True
+    assert "specification_not_food_limit" in candidate.review_reasons
+
+
+def test_a_real_food_limit_from_the_same_regulation_still_passes():
+    candidate, rejection = _build(
+        {
+            "text": (
+                "E 249-250 Nitrites 80 (59) (XC) (XD) except sterilised meat "
+                "products (Fo > 3,00) Period of application: from 9 October 2025"
+            ),
+            "clause_type": "numeric_limit",
+            "substance": "nitrites",
+            "limit_value": 80,
+            "unit_raw": "mg/kg",
+            "product_type": "food_solid",
+        }
+    )
+    assert rejection == {}
+    assert candidate is not None
+    assert candidate.needs_review is False
+    assert candidate.substance_normalized == "nitrites"
+
+
+def test_every_purity_heading_is_caught_not_only_the_one_seen_in_production():
+    """One marker fixed one clause; the table has several headings and they all
+    arrive with no food category attached."""
+    candidate, _ = _build(
+        {
+            "text": "Sulphated ash Not more than 1,0 %",
+            "clause_type": "numeric_limit",
+            "substance": "sodium nitrite",
+            "limit_value": 1.0,
+            "unit_raw": "%",
+            "product_type": None,
+        }
+    )
+    assert candidate is not None
+    assert "specification_not_food_limit" in candidate.review_reasons

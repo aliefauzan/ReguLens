@@ -33,8 +33,8 @@ tell you what it costs to leave open.
 
 - [x] **BLOCKING (everything): Confirm eligibility.** — confirmed by you on 19 Aug.
       Indonesia not excluded, age requirement met. Unblocks everything.
-- [ ] **BLOCKING (submission): Register on Devpost** and join the hackathon.
-      Check whether registration closes before the 31 Aug submission deadline.
+- [x] **BLOCKING (submission): Register on Devpost** and join the hackathon.
+      — confirmed by you on 31 Aug. Registered and joined.
 - [ ] **Confirm you can commit the time.** The plan is 13 working days in a 13-day
       window with zero float. If you have other commitments between 19–31 Aug, say
       so now and we cut scope up front instead of at 2am on the 30th.
@@ -198,7 +198,7 @@ undermining the whole submission.
 - [ ] **Screen recording tool** installed and tested (OBS, or macOS built-in).
 - [ ] **Do you narrate the video yourself, or use captions?** Narration is stronger
       but needs a quiet room and a couple of takes. Decide before Aug 30.
-- [ ] Devpost profile filled in — name, photo, bio.
+- [x] Devpost profile filled in — name, photo, bio. — confirmed by you on 31 Aug.
 - [ ] Decide whether you are writing the optional bonus blog post. ~1 hour, do it
       while builds run.
 

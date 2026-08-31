@@ -131,3 +131,41 @@ def test_a_rule_for_another_kind_of_food_does_not_bind():
     # A source that does not say which products it covers still binds; that is
     # the documented wildcard, not an accident.
     assert product_types_comparable(None, "food_solid")
+
+
+# --- Curing salts -----------------------------------------------------------
+# Added after the deployed stack read the whole nitrite table of Commission
+# Regulation (EU) 2023/2108 into the graph and bound nothing with it: the rule
+# says "nitrites", a recipe says "sodium nitrite", and nothing joined the two.
+
+
+def test_group_row_and_named_member_are_the_same_substance():
+    a = clause(substance_normalized="nitrites")
+    b = clause(substance_normalized="sodium_nitrite")
+    assert isinstance(comparability(a, b), ComparablePair)
+
+
+def test_the_other_nitrite_of_the_pair_is_in_the_family_too():
+    a = clause(substance_normalized="nitrites")
+    b = clause(substance_normalized="potassium_nitrite")
+    assert isinstance(comparability(a, b), ComparablePair)
+
+
+def test_nitrates_are_their_own_family():
+    a = clause(substance_normalized="nitrates")
+    b = clause(substance_normalized="potassium_nitrate")
+    assert isinstance(comparability(a, b), ComparablePair)
+
+
+def test_a_nitrite_limit_never_binds_a_nitrate_ingredient():
+    """The two groups sit on adjacent rows of the same table and cap different
+    chemistry. Widening one family must not quietly merge them."""
+    a = clause(substance_normalized="nitrites")
+    b = clause(substance_normalized="sodium_nitrate")
+    assert isinstance(comparability(a, b), IncomparablePair)
+
+
+def test_a_curing_salt_limit_never_binds_a_benzoate():
+    a = clause(substance_normalized="nitrites")
+    b = clause(substance_normalized="sodium_benzoate")
+    assert isinstance(comparability(a, b), IncomparablePair)

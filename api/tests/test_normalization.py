@@ -87,3 +87,22 @@ def test_a_row_with_no_number_is_not_a_units_problem():
     )
     assert not rejected, rejected
     assert "unit_not_normalizable" not in clause.review_reasons
+
+
+def test_the_curing_salt_group_names_are_known():
+    """The EU Annex II limit rows print the group, not the member, so the group
+    has to be a name the dictionary knows or the row binds nothing."""
+    from app.core.normalization import normalize_substance
+
+    for name, expected in [
+        ("nitrites", "nitrites"),
+        ("nitrates", "nitrates"),
+        ("potassium nitrite", "potassium_nitrite"),
+        ("sodium nitrate", "sodium_nitrate"),
+        ("potassium nitrate", "potassium_nitrate"),
+        ("E 249", "potassium_nitrite"),
+        ("INS 252", "potassium_nitrate"),
+    ]:
+        normalized, unrecognised = normalize_substance(name)
+        assert normalized == expected, name
+        assert unrecognised is False, name

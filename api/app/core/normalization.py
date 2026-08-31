@@ -155,6 +155,15 @@ SYNONYMS: dict[str, list[str]] = {
         "ins 321",
     ],
     "sodium_nitrite": ["sodium nitrite", "natrium nitrit", "e250", "e 250", "ins 250"],
+    "potassium_nitrite": ["potassium nitrite", "kalium nitrit", "e249", "e 249", "ins 249"],
+    "sodium_nitrate": ["sodium nitrate", "natrium nitrat", "e251", "e 251", "ins 251"],
+    "potassium_nitrate": ["potassium nitrate", "kalium nitrat", "e252", "e 252", "ins 252"],
+    # The curing-salt group names, as the EU Annex II tables print them on the
+    # limit rows themselves ("E 249-250 Nitrites", "E 251-252 Nitrates"). An
+    # extractor reading those rows normalizes to the group, so the group has to
+    # be a name the dictionary knows or the row binds nothing.
+    "nitrites": ["nitrites", "nitrit", "e249-250", "e 249-250"],
+    "nitrates": ["nitrates", "nitrat", "e251-252", "e 251-252"],
     "sodium_metabisulphite": [
         "sodium metabisulphite",
         "sodium metabisulfite",
