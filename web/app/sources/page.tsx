@@ -305,10 +305,14 @@ export default function SourcesPage() {
                 </div>
                 <span
                   className="t-caption shrink-0 rounded-[8px] px-2 py-1"
-                  style={{ background: "var(--fill)", color: copy.tone, fontWeight: 600 }}
+                  style={{
+                    background: "var(--fill)",
+                    color: source.checking ? "var(--secondary)" : copy.tone,
+                    fontWeight: 600,
+                  }}
                   data-testid={`source-status-${source.id}`}
                 >
-                  {copy.label}
+                  {source.checking ? "Reading now" : copy.label}
                 </span>
               </div>
 
@@ -344,7 +348,20 @@ export default function SourcesPage() {
 
               {source.last_error ? (
                 <p className="t-footnote mt-2" style={{ color: "var(--danger)" }} data-testid={`source-error-${source.id}`}>
+                  {source.checking ? "Last time we tried: " : null}
                   {source.last_error}
+                </p>
+              ) : null}
+
+              {/* A read in flight makes every line above it historical. Saying so
+                  costs one sentence; not saying it presents a stale error as the
+                  present state of the source. */}
+              {source.checking ? (
+                <p
+                  className="t-footnote t-secondary mt-2"
+                  data-testid={`source-checking-${source.id}`}
+                >
+                  A read is running now — everything above describes the previous one.
                 </p>
               ) : null}
 

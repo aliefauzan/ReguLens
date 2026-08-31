@@ -1,10 +1,10 @@
 # Phase 9 — Country Discovery
 
-**Status:** `IN PROGRESS` — code complete and exercised against live regulator
-sites; **not deployed**, so nothing here is ticked `[x]` yet.
+**Status:** `COMPLETE` — deployed and exercised from Cloud Run, not only from a
+laptop.
 **Started:** 31 Aug 2026
-**Completed:** —
-**Branch:** `feat/country-discovery`
+**Completed:** 31 Aug 2026
+**Branch:** `feat/country-discovery`, merged
 
 ## Why
 
@@ -44,25 +44,33 @@ writes rather than selects is dropped and logged.
 
 ## What landed
 
-- [ ] `api/app/core/discovery.py` — the four hops, all refusals named
-- [ ] `api/app/core/data/countries.json` — ISO 3166-1, 249 entries, code and name
+- [x] `api/app/core/discovery.py` — the four hops, all refusals named
+- [x] `api/app/core/data/countries.json` — ISO 3166-1, 249 entries, code and name
       only. No bundled regulator names: 249 hand-written facts is 249 chances to
       ship a wrong one, and the model names the regulator correctly anyway
-- [ ] `markets.ensure_market` — **the load-bearing half.** `impact.py:94` skips
+- [x] `markets.ensure_market` — **the load-bearing half.** `impact.py:94` skips
       any clause whose jurisdiction no market lists, so a source committed
       without its market ingests regulations that never reach a verdict. Adds to
       an existing market's `jurisdictions` rather than replacing (Indonesia
       keeps `ID_BPOM`)
-- [ ] `llm.generate_structured` — a JSON call against an arbitrary model, reusing
+- [x] `llm.generate_structured` — a JSON call against an arbitrary model, reusing
       `_generate` so the closed-transport workaround is not duplicated
-- [ ] `country.requested` topic, `/internal/country-discover` worker handler,
+- [x] `country.requested` topic, `/internal/country-requested` worker handler,
       idempotent via `processed_messages` like every other handler
-- [ ] `GET /countries`, `POST /countries/discover`, `GET /discovery/{id}`,
+- [x] `GET /countries`, `POST /countries/discover`, `GET /discovery/{id}`,
       `GET /discovery/{id}/events` (SSE)
-- [ ] `web/app/sources/DiscoverPanel.tsx` — typeahead, live progress, and every
+- [x] `web/app/sources/DiscoverPanel.tsx` — typeahead, live progress, and every
       rejection rendered with its reason
-- [ ] 39 tests across `test_discovery.py` and `test_discovery_routes.py`
-- [ ] Deployed and verified from Cloud Run
+- [x] 52 tests across `test_discovery.py` and `test_discovery_routes.py` — 39
+      when this line was written, grown by the fixes the live runs exposed
+- [x] Deployed and verified from Cloud Run — 31 Aug, revision carrying
+      `8ac0ed0-215957`, `DISCOVERY_API_KEY` mounted on both api and worker.
+      Two runs against the deployed stack: **Singapore** committed
+      `sfa.gov.sg/legislation` (4 links matched) and turned away its circulars
+      page (0 matched); **Japan** committed `mhlw.go.jp/hourei/` (4 matched) and
+      turned away `shokanhourei/index.html` (0 matched). Both are now in
+      `/sources` and swept with the rest. The datacentre caveat below is
+      therefore answered for these two, and only these two
 
 ## Decisions
 
@@ -82,8 +90,10 @@ writes rather than selects is dropped and logged.
   a real source; Malaysia 403s, India and Vietnam time out, the Philippines
   serves a JavaScript application with no anchors in the HTML. Every one renders
   its reason.
-- Verified from a laptop. The standing rule says a URL that answers a laptop can
-  answer a datacentre with a challenge page, so the deployed yield may differ —
-  which is why the "deployed and verified" box above is unticked.
+- The six-country measurement above was taken from a laptop. The standing rule
+  says a URL that answers a laptop can answer a datacentre with a challenge page,
+  so the deployed yield may differ from it. Singapore and Japan have since been
+  re-run from Cloud Run and behaved identically; the other four have not been
+  re-run there, and the one-in-three figure is still the laptop's number.
 - Discovery finds *where regulations are published*. Whether what it then ingests
   is on-topic is the extraction pipeline's job, unchanged by this phase.

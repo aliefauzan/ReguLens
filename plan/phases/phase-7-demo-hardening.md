@@ -392,8 +392,13 @@ Known and not defects:
   more additives than the 45-entry dictionary knows, and an unmatched substance
   is deliberately parked rather than guessed at. Growing the dictionary from the
   corpus is the obvious next step.
-- One clause has been stuck in `pending_reconciliation` since 23 Aug — a message
-  lost before this session. It predates every change here.
+  **Re-counted 31 Aug:** 102 clauses wait, and every one now reports
+  `low_confidence_or_flagged` — the recheck path settled the rest. 149 more are
+  held back from the queue because no product contains their ingredient, and the
+  page says so and offers to show them.
+- ~~One clause has been stuck in `pending_reconciliation` since 23 Aug.~~
+  **Cleared.** `/clauses?status=pending_reconciliation` returns nothing on the
+  deployed stack as of 31 Aug.
 
 ### A fix somebody can approve (29 Aug)
 

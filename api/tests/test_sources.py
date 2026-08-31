@@ -1196,3 +1196,54 @@ def test_a_catalogue_check_substitutes_the_window_and_reads_new_acts(monkeypatch
     assert "%7Bsince%7D" not in asked[0] and "{since}" not in asked[0]
     # The document was left to name itself rather than being called '32026R1860'.
     assert recorder.ingested == [act]
+
+
+# ---------------------------------------------------------------------------
+# What the sources page is allowed to claim while a read is in flight
+# ---------------------------------------------------------------------------
+
+
+def test_a_source_being_read_says_so_instead_of_showing_the_last_error(monkeypatch):
+    """Seen in production on 31 Aug: the worker was OOM-killed while holding a
+    listing's check lock, so nothing was written and the page kept showing the
+    previous run's `ReadTimeout` for hours — a working source rendered as broken.
+
+    The lock is the only evidence a read is in flight, so `/sources` reports it.
+    Everything beside a locked source belongs to the run before it, and the page
+    has to be able to say that.
+    """
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    locked = _source(
+        id="src_locked",
+        check_lock_at=datetime.now(UTC) - timedelta(seconds=5),
+        last_status=SourceCheckStatus.ERROR,
+        last_error="We could not reach that address: ReadTimeout",
+    )
+    idle = _source(id="src_idle", last_status=SourceCheckStatus.UNCHANGED)
+    monkeypatch.setattr(sources, "list_sources", lambda: [locked, idle])
+
+    body = TestClient(app).get("/sources").json()
+    by_id = {s["id"]: s for s in body["sources"]}
+
+    assert by_id["src_locked"]["checking"] is True
+    assert by_id["src_idle"]["checking"] is False
+    # The error is still reported — it is real, it is simply not current.
+    assert by_id["src_locked"]["last_error"]
+
+
+def test_a_stale_lock_is_not_reported_as_a_read_in_flight(monkeypatch):
+    """The other half of the same claim. A lock left behind by a process that
+    died is not a running check, and saying "reading now" about it would be the
+    same lie in the other direction."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    stranded = _source(id="src_stranded", check_lock_at=datetime.now(UTC) - timedelta(hours=6))
+    monkeypatch.setattr(sources, "list_sources", lambda: [stranded])
+
+    body = TestClient(app).get("/sources").json()
+    assert body["sources"][0]["checking"] is False

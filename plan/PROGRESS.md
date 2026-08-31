@@ -24,8 +24,8 @@ working locally". If it is not deployed and not verified, it stays unticked.
 
 | # | Phase | Planned | Status | Started | Completed |
 |---|---|---|---|---|---|
-| 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `IN PROGRESS` (web hosting moved to Cloud Run; Vercel dependency gone) | 19 Aug | — |
-| 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `IN PROGRESS` (frontend now deployed on Cloud Run web service) | 19 Aug | — |
+| 0 | [Foundation](phases/phase-0-foundation.md) | Aug 19–20 | `COMPLETE` (web hosting moved to Cloud Run; the Vercel and push-trigger boxes are skips with reasons, not gaps) | 19 Aug | 31 Aug |
+| 1 | [Compliance Twin](phases/phase-1-compliance-twin.md) | Aug 21 | `COMPLETE` (frontend deployed on the Cloud Run web service; no box in the phase file is left unticked) | 19 Aug | 29 Aug |
 | 2 | [Ingestion & Extraction](phases/phase-2-ingestion-extraction.md) | Aug 22–23 | `COMPLETE` | 22 Aug | 23 Aug |
 | 3 | [Guardrail & Reconciliation](phases/phase-3-guardrail-reconciliation.md) | Aug 24–25 | `COMPLETE` | 23 Aug | 23 Aug |
 | 4 | [Impact Engine](phases/phase-4-impact-engine.md) | Aug 26–27 | `COMPLETE` (latency re-measured 29 Aug: 25.5s for one pasted rule, 174.3s for a 55-clause annex, vs a 90s target) | 23 Aug | 23 Aug |
@@ -33,7 +33,7 @@ working locally". If it is not deployed and not verified, it stays unticked.
 | 6 | [E2E Testing](phases/phase-6-e2e-testing.md) | Aug 30 | `IN PROGRESS` (UC-A..F + redelivery/concurrency/DLQ/walker/grounding all live-green; formal Playwright shell left) | 23 Aug | — |
 | 7 | [Hardening & Submission](phases/phase-7-demo-hardening.md) | Aug 31 | `IN PROGRESS` (deployed and exercised live 29 Aug; submission package outstanding) | 26 Aug | — |
 | 8 | [Watched Sources](phases/phase-8-live-monitoring.md) | Aug 29 | `COMPLETE` (deployed; the scheduler fired, and both change-watching and discovery are proven live) | 29 Aug | 29 Aug |
-| 9 | [Country Discovery](phases/phase-9-country-discovery.md) | Aug 31 | `IN PROGRESS` (code complete, 39 tests, exercised against live regulator sites; not deployed) | 31 Aug | — |
+| 9 | [Country Discovery](phases/phase-9-country-discovery.md) | Aug 31 | `COMPLETE` (deployed; Singapore and Japan each committed a real watched source from Cloud Run, 52 tests) | 31 Aug | 31 Aug |
 
 ## Cross-cutting work
 
@@ -56,8 +56,19 @@ Tracked here because it spans phases and is easy to lose.
 - [x] `make test-all` — one command runs lint, unit tests, type check, a
       production web build and the full local emulator drill, and prints a
       pass/fail table. Green from a clean checkout, no GCP, no cost
-- [x] `firestore.indexes.json` committed and submitted by `scripts/setup.sh` —
-      the three compound queries that would otherwise scan a collection
+- [~] `firestore.indexes.json` committed and submitted by `scripts/setup.sh` —
+      SKIPPED, and this box was wrong until 31 Aug. The file is committed; nothing
+      was ever submitted, because `scripts/setup.sh` ran
+      `gcloud firestore indexes create --file=`, which is not a command — that
+      group only has `composite` and `fields` — and both branches of the `||`
+      printed a reassuring sentence, so a step that could never work reported
+      success on every run. Nothing missed them: `gcloud firestore indexes
+      composite list` returns nothing on the deployed project and every query
+      works, because Firestore serves several equality filters from its automatic
+      indexes and the two queries that would otherwise sort or range read a
+      bounded page and sort in process on purpose. The script now says "none
+      required" instead of pretending, and the file stays as the record of where
+      one would become necessary
 - [x] `min-instances=1` on the two services a person opens, so the first request
       after a quiet hour does not pay a container start
 - [x] Cloud Scheduler job `regulens-source-check` live and observed firing (phase

@@ -240,8 +240,17 @@ function describe(job: DiscoveryJob, committed: number): string {
       return "reading the regulator's site";
     case "done":
       return `${committed} address${committed === 1 ? "" : "es"} now watched`;
-    case "partial":
-      return `${committed} of ${job.candidates.length} usable`;
+    // `partial` means some candidate was turned away, which is the verifier
+    // working, not the run half-failing: a page whose links do not match, or a
+    // second index reaching documents the first already covers. Reporting it as
+    // "1 of 2 usable" reads as a defect. Say what was kept and what was turned
+    // away, and let the rows below give each reason.
+    case "partial": {
+      const turned = job.candidates.length - committed;
+      return `${committed} address${committed === 1 ? "" : "es"} now watched · ${turned} candidate${
+        turned === 1 ? "" : "s"
+      } turned away`;
+    }
     case "failed":
       return "nothing usable found";
     default:
