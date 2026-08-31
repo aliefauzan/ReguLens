@@ -437,7 +437,11 @@ def _cause_of(
             "clause_id": deciding.get("clause_id"),
             "document_id": deciding.get("document_id"),
         }
-    return {"clause_id": clause_id, "document_id": document_id}
+    if clause_id or document_id:
+        return {"clause_id": clause_id, "document_id": document_id}
+    # Nothing decides and nothing triggered: an empty cause, so the alert says
+    # it cannot name one rather than storing two nulls that read as a cause.
+    return {}
 
 
 def run_impact(clause_id: str | None, document_id: str | None) -> dict:
@@ -509,7 +513,13 @@ def run_impact_for_product(product_id: str) -> dict:
             before={"market": market_id, "status": previous.get(market_id)},
             after={"market": market_id, "status": new_status},
             triggered_by="impact_engine",
-            cause=None,
+            # A verdict that moved because the recipe changed still rests on a
+            # rule, and the alert has a sentence for a cause it cannot find:
+            # "the rule behind this has since been removed". Nothing was
+            # removed — the cause was never recorded. `_cause_of` returns None
+            # only when the market genuinely has no rule in force, which is the
+            # one case that sentence is true for.
+            cause=_cause_of(product_id, market_id, None, None) or None,
             merge=True,
         )
     if changed:

@@ -60,3 +60,29 @@ class TestTheCauseNamed:
         )
         cause = impact._cause_of("prod_1", "market_de", "clause_trigger", "doc_1")
         assert cause["clause_id"] == "clause_now"
+
+    def test_a_recipe_change_still_names_the_rule_it_broke(self, monkeypatch):
+        """A verdict that moved because the recipe changed still rests on a
+        rule. Recording no cause made the alert say "the rule behind this has
+        since been removed" — nothing was removed; it was never written down."""
+        from app.core import impact
+
+        monkeypatch.setattr(
+            impact,
+            "_requirements_for",
+            lambda pid: [
+                {"market_id": "market_de", "evaluation": "fail",
+                 "clause_id": "clause_nitrites", "document_id": "doc_1"},
+            ],
+        )
+        assert impact._cause_of("prod_1", "market_de", None, None) == {
+            "clause_id": "clause_nitrites",
+            "document_id": "doc_1",
+        }
+
+    def test_a_market_with_no_rule_at_all_records_no_cause(self, monkeypatch):
+        """The one case "we cannot find the rule behind this" is true for."""
+        from app.core import impact
+
+        monkeypatch.setattr(impact, "_requirements_for", lambda pid: [])
+        assert impact._cause_of("prod_1", "market_de", None, None) == {}
