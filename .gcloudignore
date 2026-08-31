@@ -1,8 +1,12 @@
 .git/
 .gitignore
 .remember/
-data/
-plan/
+# Anchored to the repo root on purpose. A bare `data/` matches a directory of
+# that name at ANY depth, which silently dropped api/app/core/data/countries.json
+# from the build context: the file was committed, present locally, and absent in
+# Cloud Build, where every discovery test failed on FileNotFoundError.
+/data/
+/plan/
 web/node_modules/
 web/.next/
 api/.venv/
