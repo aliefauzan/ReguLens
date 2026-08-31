@@ -28,7 +28,7 @@ from typing import Any
 
 from google.cloud import firestore
 
-from app.core.alerts import UNPROMPTED_ORIGINS, worsened
+from app.core.alerts import UNPROMPTED_ORIGINS, cause_document_id, worsened
 from app.db import get_db
 from app.observability import log
 
@@ -92,7 +92,11 @@ def summary() -> dict[str, Any]:
     )
     for snapshot in events:
         event = snapshot.to_dict() or {}
-        cause_document = (event.get("cause") or {}).get("document_id")
+        # Through the same resolver the alert list uses, and for the same
+        # reason: an event written from reconciliation names the clause that
+        # moved and leaves the document null, so reading the field directly
+        # counts a regulation nobody uploaded as zero.
+        cause_document = cause_document_id(event)
         if cause_document in document_ids and worsened(event | {"id": snapshot.id}):
             verdict_changes += 1
 

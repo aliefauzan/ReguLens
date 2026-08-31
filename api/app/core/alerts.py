@@ -66,6 +66,30 @@ def _clause(clause_id: str | None) -> dict[str, Any] | None:
     return (snapshot.to_dict() or {}) if snapshot.exists else None
 
 
+def cause_document_id(event: dict[str, Any]) -> str | None:
+    """Which document caused this event, following the clause if it has to.
+
+    `graph.changed` carries the clause that moved and, until recently, nothing
+    else — so an event written from reconciliation records a `clause_id` and a
+    null `document_id`. Every fact this module reports about the cause hangs
+    off the document: which regulation, which regulator, and whether anybody
+    uploaded it. With a null there, a verdict moved by a regulation the
+    scheduler found reported `unprompted: false`, which is the opposite of what
+    happened and the one claim this product cannot get wrong.
+
+    Resolved on read rather than backfilled, so events already written answer
+    correctly too, and a clause that is later deleted goes back to saying
+    nothing instead of borrowing another document's story.
+    """
+    cause = event.get("cause") or {}
+    document_id = cause.get("document_id")
+    if document_id:
+        return str(document_id)
+    clause = _clause(cause.get("clause_id"))
+    found = (clause or {}).get("document_id")
+    return str(found) if found else None
+
+
 def explain(
     event: dict[str, Any],
     *,
@@ -79,7 +103,8 @@ def explain(
     tokens once, in one file.
     """
     cause = event.get("cause") or {}
-    document = _document(cause.get("document_id"))
+    document_id = cause_document_id(event)
+    document = _document(document_id)
     clause = _clause(cause.get("clause_id"))
     market_id = (event.get("after") or {}).get("market")
     market = markets_by_id.get(market_id) or {}

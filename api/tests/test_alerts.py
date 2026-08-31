@@ -177,3 +177,36 @@ def test_both_event_types_are_queried_for_alerts():
     told about."""
     assert "product_status_changed" in alerts.ALERTING_EVENTS
     assert "product_status_scheduled" in alerts.ALERTING_EVENTS
+
+
+class TestCauseDocument:
+    """Which regulation moved this verdict.
+
+    `graph.changed` carried the clause and nothing else, so every event written
+    from reconciliation recorded a null document — and every fact an alert
+    reports about its cause hangs off the document. A verdict moved by a
+    regulation the scheduler found reported `unprompted: false`.
+    """
+
+    def test_a_stated_document_is_used_as_it_stands(self, monkeypatch):
+        from app.core import alerts
+
+        monkeypatch.setattr(alerts, "_clause", lambda cid: {"document_id": "doc_other"})
+        event = {"cause": {"clause_id": "clause_1", "document_id": "doc_stated"}}
+        assert alerts.cause_document_id(event) == "doc_stated"
+
+    def test_a_missing_document_is_followed_through_the_clause(self, monkeypatch):
+        from app.core import alerts
+
+        monkeypatch.setattr(alerts, "_clause", lambda cid: {"document_id": "doc_found"})
+        event = {"cause": {"clause_id": "clause_1", "document_id": None}}
+        assert alerts.cause_document_id(event) == "doc_found"
+
+    def test_a_cause_that_no_longer_exists_says_nothing(self, monkeypatch):
+        """A deleted clause goes back to saying nothing rather than borrowing
+        another document's story."""
+        from app.core import alerts
+
+        monkeypatch.setattr(alerts, "_clause", lambda cid: None)
+        assert alerts.cause_document_id({"cause": {"clause_id": "gone"}}) is None
+        assert alerts.cause_document_id({}) is None

@@ -437,12 +437,24 @@ class TransientReconcileError(Exception):
 
 
 def _publish_graph_changed(clause_id: str) -> None:
+    """Announce that one clause moved.
+
+    The document travels with it. Impact stamps this message's ids onto the
+    `product_status_changed` event it writes, and every fact an alert reports
+    about a cause hangs off the document: which regulation, which regulator,
+    and whether anybody uploaded it. Publishing the clause alone recorded a
+    null there, so a verdict moved by a regulation the scheduler found came
+    back saying nobody found it.
+    """
     from app.messaging.publisher import publish
+
+    snapshot = get_db().collection("clauses").document(clause_id).get()
+    document_id = (snapshot.to_dict() or {}).get("document_id") if snapshot.exists else None
 
     publish(
         get_settings().topic_graph_changed,
         {"entity_type": "clause", "entity_id": clause_id, "clause_id": clause_id,
-         "workspace_id": WORKSPACE_ID},
+         "document_id": document_id, "workspace_id": WORKSPACE_ID},
     )
 
 
