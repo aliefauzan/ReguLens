@@ -167,3 +167,46 @@ class TestRetiredRequirements:
         monkeypatch.setattr(impact, "get_db", lambda: db)
 
         assert impact._retire_orphans("prod_1", {"clause_active"}) == 1
+
+
+def test_the_strictest_failing_rule_is_the_one_named(monkeypatch):
+    """Several rows can fail one product at once. The one that decides whether
+    it can be sold is the lowest number — and it is the one the product page
+    already shows, so the alert has to agree with it."""
+    from app.core import impact
+
+    monkeypatch.setattr(
+        impact,
+        "_requirements_for",
+        lambda pid: [
+            {"market_id": "market_de", "evaluation": "fail", "comparable_limit": 50.0,
+             "clause_id": "clause_veal", "document_id": "doc_1"},
+            {"market_id": "market_de", "evaluation": "fail", "comparable_limit": 30.0,
+             "clause_id": "clause_traditional", "document_id": "doc_1"},
+            {"market_id": "market_de", "evaluation": "fail", "comparable_limit": 105.0,
+             "clause_id": "clause_bacon", "document_id": "doc_1"},
+        ],
+    )
+    assert impact._cause_of("prod_1", "market_de", None, None)["clause_id"] == (
+        "clause_traditional"
+    )
+
+
+def test_a_rule_with_no_number_is_not_the_strictest_anything(monkeypatch):
+    """Sorting a limit nobody could read to the front would put the clause the
+    guardrail gave up on ahead of the one it evaluated."""
+    from app.core import impact
+
+    monkeypatch.setattr(
+        impact,
+        "_requirements_for",
+        lambda pid: [
+            {"market_id": "market_de", "evaluation": "fail", "comparable_limit": None,
+             "clause_id": "clause_unreadable", "document_id": "doc_1"},
+            {"market_id": "market_de", "evaluation": "fail", "comparable_limit": 30.0,
+             "clause_id": "clause_traditional", "document_id": "doc_1"},
+        ],
+    )
+    assert impact._cause_of("prod_1", "market_de", None, None)["clause_id"] == (
+        "clause_traditional"
+    )

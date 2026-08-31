@@ -365,9 +365,36 @@ def _deciding(product_id: str, market_id: str, as_of: date | None = None) -> dic
         for r in _requirements_for(product_id)
         if r.get("market_id") == market_id and _in_force(r.get("effective_date"), as_of)
     ]
+    # Worst evaluation first, then the strictest limit inside it — the same
+    # tie-break `strictest.py` applies, and for its reason: several rows can
+    # fail one product at once, and the one that decides whether it can be sold
+    # is the lowest number. Without it the alert cites whichever row Firestore
+    # returned first, so the sentence names 50 mg/kg while the product page,
+    # which does take the strictest, shows 30.
     rank = {"fail": 0, "needs_review": 1, "pass": 2}
-    in_force.sort(key=lambda r: rank.get(r.get("evaluation"), 3))
+    in_force.sort(
+        key=lambda r: (
+            rank.get(r.get("evaluation"), 3),
+            _limit_for_sort(r),
+            str(r.get("clause_id") or ""),
+        )
+    )
     return in_force[0] if in_force else {}
+
+
+def _limit_for_sort(requirement: dict) -> float:
+    """A requirement's limit on the comparison basis, or +inf when it has none.
+
+    A row with no number cannot be the strictest anything; sorting it first
+    would put a clause the guardrail could not evaluate in front of one it
+    could."""
+    value = requirement.get("comparable_limit")
+    if value is None:
+        value = requirement.get("limit_value")
+    try:
+        return float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return float("inf")
 
 
 def upcoming_changes(product_id: str, as_of: date | None = None) -> dict[str, dict]:
