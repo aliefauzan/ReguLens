@@ -1,6 +1,6 @@
 # S4 — Artikel + post sosial (bonus +0.4)
 
-**Status:** `NOT STARTED` · **Estimasi:** 2 jam · **Claude:** ⚠️ sebagian
+**Status:** `IN PROGRESS` · **Dimulai:** 31 Agu 2026 · **Estimasi:** 2 jam · **Claude:** ⚠️ sebagian
 **Kapan:** setelah S3 · **Boleh dibuang:** ✅ ya, tapi ini return tertinggi per jam
 
 ---
@@ -32,9 +32,9 @@ Bahannya sudah jadi: `plan/PROGRESS.md` §Decisions taken sudah berbentuk artike
 
 ### S4.1 · Artikel — `docs/blog/ungrounded-answer.md` · **+0.2**
 
-- [ ] Judul: **"An agent may not present an ungrounded answer as a grounded one"**
-- [ ] Panjang 600–900 kata. Bahasa Inggris
-- [ ] Struktur:
+- [x] Judul: **"An agent may not present an ungrounded answer as a grounded one"**
+- [x] Panjang 600–900 kata. Bahasa Inggris
+- [x] Struktur:
 
   1. **Kejadiannya.** Query agent ditanya tentang negara yang belum punya
      regulasi terserap. Ia menulis *"there is no information available"* — dan
@@ -55,9 +55,9 @@ Bahannya sudah jadi: `plan/PROGRESS.md` §Decisions taken sudah berbentuk artike
   6. **Penutup.** Ini ditemukan oleh E2E terdeploy dalam hitungan menit setelah
      agent query dipasang. Nilai dari menjalankan E2E melawan sistem nyata.
 
-- [ ] Sertakan potongan kode nyata dari repo, jangan pseudo-code
-- [ ] Sertakan link ke repo dan ke video (dari S3)
-- [ ] **Jangan mengarang metrik.** Semua angka yang dikutip harus ada di
+- [x] Sertakan potongan kode nyata dari repo, jangan pseudo-code
+- [x] Sertakan link ke repo dan ke video (dari S3)
+- [x] **Jangan mengarang metrik.** Semua angka yang dikutip harus ada di
       `plan/PROGRESS.md` atau README
 
 ### S4.2 · Post sosial — `docs/blog/social-post.md` · **+0.2**

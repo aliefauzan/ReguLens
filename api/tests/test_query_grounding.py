@@ -195,3 +195,92 @@ class TestMarketsNamed:
             {"id": "market_de", "country": "Germany", "jurisdictions": ["EU"]},
         ])
         assert _jurisdictions_of("Germany") == ["EU"]
+
+
+class _EmptyQuery:
+    """Firestore stand-in: these tests are about retrieval inputs, not storage."""
+
+    def collection(self, _name):
+        return self
+
+    def where(self, **_kwargs):
+        return self
+
+    def limit(self, _n):
+        return self
+
+    def order_by(self, *_a, **_k):
+        return self
+
+    def document(self, _id):
+        return self
+
+    def get(self):
+        return self
+
+    @property
+    def exists(self):
+        return False
+
+    def stream(self):
+        return iter(())
+
+
+def _no_firestore():
+    return _EmptyQuery()
+
+
+def test_the_question_is_embedded_before_similarity_ranking(monkeypatch) -> None:
+    """Otherwise `find_similar` scores every candidate -1.0, they all tie, and
+    the sort returns whichever five Firestore listed first — retrieval by
+    listing order wearing the name of similarity. Measured on the deployed
+    corpus: one substance answered with five citations and another refused,
+    though both were held."""
+    from app.core import query as query_module
+
+    seen: dict = {}
+
+    def fake_embed(texts):
+        seen["texts"] = texts
+        return [[0.5] * 8 for _ in texts]
+
+    def fake_find_similar(clause, k=5):
+        seen["clause"] = clause
+        return []
+
+    monkeypatch.setattr("app.core.reconciliation.embed_texts", fake_embed)
+    monkeypatch.setattr(query_module, "find_similar", fake_find_similar)
+    monkeypatch.setattr(query_module, "get_db", _no_firestore)
+    monkeypatch.setattr("app.db.get_db", _no_firestore)
+    monkeypatch.setattr(query_module, "_clauses_in", lambda *_a, **_k: [])
+    monkeypatch.setattr(query_module, "_jurisdictions_of", lambda *_a, **_k: [])
+    query_module._retrieve("limits for benzoic acid?", None)
+
+    assert seen["texts"] == ["limits for benzoic acid?"]
+    assert seen["clause"]["embedding"] == [0.5] * 8
+
+
+def test_retrieval_survives_an_embedding_failure(monkeypatch) -> None:
+    """A quota failure must degrade to the substance filter, not be mistaken for
+    a corpus that holds nothing."""
+    from app.core import query as query_module
+
+    def boom(_texts):
+        raise RuntimeError("429 RESOURCE_EXHAUSTED")
+
+    seen: dict = {}
+
+    def fake_find_similar(clause, k=5):
+        seen["clause"] = clause
+        return []
+
+    monkeypatch.setattr("app.core.reconciliation.embed_texts", boom)
+    monkeypatch.setattr(query_module, "find_similar", fake_find_similar)
+    monkeypatch.setattr(query_module, "get_db", _no_firestore)
+    monkeypatch.setattr("app.db.get_db", _no_firestore)
+    monkeypatch.setattr(query_module, "_clauses_in", lambda *_a, **_k: [])
+    monkeypatch.setattr(query_module, "_jurisdictions_of", lambda *_a, **_k: [])
+    query_module._retrieve("limits for benzoic acid?", None)
+
+    assert "embedding" not in seen["clause"]
+    assert seen["clause"]["substance_normalized"] == "benzoic_acid"

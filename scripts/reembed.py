@@ -28,7 +28,9 @@ vector. Safe to re-run after an interruption.
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+import time
 
 # Run from api/, where the app package and its venv live.
 sys.path.insert(0, ".")
@@ -40,6 +42,14 @@ from app.settings import get_settings  # noqa: E402
 
 COLLECTION = "clauses"
 
+# The free tier allows 100 embed_content requests per minute, and it counts each
+# *text*, not each batched call — measured against the live quota, where 307
+# clauses in ten batched calls still tripped
+# `EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier`. Pace below
+# the ceiling rather than discovering it a third of the way through a corpus.
+TEXTS_PER_MINUTE = 90
+MAX_RETRIES = 6
+
 
 def backend_name() -> str:
     settings = get_settings()
@@ -48,6 +58,29 @@ def backend_name() -> str:
     if settings.use_gemini_api:
         return f"Gemini Developer API · {settings.gemini_embed_model} @ {settings.embed_dimensions}d"
     return f"Vertex · {settings.embed_model} @ {settings.embed_location}"
+
+
+def _embed_with_backoff(texts: list[str]) -> list[list[float]]:
+    """Embed one batch, waiting out the free tier's per-minute ceiling.
+
+    A 429 here is a rate limit, not a fault: the quota refills on its own and the
+    request is worth repeating verbatim. The API tells us how long to wait, so
+    honour that rather than guessing.
+    """
+    for attempt in range(MAX_RETRIES):
+        try:
+            return embed_texts(texts)
+        except Exception as exc:  # noqa: BLE001 - the SDK raises its own types
+            message = str(exc)
+            if "RESOURCE_EXHAUSTED" not in message and "429" not in message:
+                raise
+            if attempt == MAX_RETRIES - 1:
+                raise
+            match = re.search(r"retryDelay['\"]?:\s*['\"]?(\d+)", message)
+            wait = int(match.group(1)) + 2 if match else 25
+            print(f"  rate limited, waiting {wait}s")
+            time.sleep(wait)
+    raise RuntimeError("unreachable")
 
 
 def main() -> int:
@@ -87,13 +120,16 @@ def main() -> int:
     written = 0
     for start in range(0, len(with_text), args.batch):
         chunk = with_text[start : start + args.batch]
-        vectors = embed_texts([d["text"] for _, d in chunk])
+        vectors = _embed_with_backoff([d["text"] for _, d in chunk])
         batch = db.batch()
         for (cid, _), vector in zip(chunk, vectors, strict=True):
             batch.set(db.collection(COLLECTION).document(cid), {"embedding": vector}, merge=True)
         batch.commit()
         written += len(chunk)
         print(f"  {written}/{len(with_text)}")
+        if written < len(with_text):
+            # Stay under the ceiling instead of sprinting into it.
+            time.sleep(60.0 * len(chunk) / TEXTS_PER_MINUTE)
 
     print(f"\nre-embedded {written} clauses with {backend_name()}")
     return 0
