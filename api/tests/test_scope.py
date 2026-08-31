@@ -206,3 +206,48 @@ class TestStatedScope:
         verdict = comparability(old, new)
         assert getattr(verdict, "reason", None) is None
         assert (verdict.value_a, verdict.value_b) == (150.0, 80.0)
+
+
+class TestAppliesUntil:
+    """Annex II writes an amendment as two rows, and only one of them carries a
+    date extraction can read as an effective date."""
+
+    def test_the_end_of_a_period_is_read(self):
+        from app.core.scope import applies_until
+
+        assert applies_until(
+            "E 249-250 Nitrites 150 (7) (59) except sterilised meat products "
+            "(Fo > 3,00) Period of application: until 9 October 2025"
+        ) == "2025-10-09"
+
+    def test_a_start_date_is_not_an_end_date(self):
+        from app.core.scope import applies_until
+
+        assert applies_until("Nitrites 80 Period of application: from 9 October 2025") is None
+
+    def test_a_row_with_no_period_states_no_end(self):
+        """None means the row states no end — never that it ended."""
+        from app.core.scope import applies_until
+
+        assert applies_until("E 249-250 Nitrites 50 only jellied veal and brisket") is None
+
+    def test_the_replacement_supersedes_without_a_model(self):
+        """The pair the model was being asked about: 150 until 9 October 2025,
+        80 from it. The rows answer it themselves."""
+        from app.core.reconciliation import _dates_decide, _is_newer
+
+        old = {
+            "limit_value": 150.0,
+            "effective_date": None,
+            "text": "E 249-250 Nitrites 150 except sterilised meat products "
+                    "Period of application: until 9 October 2025",
+        }
+        new = {
+            "limit_value": 80.0,
+            "effective_date": "2025-10-09",
+            "text": "E 249-250 Nitrites 80 except sterilised meat products "
+                    "Period of application: from 9 October 2025",
+        }
+        assert _dates_decide(new, old) is True
+        assert _is_newer(new, old) is True
+        assert _is_newer(old, new) is False

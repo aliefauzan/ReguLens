@@ -217,3 +217,24 @@ def test_every_purity_heading_is_caught_not_only_the_one_seen_in_production():
     )
     assert candidate is not None
     assert "specification_not_food_limit" in candidate.review_reasons
+
+
+def test_a_ceiling_that_names_no_food_is_a_specification():
+    """"Nitrites — Not more than 20 mg/kg expressed as KNO2" is a purity row
+    from Regulation 231/2012. At 20 mg/kg it is the strictest nitrite number in
+    the annex, and naming no food it would bind every cured meat in the graph."""
+    from app.core.extraction.candidates import _reads_as_specification
+
+    assert _reads_as_specification("Nitrites Not more than 20 mg/kg expressed as KNO 2") is True
+
+
+def test_a_food_limit_that_names_its_food_is_not_a_specification():
+    from app.core.extraction.candidates import _reads_as_specification
+
+    assert _reads_as_specification(
+        "E 249-250 Nitrites 80 (59) except sterilised meat products (Fo > 3,00) "
+        "Period of application: from 9 October 2025"
+    ) is False
+    assert _reads_as_specification(
+        "14.1.4.2 Minuman Berbasis Air Berperisa Tidak Berkarbonat 400 mg/kg"
+    ) is False
