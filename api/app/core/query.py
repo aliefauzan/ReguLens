@@ -160,21 +160,35 @@ def _jurisdictions_of(question: str) -> list[str]:
     added by country discovery has to be answerable the day it is added, and a
     list here would go stale the first time one is.
     """
+    return sorted({j for _, j in _markets_named(question)})
+
+
+def _markets_named(question: str) -> list[tuple[str, str]]:
+    """`(country, jurisdiction)` for every market the question names.
+
+    Punctuation is flattened first. "…in Germany?" ends in a question mark, and
+    matching on " germany " against the raw string finds nothing — which is how
+    the first version of this returned no jurisdiction for the one question it
+    was written for.
+    """
     from app.core import markets as markets_core
 
-    lowered = f" {question.lower()} "
-    found: list[str] = []
+    lowered = " " + re.sub(r"[^a-z0-9]+", " ", question.lower()).strip() + " "
+    found: list[tuple[str, str]] = []
     for market in markets_core.list_markets():
+        country = str(market.get("country") or market.get("country_name") or "")
         names = [
-            str(market.get("country") or ""),
-            str(market.get("country_name") or ""),
+            country,
             str(market.get("label") or "").split("—")[-1],
             str(market.get("regulator") or ""),
         ]
-        if not any(n and f" {n.strip().lower()} " in lowered for n in names):
+        if not any(
+            n and f" {re.sub(r'[^a-z0-9]+', ' ', n.lower()).strip()} " in lowered
+            for n in names
+        ):
             continue
         jurisdictions = market.get("jurisdictions") or [market.get("jurisdiction")]
-        found.extend(str(j) for j in jurisdictions if j)
+        found.extend((country or "that market", str(j)) for j in jurisdictions if j)
     return sorted(set(found))
 
 
@@ -226,6 +240,16 @@ def _synthesis_prompt(question: str, bundle: dict[str, Any]) -> str:
         f"Question: {question}",
         "",
     ]
+    # Which jurisdiction speaks for the country the question named. Without it a
+    # model reads "Germany" against a clause marked EU and calls that a
+    # different country, which is how a question about the one market this
+    # product sells into came back as "no regulation covers this".
+    for country, jurisdiction in _markets_named(question):
+        lines.append(
+            f"NOTE: rules for {country} are the ones marked {jurisdiction}; "
+            f"a {jurisdiction} clause IS evidence about {country}."
+        )
+    lines.append("")
     for c in bundle["clauses"][:5]:
         lines.append(
             f"[{c['id']}] ({c.get('jurisdiction')}, limit={c.get('limit_value')} "

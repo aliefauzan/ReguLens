@@ -206,6 +206,18 @@ async def run_query_agent(
             app_name="regulens", user_id="query"
         )
         prompt = question if not product_id else f"{question}\n\n(product_id={product_id})"
+        # A country is not a jurisdiction, and the agent is told in its own
+        # instruction that a clause about a different country is not evidence.
+        # Taken literally — and it is — "Germany" against a clause marked EU is
+        # a different country, so the one market this product sells into came
+        # back as INSUFFICIENT_EVIDENCE while the graph held the rule.
+        from app.core.query import _markets_named
+
+        for country, jurisdiction in _markets_named(question):
+            prompt += (
+                f"\n\nNOTE: rules for {country} are the ones marked "
+                f"{jurisdiction}; a {jurisdiction} clause IS evidence about {country}."
+            )
         # Ids handed over up front count as served: this process read them out of
         # Firestore, which is the whole basis of the citation check.
         _serve([c["id"] for c in evidence or []])
